@@ -1,0 +1,137 @@
+{
+  "version": "1",
+  "hf_cache_dir": "/opt/ai-server/models",
+  "models": {
+    "qwen3_6": {
+      "type": "llm",
+      "name": "Qwen3.6-35B-A3B",
+      "hf_repo": "Qwen/Qwen3.6-35B-A3B",
+      "yml": "qwen3_6.yml",
+      "container": "llm-qwen36-35b-a3b",
+      "port": 8025
+    },
+    "qwen3_5": {
+      "type": "llm",
+      "name": "Qwen3.5-35B-A3B",
+      "hf_repo": "Qwen/Qwen3.5-35B-A3B",
+      "yml": "qwen3_5.yml",
+      "container": "llm-qwen35-35b-a3b",
+      "port": 8013
+    },
+    "qwen3_5-122b": {
+      "type": "llm",
+      "name": "Qwen3.5-122B-A10B NVFP4",
+      "hf_repo": "RedHatAI/Qwen3.5-122B-A10B-NVFP4",
+      "yml": "qwen3_5-122b.yml",
+      "container": "llm-qwen3_5-122b",
+      "port": 8011
+    },
+    "qwen3-coder-next": {
+      "type": "llm",
+      "name": "Qwen3-Coder-Next FP8",
+      "hf_repo": "Qwen/Qwen3-Coder-Next-FP8",
+      "yml": "qwen3-coder-next.yml",
+      "container": "llm-qwen3-coder-next",
+      "port": 8010
+    },
+
+    "nemotron-super": {
+      "type": "llm",
+      "name": "Nemotron-3-Super 120B-A12B NVFP4",
+      "hf_repo": "nvidia/Nemotron-3-Super-120B-A12B-NVFP4",
+      "yml": "nemotron-super.yml",
+      "container": "llm-nemotron-super",
+      "port": 8018
+    },
+    "nemotron-cascade": {
+      "type": "llm",
+      "name": "Nemotron-Cascade-2 30B-A3B",
+      "hf_repo": "nvidia/Nemotron-Cascade-2-30B-A3B",
+      "yml": "nemotron-cascade.yml",
+      "container": "llm-nemotron-cascade",
+      "port": 8019
+    },
+    "gemma4": {
+      "type": "llm",
+      "name": "Gemma-4 26B-A4B",
+      "hf_repo": "google/gemma-4-26B-A4B-it",
+      "yml": "gemma4.yml",
+      "container": "llm-gemma4",
+      "port": 8015
+    },
+    "gemma4-max": {
+      "type": "llm",
+      "name": "Gemma-4 31B NVFP4",
+      "hf_repo": "nvidia/Gemma-4-31B-IT-NVFP4",
+      "yml": "gemma4-max.yml",
+      "container": "llm-gemma4-max",
+      "port": 8016
+    },
+    "gemma4-31b": {
+      "type": "llm",
+      "name": "Gemma-4 31B Dense",
+      "hf_repo": "google/gemma-4-31B-it",
+      "yml": "gemma4-31b.yml",
+      "container": "llm-gemma4-31b",
+      "port": 8022
+    },
+    "qwen3-next": {
+      "type": "llm",
+      "name": "Qwen3-Next 80B-A3B",
+      "hf_repo": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+      "yml": "qwen3-next.yml",
+      "container": "llm-qwen3-next",
+      "port": 8017
+    },
+    "qwen3_5-27b-opus": {
+      "type": "llm",
+      "name": "Qwen3.5-27B Opus-4.6 Distilled",
+      "hf_repo": "Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled",
+      "yml": "qwen3_5-27b-opus.yml",
+      "container": "llm-qwen3_5-27b-opus",
+      "port": 8023
+    },
+    "gemma4-31b-opus": {
+      "type": "llm",
+      "name": "Gemma4-31B Opus-4.6 Distilled",
+      "hf_repo": "kai-os/gemma4-31b-Opus-4.6-reasoning",
+      "yml": "gemma4-31b-opus.yml",
+      "container": "llm-gemma4-31b-opus",
+      "port": 8024
+    },
+    "qwen3_5-35b-opus": {
+      "type": "llm",
+      "name": "Qwen3.5-35B-A3B Opus-4.6 Distilled",
+      "hf_repo": "Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled",
+      "yml": "qwen3_5-35b-opus.yml",
+      "container": "llm-qwen3_5-35b-opus",
+      "port": 8025
+    },
+    "qwen3-embedding": {
+      "type": "embed",
+      "name": "Qwen3-Embedding 0.6B",
+      "hf_repo": "Qwen/Qwen3-Embedding-0.6B",
+      "container": "llm-embed",
+      "port": 8020
+    },
+    "qwen3-reranker": {
+      "type": "rerank",
+      "name": "Qwen3-Reranker 0.6B",
+      "hf_repo": "Qwen/Qwen3-Reranker-0.6B",
+      "container": "llm-rerank",
+      "port": 8021
+    },
+    "autocomplete": {
+      "type": "autocomplete",
+      "name": "Autocomplete",
+      "hf_repo": "Qwen/Qwen2.5-Coder-1.5B",
+      "container": "llm-autocomplete",
+      "port": 8081
+    },
+    "qwen3_5-2b": {
+      "type": "draft",
+      "name": "Qwen3.5-2B (draft)",
+      "hf_repo": "Qwen/Qwen3.5-2B"
+    }
+  }
+}

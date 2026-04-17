@@ -1,0 +1,40 @@
+# Binaries
+/bin/
+llm-manager
+
+# Build artifacts
+*.exe
+llm-manager.exe
+llm-manager.exe~
+
+# Test output
+coverage.txt
+delve.log
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+
+# Go workspace
+go.work
+go.work.sum
+
+# macOS
+.DS_Store
+
+# Release artifacts
+dist/
+release/
+
+# Coverage HTML
+*.html
+
+# CGO
+__debug_bin
