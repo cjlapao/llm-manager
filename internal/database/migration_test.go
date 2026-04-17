@@ -130,7 +130,7 @@ func TestMigrateFromJSON_Idempotent(t *testing.T) {
 
 	createTestModelsJSON(t, jsonPath, testModels)
 
-	// First migration
+	// First migration — should import 1 model
 	count, err := mgr.MigrateFromJSON(jsonPath)
 	if err != nil {
 		t.Fatalf("First MigrateFromJSON() returned error: %v", err)
@@ -139,7 +139,7 @@ func TestMigrateFromJSON_Idempotent(t *testing.T) {
 		t.Errorf("First migration migrated %d models, want 1", count)
 	}
 
-	// Second migration — should skip
+	// Second migration — should skip existing model (idempotent)
 	count, err = mgr.MigrateFromJSON(jsonPath)
 	if err != nil {
 		t.Fatalf("Second MigrateFromJSON() returned error: %v", err)

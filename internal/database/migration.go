@@ -26,9 +26,14 @@ type modelJSON struct {
 }
 
 // MigrateFromJSON reads models.json and imports records into SQLite.
+// It is idempotent: models already present by slug are skipped.
 func (m *sqliteManager) MigrateFromJSON(path string) (int, error) {
 	if m.db == nil {
 		return 0, fmt.Errorf("database not open")
+	}
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return 0, fmt.Errorf("models file does not exist: %s", path)
 	}
 
 	data, err := os.ReadFile(path)
@@ -41,14 +46,8 @@ func (m *sqliteManager) MigrateFromJSON(path string) (int, error) {
 		return 0, fmt.Errorf("failed to parse models file: %w", err)
 	}
 
-	// Check if models table already has records
-	var count int64
-	m.db.Model(&models.Model{}).Count(&count)
-	if count > 0 {
-		return 0, nil
-	}
-
-	// Insert each model from JSON
+	// Insert each model from JSON, skipping those already present by slug.
+	imported := 0
 	for slug, mjModel := range mj.ModelGroups {
 		var existing models.Model
 		result := m.db.Where("slug = ?", slug).First(&existing)
@@ -67,11 +66,10 @@ func (m *sqliteManager) MigrateFromJSON(path string) (int, error) {
 		}
 
 		if err := m.db.Create(&model).Error; err != nil {
-			return 0, fmt.Errorf("failed to insert model %s: %w", slug, err)
+			return imported, fmt.Errorf("failed to insert model %s: %w", slug, err)
 		}
+		imported++
 	}
 
-	// Count total inserted
-	m.db.Model(&models.Model{}).Count(&count)
-	return int(count), nil
+	return imported, nil
 }

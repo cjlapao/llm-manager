@@ -14,7 +14,6 @@ import (
 // RootCommand represents the root command for the application.
 type RootCommand struct {
 	cfg *config.Config
-	db  database.DatabaseManager
 }
 
 // NewRootCommand creates a new RootCommand.
@@ -29,25 +28,6 @@ func (c *RootCommand) Run(args []string) int {
 	if len(args) < 1 {
 		c.PrintHelp()
 		return 0
-	}
-
-	// Initialize database
-	var err error
-	c.db, err = database.NewDatabaseManager(c.cfg.DatabaseURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing database: %v\n", err)
-		return 1
-	}
-	defer c.db.Close()
-
-	if err := c.db.Open(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
-		return 1
-	}
-
-	if err := c.db.AutoMigrate(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error running migrations: %v\n", err)
-		return 1
 	}
 
 	switch args[0] {
@@ -76,8 +56,25 @@ func (c *RootCommand) runConfig() int {
 
 // runMigrate imports models from models.json into the database.
 func (c *RootCommand) runMigrate() int {
+	db, err := database.NewDatabaseManager(c.cfg.DatabaseURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing database: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+
+	if err := db.Open(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+		return 1
+	}
+
+	if err := db.AutoMigrate(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running migrations: %v\n", err)
+		return 1
+	}
+
 	modelsPath := "models.json"
-	count, err := c.db.MigrateFromJSON(modelsPath)
+	count, err := db.MigrateFromJSON(modelsPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error migrating models: %v\n", err)
 		return 1
