@@ -4,7 +4,6 @@
 //	go build -ldflags "-X github.com/user/llm-manager/internal/version.version=v1.0.0 \
 //	                   -X github.com/user/llm-manager/internal/version.commit=abc123 \
 //	                   -X github.com/user/llm-manager/internal/version.date=2024-01-01T00:00:00Z"
-//
 package version
 
 import (

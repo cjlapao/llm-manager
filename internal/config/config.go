@@ -20,6 +20,8 @@ type Config struct {
 	DataDir string
 	// LogDir is the directory for log files.
 	LogDir string
+	// DatabaseURL is the path to the SQLite database file.
+	DatabaseURL string
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -30,10 +32,11 @@ func DefaultConfig() *Config {
 	}
 
 	return &Config{
-		Verbose:  false,
-		HomeDir:  homeDir,
-		DataDir:  filepath.Join(homeDir, ".local", "share", "llm-manager"),
-		LogDir:   filepath.Join(homeDir, ".local", "log", "llm-manager"),
+		Verbose:     false,
+		HomeDir:     homeDir,
+		DataDir:     filepath.Join(homeDir, ".local", "share", "llm-manager"),
+		LogDir:      filepath.Join(homeDir, ".local", "log", "llm-manager"),
+		DatabaseURL: filepath.Join(homeDir, ".local", "share", "llm-manager", "llm-manager.db"),
 	}
 }
 
@@ -56,6 +59,10 @@ func LoadConfig() (*Config, error) {
 
 	if val := os.Getenv("LLM_MANAGER_LOG_DIR"); val != "" {
 		cfg.LogDir = val
+	}
+
+	if val := os.Getenv("LLM_MANAGER_DATABASE_URL"); val != "" {
+		cfg.DatabaseURL = val
 	}
 
 	// Ensure directories exist
@@ -118,5 +125,6 @@ func (c *Config) String() string {
 	fmt.Fprintf(&b, "  home dir:   %s\n", c.HomeDir)
 	fmt.Fprintf(&b, "  data dir:   %s\n", c.DataDir)
 	fmt.Fprintf(&b, "  log dir:    %s\n", c.LogDir)
+	fmt.Fprintf(&b, "  database:   %s\n", c.DatabaseURL)
 	return b.String()
 }

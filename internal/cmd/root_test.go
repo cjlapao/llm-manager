@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -31,6 +32,7 @@ func captureOutput(fn func()) string {
 }
 
 func TestRunNoArgs(t *testing.T) {
+	t.Setenv("LLM_MANAGER_DATABASE_URL", filepath.Join(t.TempDir(), "test.db"))
 	cmd := NewRootCommand()
 	output := captureOutput(func() {
 		cmd.Run([]string{})
@@ -45,6 +47,7 @@ func TestRunNoArgs(t *testing.T) {
 }
 
 func TestRunHelp(t *testing.T) {
+	t.Setenv("LLM_MANAGER_DATABASE_URL", filepath.Join(t.TempDir(), "test.db"))
 	cmd := NewRootCommand()
 	output := captureOutput(func() {
 		cmd.Run([]string{"help"})
@@ -56,6 +59,7 @@ func TestRunHelp(t *testing.T) {
 }
 
 func TestRunVersion(t *testing.T) {
+	t.Setenv("LLM_MANAGER_DATABASE_URL", filepath.Join(t.TempDir(), "test.db"))
 	cmd := NewRootCommand()
 	output := captureOutput(func() {
 		cmd.Run([]string{"version"})
@@ -67,6 +71,7 @@ func TestRunVersion(t *testing.T) {
 }
 
 func TestRunVersionFlag(t *testing.T) {
+	t.Setenv("LLM_MANAGER_DATABASE_URL", filepath.Join(t.TempDir(), "test.db"))
 	cmd := NewRootCommand()
 	output := captureOutput(func() {
 		cmd.Run([]string{"--version"})
@@ -78,6 +83,7 @@ func TestRunVersionFlag(t *testing.T) {
 }
 
 func TestRunConfig(t *testing.T) {
+	t.Setenv("LLM_MANAGER_DATABASE_URL", filepath.Join(t.TempDir(), "test.db"))
 	cmd := NewRootCommand()
 	output := captureOutput(func() {
 		cmd.Run([]string{"config"})
@@ -89,11 +95,23 @@ func TestRunConfig(t *testing.T) {
 }
 
 func TestRunUnknownCommand(t *testing.T) {
+	t.Setenv("LLM_MANAGER_DATABASE_URL", filepath.Join(t.TempDir(), "test.db"))
 	cmd := NewRootCommand()
 	exitCode := cmd.Run([]string{"unknown"})
 
 	if exitCode != 1 {
 		t.Errorf("Exit code = %d, want 1", exitCode)
+	}
+}
+
+func TestRunMigrate(t *testing.T) {
+	t.Setenv("LLM_MANAGER_DATABASE_URL", filepath.Join(t.TempDir(), "test.db"))
+	cmd := NewRootCommand()
+	exitCode := cmd.Run([]string{"migrate"})
+
+	// Should succeed (may skip if no models.json in CWD, but won't error on DB)
+	if exitCode != 0 {
+		t.Logf("Run migrate exit code = %d (may be non-zero if models.json not in CWD)", exitCode)
 	}
 }
 

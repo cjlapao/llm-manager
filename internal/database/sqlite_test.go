@@ -1,0 +1,372 @@
+package database
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/user/llm-manager/internal/database/models"
+)
+
+func TestOpenClose(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	mgr, err := NewDatabaseManager(dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabaseManager() returned error: %v", err)
+	}
+
+	err = mgr.Open()
+	if err != nil {
+		t.Fatalf("Open() returned error: %v", err)
+	}
+
+	// Verify the database file was created
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		t.Error("Database file was not created")
+	}
+
+	err = mgr.Close()
+	if err != nil {
+		t.Fatalf("Close() returned error: %v", err)
+	}
+}
+
+func TestOpenClose_IdempotentClose(t *testing.T) {
+	mgr, err := NewDatabaseManager("test.db")
+	if err != nil {
+		t.Fatalf("NewDatabaseManager() returned error: %v", err)
+	}
+
+	// Closing without opening should not error
+	err = mgr.Close()
+	if err != nil {
+		t.Fatalf("Close() without Open() should not error, got: %v", err)
+	}
+}
+
+func TestAutoMigrate(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	mgr, err := NewDatabaseManager(dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabaseManager() returned error: %v", err)
+	}
+
+	err = mgr.Open()
+	if err != nil {
+		t.Fatalf("Open() returned error: %v", err)
+	}
+	defer mgr.Close()
+
+	err = mgr.AutoMigrate()
+	if err != nil {
+		t.Fatalf("AutoMigrate() returned error: %v", err)
+	}
+
+	// Verify tables were created
+	sqlDB, err := mgr.DB().DB()
+	if err != nil {
+		t.Fatalf("DB().DB() returned error: %v", err)
+	}
+
+	tables := []string{"models", "containers", "hotspots"}
+	for _, table := range tables {
+		var exists int
+		err = sqlDB.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&exists)
+		if err != nil {
+			t.Fatalf("Query for table %s returned error: %v", table, err)
+		}
+		if exists != 1 {
+			t.Errorf("Table %s does not exist", table)
+		}
+	}
+}
+
+func TestDB(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	mgr, err := NewDatabaseManager(dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabaseManager() returned error: %v", err)
+	}
+
+	err = mgr.Open()
+	if err != nil {
+		t.Fatalf("Open() returned error: %v", err)
+	}
+	defer mgr.Close()
+
+	err = mgr.AutoMigrate()
+	if err != nil {
+		t.Fatalf("AutoMigrate() returned error: %v", err)
+	}
+
+	db := mgr.DB()
+	if db == nil {
+		t.Error("DB() returned nil")
+	}
+}
+
+func TestMigrateFromJSON_NotOpen(t *testing.T) {
+	mgr, err := NewDatabaseManager("test.db")
+	if err != nil {
+		t.Fatalf("NewDatabaseManager() returned error: %v", err)
+	}
+
+	_, err = mgr.MigrateFromJSON("models.json")
+	if err == nil {
+		t.Error("MigrateFromJSON() without Open() should return error")
+	}
+}
+
+func TestModelInsertAndQuery(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	mgr, err := NewDatabaseManager(dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabaseManager() returned error: %v", err)
+	}
+
+	err = mgr.Open()
+	if err != nil {
+		t.Fatalf("Open() returned error: %v", err)
+	}
+	defer mgr.Close()
+
+	err = mgr.AutoMigrate()
+	if err != nil {
+		t.Fatalf("AutoMigrate() returned error: %v", err)
+	}
+
+	// Insert a model
+	model := &models.Model{
+		Slug: "test-model",
+		Type: "llm",
+		Name: "Test Model",
+		Port: 8080,
+	}
+
+	result := mgr.DB().Create(model)
+	if result.Error != nil {
+		t.Fatalf("Create() returned error: %v", result.Error)
+	}
+
+	if model.ID == uuid.Nil {
+		t.Error("Model ID was not set after create")
+	}
+
+	// Query it back
+	var found models.Model
+	result = mgr.DB().Where("slug = ?", "test-model").First(&found)
+	if result.Error != nil {
+		t.Fatalf("First() returned error: %v", result.Error)
+	}
+
+	if found.Slug != "test-model" {
+		t.Errorf("Queried model Slug = %q, want %q", found.Slug, "test-model")
+	}
+	if found.Type != "llm" {
+		t.Errorf("Queried model Type = %q, want %q", found.Type, "llm")
+	}
+	if found.Name != "Test Model" {
+		t.Errorf("Queried model Name = %q, want %q", found.Name, "Test Model")
+	}
+	if found.Port != 8080 {
+		t.Errorf("Queried model Port = %d, want %d", found.Port, 8080)
+	}
+}
+
+func TestModelUUIDGeneration(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	mgr, err := NewDatabaseManager(dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabaseManager() returned error: %v", err)
+	}
+
+	err = mgr.Open()
+	if err != nil {
+		t.Fatalf("Open() returned error: %v", err)
+	}
+	defer mgr.Close()
+
+	err = mgr.AutoMigrate()
+	if err != nil {
+		t.Fatalf("AutoMigrate() returned error: %v", err)
+	}
+
+	// Insert without ID — BeforeCreate should generate one
+	model := &models.Model{
+		Slug: "uuid-test",
+		Type: "embed",
+		Name: "UUID Test",
+		Port: 9090,
+	}
+
+	result := mgr.DB().Create(model)
+	if result.Error != nil {
+		t.Fatalf("Create() returned error: %v", result.Error)
+	}
+
+	if model.ID == uuidNil() {
+		t.Error("Model ID should have been auto-generated by BeforeCreate")
+	}
+
+	// Insert with explicit ID
+	model2 := &models.Model{
+		ID:   uuidNew(),
+		Slug: "uuid-explicit",
+		Type: "rerank",
+		Name: "Explicit UUID",
+		Port: 9091,
+	}
+
+	result = mgr.DB().Create(model2)
+	if result.Error != nil {
+		t.Fatalf("Create() with explicit ID returned error: %v", result.Error)
+	}
+
+	if model2.ID != model.ID {
+		// Just verify it was created with its own ID
+		var found models.Model
+		result = mgr.DB().Where("slug = ?", "uuid-explicit").First(&found)
+		if result.Error != nil {
+			t.Fatalf("Query for explicit ID model failed: %v", result.Error)
+		}
+		if found.ID != model2.ID {
+			t.Error("Explicit UUID was not preserved")
+		}
+	}
+}
+
+func uuidNil() [16]byte { return [16]byte{} }
+
+func uuidNew() [16]byte {
+	id := [16]byte{}
+	for i := range id {
+		id[i] = byte(i)
+	}
+	return id
+}
+
+func TestContainerInsertAndQuery(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	mgr, err := NewDatabaseManager(dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabaseManager() returned error: %v", err)
+	}
+
+	err = mgr.Open()
+	if err != nil {
+		t.Fatalf("Open() returned error: %v", err)
+	}
+	defer mgr.Close()
+
+	err = mgr.AutoMigrate()
+	if err != nil {
+		t.Fatalf("AutoMigrate() returned error: %v", err)
+	}
+
+	container := &models.Container{
+		Slug:    "test-container",
+		Name:    "Test Container",
+		Status:  "running",
+		Port:    8080,
+		GPUUsed: true,
+	}
+
+	result := mgr.DB().Create(container)
+	if result.Error != nil {
+		t.Fatalf("Create() returned error: %v", result.Error)
+	}
+
+	var found models.Container
+	result = mgr.DB().Where("slug = ?", "test-container").First(&found)
+	if result.Error != nil {
+		t.Fatalf("First() returned error: %v", result.Error)
+	}
+
+	if found.Status != "running" {
+		t.Errorf("Queried container Status = %q, want %q", found.Status, "running")
+	}
+	if !found.GPUUsed {
+		t.Error("Queried container GPUUsed = false, want true")
+	}
+}
+
+func TestHotspotInsertAndQuery(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	mgr, err := NewDatabaseManager(dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabaseManager() returned error: %v", err)
+	}
+
+	err = mgr.Open()
+	if err != nil {
+		t.Fatalf("Open() returned error: %v", err)
+	}
+	defer mgr.Close()
+
+	err = mgr.AutoMigrate()
+	if err != nil {
+		t.Fatalf("AutoMigrate() returned error: %v", err)
+	}
+
+	hotspot := &models.Hotspot{
+		ModelSlug: "qwen3_6",
+		Active:    true,
+	}
+
+	result := mgr.DB().Create(hotspot)
+	if result.Error != nil {
+		t.Fatalf("Create() returned error: %v", result.Error)
+	}
+
+	var found models.Hotspot
+	result = mgr.DB().Where("model_slug = ?", "qwen3_6").First(&found)
+	if result.Error != nil {
+		t.Fatalf("First() returned error: %v", result.Error)
+	}
+
+	if found.ModelSlug != "qwen3_6" {
+		t.Errorf("Queried hotspot ModelSlug = %q, want %q", found.ModelSlug, "qwen3_6")
+	}
+	if !found.Active {
+		t.Error("Queried hotspot Active = false, want true")
+	}
+}
+
+func TestAutoMigrate_NotOpen(t *testing.T) {
+	mgr, err := NewDatabaseManager("test.db")
+	if err != nil {
+		t.Fatalf("NewDatabaseManager() returned error: %v", err)
+	}
+
+	err = mgr.AutoMigrate()
+	if err == nil {
+		t.Error("AutoMigrate() without Open() should return error")
+	}
+}
+
+func TestDB_NotOpen(t *testing.T) {
+	mgr, err := NewDatabaseManager("test.db")
+	if err != nil {
+		t.Fatalf("NewDatabaseManager() returned error: %v", err)
+	}
+
+	db := mgr.DB()
+	if db != nil {
+		t.Error("DB() before Open() should return nil")
+	}
+}

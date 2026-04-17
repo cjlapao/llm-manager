@@ -16,6 +16,8 @@ Private packages that are not imported by external code.
 
 - **`cmd/`** — Command implementations and CLI logic
 - **`config/`** — Configuration loading and management
+- **`database/`** — Database layer with SQLite and GORM
+- **`database/models/`** — GORM data models
 - **`version/`** — Version information and build metadata
 
 ### `pkg/`
@@ -69,3 +71,42 @@ go build -ldflags "-X github.com/user/llm-manager/internal/version.version=v1.0.
                    -X github.com/user/llm-manager/internal/version.date=2024-01-01T00:00:00Z" \
     -o bin/llm-manager ./cmd/llm-manager
 ```
+
+## Database Layer
+
+The application uses SQLite with GORM for persistent data storage.
+
+### Package Structure
+
+- **`internal/database/`** — Database manager interface and SQLite implementation
+- **`internal/database/models/`** — GORM model definitions
+
+### Data Models
+
+| Model | Table | Purpose |
+|-------|-------|---------|
+| `Model` | `models` | LLM model registry (name, type, HF repo, port, container) |
+| `Container` | `containers` | Running container state (status, GPU usage, port) |
+| `Hotspot` | `hotspots` | Most recently used model tracking |
+
+All models use UUID primary keys generated via `BeforeCreate` hooks.
+
+### Database Manager Interface
+
+```go
+type DatabaseManager interface {
+    Open() error
+    Close() error
+    AutoMigrate() error
+    DB() *gorm.DB
+    MigrateFromJSON(path string) (int, error)
+}
+```
+
+### Migration
+
+The `migrate` command imports models from `models.json` into the database. It is idempotent — subsequent runs detect existing records and skip.
+
+### Configuration
+
+The database path is configured via `DatabaseURL` in `Config`, defaulting to `~/.local/share/llm-manager/llm-manager.db`. Override with `LLM_MANAGER_DATABASE_URL` environment variable.
