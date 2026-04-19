@@ -63,3 +63,4 @@ temp/
 profile.out
 cpuprofile
 memprofile
+mutagen.*

@@ -14,6 +14,7 @@ import (
 // RootCommand represents the root command for the application.
 type RootCommand struct {
 	cfg *config.Config
+	db  database.DatabaseManager
 }
 
 // NewRootCommand creates a new RootCommand.
@@ -24,6 +25,19 @@ func NewRootCommand() *RootCommand {
 // Run executes the root command with the given arguments.
 func (c *RootCommand) Run(args []string) int {
 	c.cfg = mustLoadConfig()
+
+	// Open database connection for all commands that need it
+	db, err := database.NewDatabaseManager(c.cfg.DatabaseURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing database: %v\n", err)
+		return 1
+	}
+	if err := db.Open(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+		return 1
+	}
+	c.db = db
+	defer db.Close()
 
 	if len(args) < 1 {
 		c.PrintHelp()
@@ -41,6 +55,30 @@ func (c *RootCommand) Run(args []string) int {
 		return c.runConfig()
 	case "migrate":
 		return c.runMigrate()
+	case "model":
+		return NewModelCommand(c).Run(args[1:])
+	case "container":
+		return NewContainerCommand(c).Run(args[1:])
+	case "service":
+		return NewServiceCommand(c).Run(args[1:])
+	case "hotspot":
+		return NewHotspotCommand(c).Run(args[1:])
+	case "logs":
+		return NewLogsCommand(c).Run(args[1:])
+	case "update":
+		return NewUpdateCommand(c.cfg, c.db).Run(args[1:])
+	case "mem":
+		return NewMemCommand(c.cfg).Run(args[1:])
+	case "comfyui":
+		return NewComfyUICommand(c).Run(args[1:])
+	case "embed":
+		return NewEmbedCommand(c).Run(args[1:])
+	case "rerank":
+		return NewRerankCommand(c).Run(args[1:])
+	case "rag":
+		return NewRagCommand(c).Run(args[1:])
+	case "speech":
+		return NewSpeechCommand(c).Run(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 		c.PrintHelp()
@@ -56,25 +94,13 @@ func (c *RootCommand) runConfig() int {
 
 // runMigrate imports models from models.json into the database.
 func (c *RootCommand) runMigrate() int {
-	db, err := database.NewDatabaseManager(c.cfg.DatabaseURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing database: %v\n", err)
-		return 1
-	}
-	defer db.Close()
-
-	if err := db.Open(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
-		return 1
-	}
-
-	if err := db.AutoMigrate(); err != nil {
+	if err := c.db.AutoMigrate(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running migrations: %v\n", err)
 		return 1
 	}
 
 	modelsPath := "models.json"
-	count, err := db.MigrateFromJSON(modelsPath)
+	count, err := c.db.MigrateFromJSON(modelsPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error migrating models: %v\n", err)
 		return 1
@@ -99,6 +125,18 @@ COMMANDS:
   version     Show version information
   config      Show current configuration
   migrate     Import models from models.json
+  model       Manage LLM models (list, get, create, update, delete, import, export, compose)
+  container   Manage Docker containers (list, start, stop, restart, swap, logs)
+  service     Manage LLM services (high-level orchestration)
+  hotspot     Manage the most recently used model
+  logs        View container logs for a model
+  update      Check for and install updates
+  mem         Show system memory and disk usage
+  comfyui     Manage ComfyUI (start, stop)
+  embed       Manage embed container (start, stop)
+  rerank      Manage rerank container (start, stop)
+  rag         Manage RAG services - embed + rerank (start, stop)
+  speech      Manage speech services - whisper + kokoro (start, stop)
 
 OPTIONS:
   -h, --help      Show this help message
@@ -115,6 +153,14 @@ EXAMPLES:
   llm-manager version
   llm-manager config
   llm-manager migrate
+  llm-manager model list
+  llm-manager model compose qwen3_6
+  llm-manager service start qwen3_6
+  llm-manager container swap qwen3_6
+  llm-manager hotspot restart
+  llm-manager comfyui start
+  llm-manager rag start
+  llm-manager speech stop
   LLM_MANAGER_VERBOSE=true llm-manager
 
 For more information, visit: https://github.com/user/llm-manager`)
