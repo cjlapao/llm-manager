@@ -143,9 +143,13 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 
 	// Parse command_args JSON string
 	if model.CommandArgs != "" {
-		var cmdArgs map[string]string
-		if err := json.Unmarshal([]byte(model.CommandArgs), &cmdArgs); err == nil {
-			y.CommandArgs = cmdArgs
+		var cmdArgs map[string]interface{}
+		if err := json.Unmarshal([]byte(model.CommandArgs), &cmdArgs); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal command_args: %w", err)
+		}
+		y.CommandArgs = make(map[string]string, len(cmdArgs))
+		for k, v := range cmdArgs {
+			y.CommandArgs[k] = fmt.Sprintf("%v", v)
 		}
 	}
 
