@@ -1,40 +1,66 @@
-# Binaries
+# ---------- Go build artifacts ----------
 /bin/
 llm-manager
-
-# Build artifacts
-*.exe
 llm-manager.exe
 llm-manager.exe~
+__debug_bin
 
-# Test output
+# ---------- Go test & coverage ----------
 coverage.txt
-delve.log
+*.test
+*.out
 
-# IDE and editor files
+# ---------- Go module cache (local, not shared) ----------
+# go.sum is tracked — only ignore if you have a specific reason
+
+# ---------- Go workspace ----------
+go.work
+go.work.sum
+
+# ---------- golangci-lint ----------
+.golangci.yml.lock
+
+# ---------- Build / release artifacts ----------
+dist/
+release/
+*.tar.gz
+*.zip
+
+# ---------- IDE & editor ----------
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
 
-# Temporary files
+# ---------- OS files ----------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ---------- Temporary / scratch ----------
 tmp/
 temp/
+*.tmp
 
-# Go workspace
-go.work
-go.work.sum
+# ---------- Environment & secrets ----------
+.env
+.env.*
+!.env.example
 
-# macOS
-.DS_Store
+# ---------- SQLite (if generated at runtime) ----------
+*.sqlite
+*.sqlite3
+*.db
 
-# Release artifacts
-dist/
-release/
-
-# Coverage HTML
+# ---------- Coverage HTML ----------
 *.html
 
-# CGO
-__debug_bin
+# ---------- Profiling ----------
+profile.out
+cpuprofile
+memprofile
+mutagen.*

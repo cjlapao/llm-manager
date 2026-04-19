@@ -22,6 +22,12 @@ type Config struct {
 	LogDir string
 	// DatabaseURL is the path to the SQLite database file.
 	DatabaseURL string
+	// LLMDir is the directory containing docker-compose YAML files for LLM models.
+	LLMDir string
+	// InstallDir is the base installation directory for AI server.
+	InstallDir string
+	// HFCacheDir is the HuggingFace model cache directory.
+	HFCacheDir string
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -37,6 +43,9 @@ func DefaultConfig() *Config {
 		DataDir:     filepath.Join(homeDir, ".local", "share", "llm-manager"),
 		LogDir:      filepath.Join(homeDir, ".local", "log", "llm-manager"),
 		DatabaseURL: filepath.Join(homeDir, ".local", "share", "llm-manager", "llm-manager.db"),
+		LLMDir:      "/opt/ai-server/llm-compose",
+		InstallDir:  "/opt/ai-server",
+		HFCacheDir:  "/opt/ai-server/models",
 	}
 }
 
@@ -63,6 +72,18 @@ func LoadConfig() (*Config, error) {
 
 	if val := os.Getenv("LLM_MANAGER_DATABASE_URL"); val != "" {
 		cfg.DatabaseURL = val
+	}
+
+	if val := os.Getenv("LLM_MANAGER_LLM_DIR"); val != "" {
+		cfg.LLMDir = val
+	}
+
+	if val := os.Getenv("LLM_MANAGER_INSTALL_DIR"); val != "" {
+		cfg.InstallDir = val
+	}
+
+	if val := os.Getenv("LLM_MANAGER_HF_CACHE_DIR"); val != "" {
+		cfg.HFCacheDir = val
 	}
 
 	// Ensure directories exist
@@ -120,11 +141,14 @@ func ensureDir(path string) error {
 func (c *Config) String() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "llm-manager config:\n")
-	fmt.Fprintf(&b, "  verbose:    %v\n", c.Verbose)
+	fmt.Fprintf(&b, "  verbose:     %v\n", c.Verbose)
 	fmt.Fprintf(&b, "  config file: %s\n", c.ConfigFile)
-	fmt.Fprintf(&b, "  home dir:   %s\n", c.HomeDir)
-	fmt.Fprintf(&b, "  data dir:   %s\n", c.DataDir)
-	fmt.Fprintf(&b, "  log dir:    %s\n", c.LogDir)
-	fmt.Fprintf(&b, "  database:   %s\n", c.DatabaseURL)
+	fmt.Fprintf(&b, "  home dir:    %s\n", c.HomeDir)
+	fmt.Fprintf(&b, "  data dir:    %s\n", c.DataDir)
+	fmt.Fprintf(&b, "  log dir:     %s\n", c.LogDir)
+	fmt.Fprintf(&b, "  database:    %s\n", c.DatabaseURL)
+	fmt.Fprintf(&b, "  llm dir:     %s\n", c.LLMDir)
+	fmt.Fprintf(&b, "  install dir: %s\n", c.InstallDir)
+	fmt.Fprintf(&b, "  hf cache:    %s\n", c.HFCacheDir)
 	return b.String()
 }
