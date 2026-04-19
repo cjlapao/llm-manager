@@ -134,7 +134,13 @@ func (c *ContainerCommand) runStatusAll() int {
 	if err == nil && len(output) > 0 {
 		fmt.Print(string(output))
 	} else {
-		fmt.Println("  (no containers running)")
+		// Check if Docker is actually available
+		dockerCheck := exec.Command("docker", "info")
+		if _, dockerErr := dockerCheck.CombinedOutput(); dockerErr != nil {
+			fmt.Println("  Docker is not running or not accessible")
+		} else {
+			fmt.Println("  (no matching containers running)")
+		}
 	}
 
 	fmt.Println()
@@ -453,7 +459,7 @@ func (c *ContainerCommand) runLogs(slug string, lines int, follow bool) int {
 // resolveContainer resolves a slug or service alias to a Docker container name.
 func (c *ContainerCommand) resolveContainer(slug string) (string, error) {
 	// Check if it's a service alias
-	containerName := resolveServiceAlias(slug)
+	containerName := ResolveServiceAlias(slug)
 	if containerName != "" {
 		return containerName, nil
 	}
@@ -465,25 +471,10 @@ func (c *ContainerCommand) resolveContainer(slug string) (string, error) {
 	}
 
 	// Known service aliases for error message
-	knownServices := map[string]string{
-		"comfyui":    "comfyui-flux",
-		"flux":       "comfyui-flux",
-		"embed":      "llm-embed",
-		"rerank":     "llm-rerank",
-		"whisper":    "whisper-stt",
-		"kokoro":     "kokoro-tts",
-		"litellm":    "litellm",
-		"swap-api":   "swap-api",
-		"swapapi":    "swap-api",
-		"open-webui": "open-webui",
-		"webui":      "open-webui",
-		"mcp":        "mcpo",
-	}
-
 	fmt.Fprintf(os.Stderr, "Unknown service or model: %s\n\n", slug)
 	fmt.Fprint(os.Stderr, "Known services:\n")
-	for alias, container := range knownServices {
-		fmt.Fprintf(os.Stderr, "  %-15s -> %s\n", alias, container)
+	for _, alias := range KnownServiceAliases() {
+		fmt.Fprintf(os.Stderr, "  %-15s -> %s\n", alias, ServiceAliases[alias])
 	}
 	fmt.Fprint(os.Stderr, "\nOr use a model slug that has a container configured.\n")
 	return "", fmt.Errorf("unknown service or model: %s", slug)

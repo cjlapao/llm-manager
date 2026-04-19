@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sort"
+	"strings"
 
 	"github.com/user/llm-manager/internal/config"
 	"github.com/user/llm-manager/internal/database"
@@ -189,4 +191,39 @@ func PrintShortVersion() {
 // PlatformInfo returns platform information as a string.
 func PlatformInfo() string {
 	return fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+}
+
+// ServiceAliases maps service name aliases to Docker container names.
+var ServiceAliases = map[string]string{
+	"comfyui":    "comfyui-flux",
+	"flux":       "comfyui-flux",
+	"embed":      "llm-embed",
+	"rerank":     "llm-rerank",
+	"whisper":    "whisper-stt",
+	"kokoro":     "kokoro-tts",
+	"litellm":    "litellm",
+	"swap-api":   "swap-api",
+	"swapapi":    "swap-api",
+	"open-webui": "open-webui",
+	"webui":      "open-webui",
+	"mcp":        "mcpo",
+}
+
+// ResolveServiceAlias resolves a service alias to a Docker container name.
+// Returns empty string if not found.
+func ResolveServiceAlias(alias string) string {
+	if name, ok := ServiceAliases[strings.ToLower(alias)]; ok {
+		return name
+	}
+	return ""
+}
+
+// KnownServiceAliases returns a sorted list of known service aliases.
+func KnownServiceAliases() []string {
+	aliases := make([]string, 0, len(ServiceAliases))
+	for alias := range ServiceAliases {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	return aliases
 }

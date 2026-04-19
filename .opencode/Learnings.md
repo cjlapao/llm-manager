@@ -1,5 +1,16 @@
 # Learnings
 
+## llm-manager PR Bug Fixes
+
+### Missing Import — `strings` package (sqlite.go)
+`internal/database/sqlite.go` used `strings.Contains()` without importing `"strings"`, causing a compilation failure. **Rule**: When adding new code that uses standard library functions, verify the import exists before committing.
+
+### Bulk-existence check skipped partial migrations (sqlite.go)
+`ensureModelColumns()` checked if ANY of 6 columns existed, and if so, skipped adding ALL of them. This meant partial migrations would never complete — once one column was present, the rest were silently ignored. **Rule**: For per-column migrations, check EACH column individually and add only missing ones. Use a `map[string]struct{}` for O(1) lookups of existing columns.
+
+### `os.Args` read inside handler instead of parameter slice (model.go)
+`runUpdate()` in `internal/cmd/model.go` read `os.Args` (the full process command line) instead of its parsed `args []string` parameter. Combined with passing only `args[1]` (the slug) instead of `args[1:]` (remaining flags), all key=value updates were silently lost. **Rule**: Handler functions should always use their parameter slices, never `os.Args`. Pass complete remaining args slices (`args[1:]`) to sub-handlers.
+
 ## Raw Activity Log
 
 ### SQLite + GORM Database Layer (2026-04-17)

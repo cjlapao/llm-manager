@@ -194,7 +194,9 @@ func (c *ModelCommand) runCreate(args []string) int {
 		model.Name = args[2]
 	}
 	if len(args) > 3 {
-		fmt.Sscanf(args[3], "%d", &model.Port)
+		if _, err := fmt.Sscanf(args[3], "%d", &model.Port); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: invalid port %q, defaulting to 0\n", args[3])
+		}
 	}
 
 	if err := c.svc.CreateModel(model); err != nil {

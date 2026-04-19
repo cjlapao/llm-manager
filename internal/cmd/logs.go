@@ -44,7 +44,10 @@ func (c *LogsCommand) Run(args []string) int {
 			if slug == "" {
 				slug = arg
 			} else {
-				fmt.Sscanf(arg, "%d", &lines)
+				if _, err := fmt.Sscanf(arg, "%d", &lines); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: invalid line count %q, using default 50\n", arg)
+					lines = 50
+				}
 			}
 		}
 	}
@@ -99,7 +102,7 @@ func (c *LogsCommand) runLogs(slug string, lines int, follow bool) int {
 // resolveContainer resolves a slug or service alias to a Docker container name.
 func (c *LogsCommand) resolveContainer(slug string) (string, error) {
 	// Check if it's a service alias
-	containerName := resolveServiceAlias(slug)
+	containerName := ResolveServiceAlias(slug)
 	if containerName != "" {
 		return containerName, nil
 	}
@@ -111,25 +114,10 @@ func (c *LogsCommand) resolveContainer(slug string) (string, error) {
 	}
 
 	// Known service aliases for error message
-	knownServices := map[string]string{
-		"comfyui":    "comfyui-flux",
-		"flux":       "comfyui-flux",
-		"embed":      "llm-embed",
-		"rerank":     "llm-rerank",
-		"whisper":    "whisper-stt",
-		"kokoro":     "kokoro-tts",
-		"litellm":    "litellm",
-		"swap-api":   "swap-api",
-		"swapapi":    "swap-api",
-		"open-webui": "open-webui",
-		"webui":      "open-webui",
-		"mcp":        "mcpo",
-	}
-
 	fmt.Fprintf(os.Stderr, "Unknown service or model: %s\n\n", slug)
 	fmt.Fprint(os.Stderr, "Known services:\n")
-	for alias, container := range knownServices {
-		fmt.Fprintf(os.Stderr, "  %-15s -> %s\n", alias, container)
+	for _, alias := range KnownServiceAliases() {
+		fmt.Fprintf(os.Stderr, "  %-15s -> %s\n", alias, ServiceAliases[alias])
 	}
 	fmt.Fprint(os.Stderr, "\nOr use a model slug that has a container configured.\n")
 	return "", fmt.Errorf("unknown service or model: %s", slug)
@@ -137,28 +125,7 @@ func (c *LogsCommand) resolveContainer(slug string) (string, error) {
 
 // resolveServiceAlias maps a service alias to a Docker container name.
 func resolveServiceAlias(alias string) string {
-	switch strings.ToLower(alias) {
-	case "comfyui", "flux":
-		return "comfyui-flux"
-	case "embed":
-		return "llm-embed"
-	case "rerank":
-		return "llm-rerank"
-	case "whisper":
-		return "whisper-stt"
-	case "kokoro":
-		return "kokoro-tts"
-	case "litellm":
-		return "litellm"
-	case "swap-api", "swapapi":
-		return "swap-api"
-	case "open-webui", "webui":
-		return "open-webui"
-	case "mcp":
-		return "mcpo"
-	default:
-		return ""
-	}
+	return ResolveServiceAlias(alias)
 }
 
 // PrintHelp prints the logs command help.

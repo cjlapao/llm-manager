@@ -86,8 +86,9 @@ func TestContainerService_StopAllLLMs(t *testing.T) {
 
 	svc := NewContainerService(db, config.DefaultConfig())
 	err := svc.StopAllLLMs()
-	if err != nil {
-		t.Errorf("StopAllLLMs() error: %v", err)
+	// Without Docker, the command will fail — that's expected in tests
+	if err == nil {
+		t.Error("StopAllLLMs() without Docker should return error")
 	}
 }
 
@@ -328,16 +329,18 @@ func TestHotspotService_RestartHotspot(t *testing.T) {
 
 	svcWithCfg := NewHotspotServiceWithConfig(db, config.DefaultConfig())
 	err := svcWithCfg.RestartHotspot()
-	// The docker compose operations will fail (no actual docker), but the function
-	// should handle it gracefully and clear the hotspot on failure
-	if err != nil {
-		t.Logf("RestartHotspot() returned error (expected without Docker): %v", err)
+	// The docker compose operations will fail (no actual Docker), so we expect an error
+	if err == nil {
+		t.Error("RestartHotspot() without Docker should return error")
 	}
 
-	// After a failed restart, hotspot should be cleared
+	// After a failed restart, hotspot should NOT be cleared (data preservation fix)
 	hotspot, _ := svc.GetCurrentHotspot()
-	if hotspot != nil {
-		t.Error("Hotspot should be cleared after failed RestartHotspot()")
+	if hotspot == nil {
+		t.Error("Hotspot should be preserved after failed RestartHotspot()")
+	}
+	if hotspot.ModelSlug != "hotspot-to-restart" {
+		t.Errorf("Hotspot model should still be hotspot-to-restart, got %s", hotspot.ModelSlug)
 	}
 }
 

@@ -88,15 +88,24 @@ func (s *ModelService) UpdateModelWithYAML(slug string, yamlPath string) (*model
 
 	// Convert maps to JSON strings
 	if len(y.EnvVars) > 0 {
-		envVarsJSON, _ := json.Marshal(y.EnvVars)
+		envVarsJSON, err := json.Marshal(y.EnvVars)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal env_vars: %w", err)
+		}
 		updates["env_vars"] = string(envVarsJSON)
 	}
 	if len(y.CommandArgs) > 0 {
-		commandArgsJSON, _ := json.Marshal(y.CommandArgs)
+		commandArgsJSON, err := json.Marshal(y.CommandArgs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal command_args: %w", err)
+		}
 		updates["command_args"] = string(commandArgsJSON)
 	}
 	if len(y.Capabilities) > 0 {
-		capabilitiesJSON, _ := json.Marshal(y.Capabilities)
+		capabilitiesJSON, err := json.Marshal(y.Capabilities)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal capabilities: %w", err)
+		}
 		updates["capabilities"] = string(capabilitiesJSON)
 	}
 	if y.InputTokenCost != nil {
@@ -198,7 +207,9 @@ func (s *ContainerService) StartContainer(slug string) error {
 		return fmt.Errorf("failed to start container %s: %s (%w)", slug, string(output), err)
 	}
 
-	s.db.UpdateContainerStatus(slug, "running")
+	if err := s.db.UpdateContainerStatus(slug, "running"); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: failed to update container status for %s: %v\n", slug, err)
+	}
 	return nil
 }
 
@@ -224,7 +235,9 @@ func (s *ContainerService) StopContainer(slug string) error {
 		return fmt.Errorf("failed to stop container %s: %s (%w)", slug, string(output), err)
 	}
 
-	s.db.UpdateContainerStatus(slug, "stopped")
+	if err := s.db.UpdateContainerStatus(slug, "stopped"); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: failed to update container status for %s: %v\n", slug, err)
+	}
 	return nil
 }
 
@@ -287,6 +300,7 @@ func (s *ContainerService) StopAllLLMs() error {
 		return fmt.Errorf("failed to list models: %w", err)
 	}
 
+	var failures []string
 	for _, m := range models {
 		if m.Type != "llm" || m.YML == "" {
 			continue
@@ -299,8 +313,18 @@ func (s *ContainerService) StopAllLLMs() error {
 
 		cmd := exec.Command("docker", "compose", "-f", ymlPath, "down")
 		cmd.Dir = s.cfg.LLMDir
-		// Ignore errors for individual containers — we want to stop as many as possible
-		_ = cmd.Run()
+		if output, err := cmd.CombinedOutput(); err != nil {
+			failures = append(failures, fmt.Sprintf("  %s (%s): %s", m.Slug, m.YML, strings.TrimSpace(string(output))))
+		}
+	}
+
+	if len(failures) > 0 {
+		var msg strings.Builder
+		msg.WriteString("failed to stop the following containers:\n")
+		for _, f := range failures {
+			msg.WriteString(f + "\n")
+		}
+		return fmt.Errorf("some containers failed to stop:\n%s", msg.String())
 	}
 
 	return nil
@@ -308,17 +332,16 @@ func (s *ContainerService) StopAllLLMs() error {
 
 // DropPageCache drops the OS page cache by writing to /proc/sys/vm/drop_caches.
 func (s *ContainerService) DropPageCache() error {
-	// sync first
+	// sync first — best-effort, log warning on failure
 	syncCmd := exec.Command("sync")
 	if err := syncCmd.Run(); err != nil {
-		return fmt.Errorf("failed to sync: %w", err)
+		fmt.Fprintf(os.Stderr, "  Warning: failed to sync: %v\n", err)
 	}
 
-	// echo 3 > /proc/sys/vm/drop_caches
+	// echo 3 > /proc/sys/vm/drop_caches — best-effort, log warning on failure
 	dropCmd := exec.Command("sh", "-c", "echo 3 | tee /proc/sys/vm/drop_caches > /dev/null 2>&1 || true")
 	if err := dropCmd.Run(); err != nil {
-		// Non-fatal: /proc/sys/vm/drop_caches may not be writable
-		return nil
+		fmt.Fprintf(os.Stderr, "  Warning: failed to drop page cache: %v\n", err)
 	}
 
 	return nil
@@ -591,15 +614,18 @@ func (s *HotspotService) RestartHotspot() error {
 	// Stop the container
 	stopCmd := exec.Command("docker", "compose", "-f", ymlPath, "down")
 	stopCmd.Dir = s.cfg.LLMDir
-	_ = stopCmd.Run()
+	if output, err := stopCmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: failed to stop hotspot container: %s\n", strings.TrimSpace(string(output)))
+	}
 
 	// Start the container
 	startCmd := exec.Command("docker", "compose", "-f", ymlPath, "up", "-d")
 	startCmd.Dir = s.cfg.LLMDir
 	if output, err := startCmd.CombinedOutput(); err != nil {
-		// Start failed, clear hotspot
-		s.db.ClearHotspot()
-		return fmt.Errorf("failed to restart hotspot container: %s (%w)", string(output), err)
+		// Start failed — keep the hotspot but warn
+		fmt.Fprintf(os.Stderr, "  Warning: failed to restart hotspot container: %s\n", strings.TrimSpace(string(output)))
+		fmt.Fprintf(os.Stderr, "  Hotspot model %s still set as active (container not running)\n", hotspot.ModelSlug)
+		return fmt.Errorf("failed to restart hotspot container: %s", strings.TrimSpace(string(output)))
 	}
 
 	return nil
