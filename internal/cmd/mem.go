@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	RegisterCommand("mem", func(root *RootCommand) Command { return NewMemCommand(root.cfg) })
+	RegisterCommand("mem", func(root *RootCommand) Command { return NewMemCommand(root) })
 }
 
 // MemCommand displays GPU VRAM estimation for LLM models.
@@ -21,10 +21,10 @@ type MemCommand struct {
 }
 
 // NewMemCommand creates a new MemCommand.
-func NewMemCommand(cfg *config.Config) *MemCommand {
+func NewMemCommand(root *RootCommand) *MemCommand {
 	return &MemCommand{
-		cfg: cfg,
-		svc: service.NewMemService(nil, cfg),
+		cfg: root.cfg,
+		svc: service.NewMemService(nil, root.cfg),
 	}
 }
 

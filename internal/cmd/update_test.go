@@ -11,7 +11,8 @@ import (
 // TestUpdateCommand_Help verifies the update command help prints.
 func TestUpdateCommand_Help(t *testing.T) {
 	cfg := config.DefaultConfig()
-	cmd := NewUpdateCommand(cfg, nil)
+	root := &RootCommand{cfg: cfg}
+	cmd := NewUpdateCommand(root)
 	exitCode := cmd.Run([]string{"help"})
 	if exitCode != 0 {
 		t.Errorf("update help returned non-zero exit code: %d", exitCode)
@@ -25,7 +26,8 @@ func TestUpdateCommand_NoToken(t *testing.T) {
 	os.Unsetenv("HUGGING_FACE_HUB_TOKEN")
 
 	cfg := config.DefaultConfig()
-	cmd := NewUpdateCommand(cfg, nil)
+	root := &RootCommand{cfg: cfg}
+	cmd := NewUpdateCommand(root)
 	exitCode := cmd.Run([]string{"qwen3_6"})
 	if exitCode == 0 {
 		t.Error("update without HF_TOKEN should return non-zero exit code")
@@ -38,7 +40,8 @@ func TestUpdateCommand_AllWithNoToken(t *testing.T) {
 	os.Unsetenv("HUGGING_FACE_HUB_TOKEN")
 
 	cfg := config.DefaultConfig()
-	cmd := NewUpdateCommand(cfg, nil)
+	root := &RootCommand{cfg: cfg}
+	cmd := NewUpdateCommand(root)
 	exitCode := cmd.Run([]string{"all"})
 	if exitCode == 0 {
 		t.Error("update all without HF_TOKEN should return non-zero exit code")
@@ -52,7 +55,8 @@ func TestUpdateCommand_WithToken(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	// Use a non-existent model to test error path
-	cmd := NewUpdateCommand(cfg, nil)
+	root := &RootCommand{cfg: cfg}
+	cmd := NewUpdateCommand(root)
 	exitCode := cmd.Run([]string{"nonexistent-model"})
 	// Should fail because model not found (db is nil)
 	if exitCode == 0 {
@@ -79,7 +83,8 @@ func TestUpdateCommand_DBRequired(t *testing.T) {
 	}
 
 	cfg := config.DefaultConfig()
-	cmd := NewUpdateCommand(cfg, db)
+	root := &RootCommand{cfg: cfg, db: db}
+	cmd := NewUpdateCommand(root)
 
 	// Non-existent model
 	exitCode := cmd.Run([]string{"nonexistent"})
