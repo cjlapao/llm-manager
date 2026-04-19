@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/glebarez/sqlite"
 	"github.com/user/llm-manager/internal/database/models"
@@ -69,33 +70,44 @@ func (m *sqliteManager) ensureModelColumns() error {
 		return fmt.Errorf("database not open")
 	}
 
-	// Check which columns already exist by querying the sqlite_master table
-	var columnCount int
+	// Check which columns already exist
+	var existingColumns []string
 	if err := m.db.Raw(`
-		SELECT COUNT(*) FROM pragma_table_info('models')
+		SELECT name FROM pragma_table_info('models')
 		WHERE name IN ('engine_type', 'env_vars', 'command_args', 'input_token_cost', 'output_token_cost', 'capabilities')
-	`).Scan(&columnCount).Error; err != nil {
+	`).Scan(&existingColumns).Error; err != nil {
 		return fmt.Errorf("failed to check model columns: %w", err)
 	}
 
-	// If we found 0 matching columns, we need to add all of them
-	if columnCount == 0 {
-		alterSQLs := []string{
-			"ALTER TABLE models ADD COLUMN engine_type TEXT DEFAULT 'vllm'",
-			"ALTER TABLE models ADD COLUMN env_vars TEXT",
-			"ALTER TABLE models ADD COLUMN command_args TEXT",
-			"ALTER TABLE models ADD COLUMN input_token_cost REAL DEFAULT 0",
-			"ALTER TABLE models ADD COLUMN output_token_cost REAL DEFAULT 0",
-			"ALTER TABLE models ADD COLUMN capabilities TEXT",
-		}
+	existingSet := make(map[string]bool)
+	for _, c := range existingColumns {
+		existingSet[c] = true
+	}
 
-		for _, sql := range alterSQLs {
-			if err := m.db.Exec(sql).Error; err != nil {
-				// Column might already exist (SQLite allows multiple ADD COLUMN in some versions)
-				// Check if it's a "duplicate column" error
-				if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "already exists") {
-					return fmt.Errorf("failed to add column: %w", err)
-				}
+	// Define columns to add with their types and defaults
+	type columnDef struct {
+		name         string
+		sqlType      string
+		defaultValue string
+	}
+	columns := []columnDef{
+		{"engine_type", "TEXT", "'vllm'"},
+		{"env_vars", "TEXT", "NULL"},
+		{"command_args", "TEXT", "NULL"},
+		{"input_token_cost", "REAL", "0"},
+		{"output_token_cost", "REAL", "0"},
+		{"capabilities", "TEXT", "NULL"},
+	}
+
+	for _, col := range columns {
+		if existingSet[col.name] {
+			continue // already exists, skip
+		}
+		sql := fmt.Sprintf("ALTER TABLE models ADD COLUMN %s %s DEFAULT %s", col.name, col.sqlType, col.defaultValue)
+		if err := m.db.Exec(sql).Error; err != nil {
+			// Column might already exist (race condition or partial migration)
+			if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "already exists") {
+				return fmt.Errorf("failed to add column %s: %w", col.name, err)
 			}
 		}
 	}

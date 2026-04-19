@@ -55,7 +55,7 @@ func (c *ModelCommand) Run(args []string) int {
 			fmt.Fprintf(os.Stderr, "Error: 'update' requires a model slug\n")
 			return 1
 		}
-		return c.runUpdate(args[1])
+		return c.runUpdate(args[1:])
 	case "delete", "del":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "Error: 'delete' requires a model slug\n")
@@ -207,21 +207,23 @@ func (c *ModelCommand) runCreate(args []string) int {
 }
 
 // runUpdate updates a model's fields.
-func (c *ModelCommand) runUpdate(slug string) int {
+func (c *ModelCommand) runUpdate(args []string) int {
+	if len(args) < 1 {
+		fmt.Println("Usage: llm-manager model update <slug> [key=value ...]")
+		fmt.Println("Available fields: name, type, hf_repo, yml, container, port, engine_type, env_vars, command_args, input_token_cost, output_token_cost, capabilities")
+		return 0
+	}
+
+	slug := args[0]
 	updates := map[string]interface{}{}
 
-	// Simple key=value updates from remaining args
-	for i := 1; i < len(os.Args); i++ {
-		if os.Args[i] == slug {
-			continue
+	// Parse key=value pairs from remaining args
+	for _, arg := range args[1:] {
+		if key, val, ok := parseKeyValue(arg); ok {
+			updates[key] = val
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: ignoring invalid argument %q (expected key=value)\n", arg)
 		}
-		for ; i < len(os.Args); i++ {
-			arg := os.Args[i]
-			if key, val, ok := parseKeyValue(arg); ok {
-				updates[key] = val
-			}
-		}
-		break
 	}
 
 	if len(updates) == 0 {
