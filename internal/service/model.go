@@ -66,11 +66,12 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	}
 
 	if len(y.CommandArgs) > 0 {
-		b, err := json.Marshal(y.CommandArgs)
+		typedArgs := yamlparser.ParseTypedCommandArgs(y.CommandArgs)
+		b, err := yamlparser.CommandArgsToJSON(typedArgs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal command_args: %w", err)
 		}
-		model.CommandArgs = string(b)
+		model.CommandArgs = b
 	}
 
 	// Apply YAML-level optional fields

@@ -10,6 +10,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("compose", func(root *RootCommand) Command { return NewComposeCommand(root) })
+}
+
 // ComposeCommand handles docker-compose file generation.
 type ComposeCommand struct {
 	cfg *RootCommand

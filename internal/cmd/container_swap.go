@@ -8,6 +8,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("swap", func(root *RootCommand) Command { return NewContainerSwapCommand(root) })
+}
+
 // ContainerSwapCommand handles the container swap operation.
 type ContainerSwapCommand struct {
 	cfg *RootCommand

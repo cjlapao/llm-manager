@@ -10,6 +10,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func init() {
+	RegisterCommand("export", func(root *RootCommand) Command { return NewExportCommand(root) })
+}
+
 // ExportCommand handles model export to YAML files.
 type ExportCommand struct {
 	cfg *RootCommand

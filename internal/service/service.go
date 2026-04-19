@@ -95,11 +95,12 @@ func (s *ModelService) UpdateModelWithYAML(slug string, yamlPath string) (*model
 		updates["env_vars"] = string(envVarsJSON)
 	}
 	if len(y.CommandArgs) > 0 {
-		commandArgsJSON, err := json.Marshal(y.CommandArgs)
+		typedArgs := yamlparser.ParseTypedCommandArgs(y.CommandArgs)
+		commandArgsJSON, err := yamlparser.CommandArgsToJSON(typedArgs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal command_args: %w", err)
 		}
-		updates["command_args"] = string(commandArgsJSON)
+		updates["command_args"] = commandArgsJSON
 	}
 	if len(y.Capabilities) > 0 {
 		capabilitiesJSON, err := json.Marshal(y.Capabilities)

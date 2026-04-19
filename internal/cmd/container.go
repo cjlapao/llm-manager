@@ -11,6 +11,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("container", func(root *RootCommand) Command { return NewContainerCommand(root) })
+}
+
 // ContainerCommand handles container operations.
 type ContainerCommand struct {
 	cfg *RootCommand

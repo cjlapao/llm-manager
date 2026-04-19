@@ -10,6 +10,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("logs", func(root *RootCommand) Command { return NewLogsCommand(root) })
+}
+
 // LogsCommand handles viewing container and application logs.
 type LogsCommand struct {
 	cfg *RootCommand

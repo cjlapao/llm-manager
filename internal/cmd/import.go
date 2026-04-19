@@ -10,6 +10,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("import", func(root *RootCommand) Command { return NewImportCommand(root) })
+}
+
 // ImportCommand handles model import from YAML files.
 type ImportCommand struct {
 	cfg *RootCommand

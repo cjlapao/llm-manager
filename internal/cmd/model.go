@@ -14,6 +14,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("model", func(root *RootCommand) Command { return NewModelCommand(root) })
+}
+
 // ModelCommand handles model CRUD operations.
 type ModelCommand struct {
 	cfg *RootCommand

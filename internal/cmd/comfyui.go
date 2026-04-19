@@ -8,6 +8,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("comfyui", func(root *RootCommand) Command { return NewComfyUICommand(root) })
+}
+
 // ComfyUICommand handles ComfyUI container operations.
 type ComfyUICommand struct {
 	cfg *RootCommand

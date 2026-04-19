@@ -46,6 +46,7 @@ func (c *RootCommand) Run(args []string) int {
 		return 0
 	}
 
+	// Handle built-in commands (no dispatch needed)
 	switch args[0] {
 	case "-h", "--help", "help":
 		c.PrintHelp()
@@ -57,35 +58,17 @@ func (c *RootCommand) Run(args []string) int {
 		return c.runConfig()
 	case "migrate":
 		return c.runMigrate()
-	case "model":
-		return NewModelCommand(c).Run(args[1:])
-	case "container":
-		return NewContainerCommand(c).Run(args[1:])
-	case "service":
-		return NewServiceCommand(c).Run(args[1:])
-	case "hotspot":
-		return NewHotspotCommand(c).Run(args[1:])
-	case "logs":
-		return NewLogsCommand(c).Run(args[1:])
-	case "update":
-		return NewUpdateCommand(c.cfg, c.db).Run(args[1:])
-	case "mem":
-		return NewMemCommand(c.cfg).Run(args[1:])
-	case "comfyui":
-		return NewComfyUICommand(c).Run(args[1:])
-	case "embed":
-		return NewEmbedCommand(c).Run(args[1:])
-	case "rerank":
-		return NewRerankCommand(c).Run(args[1:])
-	case "rag":
-		return NewRagCommand(c).Run(args[1:])
-	case "speech":
-		return NewSpeechCommand(c).Run(args[1:])
-	default:
+	}
+
+	// Dispatch to registered commands
+	dispatcher := NewCommandDispatcher(c.cfg, c.db)
+	exitCode := dispatcher.Dispatch(args[0], args[1:])
+	if exitCode == 1 {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 		c.PrintHelp()
 		return 1
 	}
+	return exitCode
 }
 
 // runConfig prints the current configuration.
