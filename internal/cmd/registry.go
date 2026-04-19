@@ -3,6 +3,7 @@ package cmd
 
 import (
 	"sort"
+	"sync"
 
 	"github.com/user/llm-manager/internal/config"
 	"github.com/user/llm-manager/internal/database"
@@ -18,17 +19,24 @@ type Command interface {
 type CommandFactory func(root *RootCommand) Command
 
 // commandRegistry holds all registered command factories.
-var commandRegistry = make(map[string]CommandFactory)
+var (
+	commandRegistry = make(map[string]CommandFactory)
+	registryMu      sync.RWMutex
+)
 
 // RegisterCommand adds a command factory to the global registry.
 func RegisterCommand(name string, factory CommandFactory) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
 	commandRegistry[name] = factory
 }
 
-// GetCommand retrieves a command by name using the given root context.
+// getCommand retrieves a command by name using the given root context.
 // Returns nil, false if the command is not registered.
-func GetCommand(name string, root *RootCommand) (Command, bool) {
+func getCommand(name string, root *RootCommand) (Command, bool) {
+	registryMu.RLock()
 	factory, ok := commandRegistry[name]
+	registryMu.RUnlock()
 	if !ok {
 		return nil, false
 	}
@@ -37,6 +45,8 @@ func GetCommand(name string, root *RootCommand) (Command, bool) {
 
 // RegisteredCommandNames returns sorted list of registered command names.
 func RegisteredCommandNames() []string {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
 	names := make([]string, 0, len(commandRegistry))
 	for name := range commandRegistry {
 		names = append(names, name)
@@ -60,7 +70,9 @@ func NewCommandDispatcher(cfg *config.Config, db database.DatabaseManager) *Comm
 func (d *CommandDispatcher) Dispatch(cmdName string, args []string) int {
 	root := &RootCommand{cfg: d.cfg, db: d.db}
 
+	registryMu.RLock()
 	factory, ok := commandRegistry[cmdName]
+	registryMu.RUnlock()
 	if !ok {
 		return 1
 	}

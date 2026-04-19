@@ -10,7 +10,10 @@ func TestRegistry_Basic(t *testing.T) {
 	}
 
 	// Check known commands are registered
-	expected := []string{"model", "container", "service", "hotspot", "logs", "mem", "update", "mem", "comfyui", "embed", "rerank", "rag", "speech", "import", "export", "compose", "swap"}
+	expected := []string{"model", "container", "service", "hotspot", "logs", "mem", "update", "comfyui", "embed", "rerank", "rag", "speech", "import", "export", "compose", "swap"}
+	if len(expected) != len(names) {
+		t.Errorf("expected %d registered commands, got %d", len(expected), len(names))
+	}
 	for _, name := range expected {
 		found := false
 		for _, n := range names {
@@ -26,9 +29,9 @@ func TestRegistry_Basic(t *testing.T) {
 }
 
 func TestRegistry_GetUnknown(t *testing.T) {
-	_, ok := GetCommand("nonexistent", nil)
+	_, ok := getCommand("nonexistent", nil)
 	if ok {
-		t.Error("GetCommand should return false for unknown command")
+		t.Error("getCommand should return false for unknown command")
 	}
 }
 
