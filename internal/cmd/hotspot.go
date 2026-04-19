@@ -9,6 +9,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("hotspot", func(root *RootCommand) Command { return NewHotspotCommand(root) })
+}
+
 // HotspotCommand manages the hotspot (most recently used model).
 type HotspotCommand struct {
 	cfg *RootCommand

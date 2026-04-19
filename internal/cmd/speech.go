@@ -8,6 +8,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("speech", func(root *RootCommand) Command { return NewSpeechCommand(root) })
+}
+
 // SpeechCommand handles speech services (whisper-stt + kokoro-tts).
 type SpeechCommand struct {
 	cfg *RootCommand

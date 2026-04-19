@@ -8,6 +8,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("rag", func(root *RootCommand) Command { return NewRagCommand(root) })
+}
+
 // RagCommand handles combined embed + rerank operations.
 type RagCommand struct {
 	cfg *RootCommand

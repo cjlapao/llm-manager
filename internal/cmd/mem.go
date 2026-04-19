@@ -10,6 +10,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("mem", func(root *RootCommand) Command { return NewMemCommand(root.cfg) })
+}
+
 // MemCommand displays GPU VRAM estimation for LLM models.
 type MemCommand struct {
 	cfg *config.Config

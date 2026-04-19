@@ -9,6 +9,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("service", func(root *RootCommand) Command { return NewServiceCommand(root) })
+}
+
 // ServiceCommand handles high-level service operations.
 type ServiceCommand struct {
 	cfg *RootCommand

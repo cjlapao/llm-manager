@@ -8,6 +8,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("rerank", func(root *RootCommand) Command { return NewRerankCommand(root) })
+}
+
 // RerankCommand handles the rerank container operations.
 type RerankCommand struct {
 	cfg *RootCommand

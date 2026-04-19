@@ -12,6 +12,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("update", func(root *RootCommand) Command { return NewUpdateCommand(root.cfg, root.db) })
+}
+
 // UpdateCommand handles HF weight pull operations.
 type UpdateCommand struct {
 	cfg *config.Config

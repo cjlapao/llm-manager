@@ -8,6 +8,10 @@ import (
 	"github.com/user/llm-manager/internal/service"
 )
 
+func init() {
+	RegisterCommand("embed", func(root *RootCommand) Command { return NewEmbedCommand(root) })
+}
+
 // EmbedCommand handles the embed container operations.
 type EmbedCommand struct {
 	cfg *RootCommand
