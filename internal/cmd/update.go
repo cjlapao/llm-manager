@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	RegisterCommand("update", func(root *RootCommand) Command { return NewUpdateCommand(root.cfg, root.db) })
+	RegisterCommand("update", func(root *RootCommand) Command { return NewUpdateCommand(root) })
 }
 
 // UpdateCommand handles HF weight pull operations.
@@ -24,11 +24,11 @@ type UpdateCommand struct {
 }
 
 // NewUpdateCommand creates a new UpdateCommand.
-func NewUpdateCommand(cfg *config.Config, db database.DatabaseManager) *UpdateCommand {
+func NewUpdateCommand(root *RootCommand) *UpdateCommand {
 	return &UpdateCommand{
-		cfg: cfg,
-		db:  db,
-		svc: service.NewContainerService(db, cfg),
+		cfg: root.cfg,
+		db:  root.db,
+		svc: service.NewContainerService(root.db, root.cfg),
 	}
 }
 

@@ -55,7 +55,7 @@ func (c *RootCommand) Run(args []string) int {
 		fmt.Print(version.Info())
 		return 0
 	case "config":
-		return c.runConfig()
+		return NewConfigCommand(c.cfg, c.db).Run(args[1:])
 	case "migrate":
 		return c.runMigrate()
 	}
@@ -108,7 +108,7 @@ USAGE:
 COMMANDS:
   help        Show this help message
   version     Show version information
-  config      Show current configuration
+  config      Show or manage persistent configuration (list, get, set, unset, edit)
   migrate     Import models from models.json
   model       Manage LLM models (list, get, create, update, delete, import, export, compose)
   container   Manage Docker containers (list, start, stop, restart, swap, logs)

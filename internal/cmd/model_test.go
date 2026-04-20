@@ -12,7 +12,8 @@ import (
 // TestMemCommand_Help verifies mem command help prints.
 func TestMemCommand_Help(t *testing.T) {
 	cfg := config.DefaultConfig()
-	cmd := NewMemCommand(cfg)
+	root := &RootCommand{cfg: cfg}
+	cmd := NewMemCommand(root)
 	exitCode := cmd.Run([]string{"help"})
 	if exitCode != 0 {
 		t.Errorf("mem help returned non-zero exit code: %d", exitCode)
@@ -22,7 +23,8 @@ func TestMemCommand_Help(t *testing.T) {
 // TestMemCommand_NoArgs verifies mem with no args shows help.
 func TestMemCommand_NoArgs(t *testing.T) {
 	cfg := config.DefaultConfig()
-	cmd := NewMemCommand(cfg)
+	root := &RootCommand{cfg: cfg}
+	cmd := NewMemCommand(root)
 	exitCode := cmd.Run([]string{})
 	if exitCode != 0 {
 		t.Errorf("mem with no args should return 0")
@@ -34,7 +36,8 @@ func TestMemCommand_EstimateNoModelsJSON(t *testing.T) {
 	cfg := config.DefaultConfig()
 	// Use a non-existent install dir to ensure models.json is not found
 	cfg.InstallDir = "/tmp/llm-manager-test-no-models-json"
-	cmd := NewMemCommand(cfg)
+	root := &RootCommand{cfg: cfg}
+	cmd := NewMemCommand(root)
 	exitCode := cmd.Run([]string{"qwen3_6"})
 	if exitCode == 0 {
 		t.Error("mem with missing models.json should return non-zero")

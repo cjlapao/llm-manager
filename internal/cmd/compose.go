@@ -24,7 +24,7 @@ type ComposeCommand struct {
 func NewComposeCommand(root *RootCommand) *ComposeCommand {
 	return &ComposeCommand{
 		cfg: root,
-		svc: service.NewModelService(root.db),
+		svc: service.NewModelService(root.db, root.cfg),
 	}
 }
 
