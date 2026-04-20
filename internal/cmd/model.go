@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -28,7 +29,7 @@ type ModelCommand struct {
 func NewModelCommand(root *RootCommand) *ModelCommand {
 	return &ModelCommand{
 		cfg: root,
-		svc: service.NewModelService(root.db),
+		svc: service.NewModelService(root.db, root.cfg),
 	}
 }
 
@@ -66,6 +67,12 @@ func (c *ModelCommand) Run(args []string) int {
 			return 1
 		}
 		return c.runDelete(args[1])
+	case "info":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "Error: 'info' requires a model slug\n")
+			return 1
+		}
+		return c.runInfo(args[1])
 	case "import":
 		return NewImportCommand(c.cfg).Run(args[1:])
 	case "export":
@@ -258,6 +265,66 @@ func (c *ModelCommand) runDelete(slug string) int {
 	return 0
 }
 
+// runInfo displays the LiteLLM model information (litellm_params and model_info).
+func (c *ModelCommand) runInfo(slug string) int {
+	model, err := c.svc.GetModel(slug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting model: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("Model: %s (%s)\n", model.Slug, model.Name)
+	fmt.Println(strings.Repeat("-", 60))
+
+	// Display litellm_params
+	if model.LiteLLMParams != "" {
+		var litellmParams map[string]interface{}
+		if err := json.Unmarshal([]byte(model.LiteLLMParams), &litellmParams); err == nil {
+			fmt.Println("\nlitellm_params:")
+			printNestedMap(litellmParams, "  ")
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: failed to parse litellm_params: %v\n", err)
+		}
+	}
+
+	// Display model_info
+	if model.ModelInfo != "" {
+		var modelInfo map[string]interface{}
+		if err := json.Unmarshal([]byte(model.ModelInfo), &modelInfo); err == nil {
+			fmt.Println("\nmodel_info:")
+			printNestedMap(modelInfo, "  ")
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: failed to parse model_info: %v\n", err)
+		}
+	}
+
+	// Display basic model info if no LiteLLM data
+	if model.LiteLLMParams == "" && model.ModelInfo == "" {
+		fmt.Println("\nNo LiteLLM model information available.")
+	}
+
+	fmt.Println()
+	return 0
+}
+
+// printNestedMap recursively prints a map with indentation.
+func printNestedMap(m map[string]interface{}, indent string) {
+	for k, v := range m {
+		switch val := v.(type) {
+		case map[string]interface{}:
+			fmt.Printf("%s%s:\n", indent, k)
+			printNestedMap(val, indent+"  ")
+		case []interface{}:
+			fmt.Printf("%s%s:\n", indent, k)
+			for _, item := range val {
+				fmt.Printf("%s  - %v\n", indent, item)
+			}
+		default:
+			fmt.Printf("%s%s: %v\n", indent, k, v)
+		}
+	}
+}
+
 // parseKeyValue parses a key=value argument.
 func parseKeyValue(arg string) (key, value string, ok bool) {
 	for i, ch := range arg {
@@ -278,6 +345,7 @@ USAGE:
 SUBCOMMANDS:
   list, ls      List all models (with live STATUS, CACHED, and ENGINE columns)
   get <slug>    Show details for a model
+  info <slug>   Show LiteLLM model information
   create <slug> [type] [name] [port]  Create a new model
   update <slug> [key=value ...]       Update model fields
   delete, del <slug>                  Delete a model
@@ -294,6 +362,7 @@ OPTIONS:
 EXAMPLES:
   llm-manager model list
   llm-manager model get qwen3_6
+  llm-manager model info qwen3_6
   llm-manager model create my-model llm "My Model" 8080
   llm-manager model update qwen3_6 name="Updated Name"
   llm-manager model delete old-model

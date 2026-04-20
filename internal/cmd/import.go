@@ -24,7 +24,7 @@ type ImportCommand struct {
 func NewImportCommand(root *RootCommand) *ImportCommand {
 	return &ImportCommand{
 		cfg: root,
-		svc: service.NewModelService(root.db),
+		svc: service.NewModelService(root.db, root.cfg),
 	}
 }
 

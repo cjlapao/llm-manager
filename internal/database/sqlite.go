@@ -54,6 +54,7 @@ func (m *sqliteManager) AutoMigrate() error {
 		&models.Model{},
 		&models.Container{},
 		&models.Hotspot{},
+		&models.Config{},
 	); err != nil {
 		return fmt.Errorf("auto migrate failed: %w", err)
 	}
@@ -74,7 +75,7 @@ func (m *sqliteManager) ensureModelColumns() error {
 	var existingColumns []string
 	if err := m.db.Raw(`
 		SELECT name FROM pragma_table_info('models')
-		WHERE name IN ('engine_type', 'env_vars', 'command_args', 'input_token_cost', 'output_token_cost', 'capabilities')
+		WHERE name IN ('engine_type', 'env_vars', 'command_args', 'input_token_cost', 'output_token_cost', 'capabilities', 'lite_llm_params', 'model_info')
 	`).Scan(&existingColumns).Error; err != nil {
 		return fmt.Errorf("failed to check model columns: %w", err)
 	}
@@ -97,6 +98,8 @@ func (m *sqliteManager) ensureModelColumns() error {
 		{"input_token_cost", "REAL", "0"},
 		{"output_token_cost", "REAL", "0"},
 		{"capabilities", "TEXT", "NULL"},
+		{"lite_llm_params", "TEXT", "NULL"},
+		{"model_info", "TEXT", "NULL"},
 	}
 
 	for _, col := range columns {
@@ -286,4 +289,60 @@ func (m *sqliteManager) ClearHotspot() error {
 		return fmt.Errorf("failed to clear hotspot: %w", err)
 	}
 	return nil
+}
+
+// GetConfig retrieves a config value by key.
+// Returns nil, nil if the key is not found.
+func (m *sqliteManager) GetConfig(key string) (*models.Config, error) {
+	if m.db == nil {
+		return nil, fmt.Errorf("database not open")
+	}
+	var config models.Config
+	if err := m.db.Where("key = ?", key).First(&config).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get config %s: %w", key, err)
+	}
+	return &config, nil
+}
+
+// SetConfig inserts or updates a config key-value pair.
+// Uses UPSERT via ON CONFLICT to handle duplicates.
+func (m *sqliteManager) SetConfig(key, value string) error {
+	if m.db == nil {
+		return fmt.Errorf("database not open")
+	}
+	result := m.db.Exec(
+		"INSERT INTO config (id, key, value) VALUES (1, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP",
+		key, value,
+	)
+	if result.Error != nil {
+		return fmt.Errorf("failed to set config %s: %w", key, result.Error)
+	}
+	return nil
+}
+
+// UnsetConfig removes a config key from the database.
+func (m *sqliteManager) UnsetConfig(key string) error {
+	if m.db == nil {
+		return fmt.Errorf("database not open")
+	}
+	result := m.db.Where("key = ?", key).Delete(&models.Config{})
+	if result.Error != nil {
+		return fmt.Errorf("failed to unset config %s: %w", key, result.Error)
+	}
+	return nil
+}
+
+// ListConfig returns all config key-value pairs, sorted by key.
+func (m *sqliteManager) ListConfig() ([]models.Config, error) {
+	if m.db == nil {
+		return nil, fmt.Errorf("database not open")
+	}
+	var configs []models.Config
+	if err := m.db.Order("key ASC").Find(&configs).Error; err != nil {
+		return nil, fmt.Errorf("failed to list config: %w", err)
+	}
+	return configs, nil
 }

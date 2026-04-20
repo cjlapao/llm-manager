@@ -18,12 +18,13 @@ import (
 
 // ModelService handles business logic for LLM model operations.
 type ModelService struct {
-	db database.DatabaseManager
+	db  database.DatabaseManager
+	cfg *config.Config
 }
 
 // NewModelService creates a new ModelService.
-func NewModelService(db database.DatabaseManager) *ModelService {
-	return &ModelService{db: db}
+func NewModelService(db database.DatabaseManager, cfg *config.Config) *ModelService {
+	return &ModelService{db: db, cfg: cfg}
 }
 
 // ListModels returns all models from the database.
@@ -645,7 +646,7 @@ func NewServiceService(db database.DatabaseManager, cfg *config.Config) *Service
 	return &ServiceService{
 		db:        db,
 		cfg:       cfg,
-		model:     NewModelService(db),
+		model:     NewModelService(db, cfg),
 		container: NewContainerService(db, cfg),
 	}
 }

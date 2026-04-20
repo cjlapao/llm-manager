@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Config holds the application configuration.
@@ -28,6 +31,22 @@ type Config struct {
 	InstallDir string
 	// HFCacheDir is the HuggingFace model cache directory.
 	HFCacheDir string
+	// LiteLLMURL is the base URL of the LiteLLM proxy for constructing api_base.
+	// Format: http://host:port or http://host
+	LiteLLMURL string
+}
+
+// validConfigKeys defines the set of supported config keys and their defaults.
+var validConfigKeys = map[string]string{
+	"LLM_MANAGER_VERBOSE":      "",
+	"LLM_MANAGER_DATA_DIR":     "",
+	"LLM_MANAGER_LOG_DIR":      "",
+	"LLM_MANAGER_DATABASE_URL": "",
+	"LLM_MANAGER_LLM_DIR":      "",
+	"LLM_MANAGER_INSTALL_DIR":  "",
+	"LLM_MANAGER_HF_CACHE_DIR": "",
+	"LLM_MANAGER_LITELLM_URL":  "",
+	"LLM_MANAGER_CONFIG":       "",
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -46,14 +65,172 @@ func DefaultConfig() *Config {
 		LLMDir:      "/opt/ai-server/llm-compose",
 		InstallDir:  "/opt/ai-server",
 		HFCacheDir:  "/opt/ai-server/models",
+		LiteLLMURL:  "",
 	}
 }
 
+// DefaultValues returns a map of config key to default string value.
+func DefaultValues() map[string]string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
+	}
+
+	return map[string]string{
+		"LLM_MANAGER_VERBOSE":      "",
+		"LLM_MANAGER_DATA_DIR":     filepath.Join(homeDir, ".local", "share", "llm-manager"),
+		"LLM_MANAGER_LOG_DIR":      filepath.Join(homeDir, ".local", "log", "llm-manager"),
+		"LLM_MANAGER_DATABASE_URL": filepath.Join(homeDir, ".local", "share", "llm-manager", "llm-manager.db"),
+		"LLM_MANAGER_LLM_DIR":      "/opt/ai-server/llm-compose",
+		"LLM_MANAGER_INSTALL_DIR":  "/opt/ai-server",
+		"LLM_MANAGER_HF_CACHE_DIR": "/opt/ai-server/models",
+		"LLM_MANAGER_LITELLM_URL":  "",
+		"LLM_MANAGER_CONFIG":       "",
+	}
+}
+
+// ConfigFilePath returns the path to the config file.
+// If LLM_MANAGER_CONFIG is set, that path is returned directly.
+// Otherwise, returns ~/.config/llm-manager/config.yaml.
+func ConfigFilePath() string {
+	if val := os.Getenv("LLM_MANAGER_CONFIG"); val != "" {
+		return val
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ".config/llm-manager/config.yaml"
+	}
+	return filepath.Join(homeDir, ".config", "llm-manager", "config.yaml")
+}
+
+// ValidConfigKeys returns the list of valid config key names, sorted.
+func ValidConfigKeys() []string {
+	keys := make([]string, 0, len(validConfigKeys))
+	for k := range validConfigKeys {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// NormalizeKey validates a key name and returns it if it's a known config key.
+// Returns an error if the key is not recognized.
+func NormalizeKey(key string) (string, error) {
+	if _, ok := validConfigKeys[key]; ok {
+		return key, nil
+	}
+	available := strings.Join(ValidConfigKeys(), ", ")
+	return "", fmt.Errorf("unknown config key %q: valid keys are %s", key, available)
+}
+
+// ReadConfigFile reads the config file and returns a map of key->value.
+// Returns an empty map if the file doesn't exist.
+func ReadConfigFile() (map[string]string, error) {
+	path := ConfigFilePath()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]string), nil
+		}
+		return nil, fmt.Errorf("reading config file: %w", err)
+	}
+
+	var result map[string]string
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("parsing config file: %w", err)
+	}
+
+	if result == nil {
+		result = make(map[string]string)
+	}
+
+	// Validate all keys in the file are known
+	for k := range result {
+		if _, ok := validConfigKeys[k]; !ok {
+			return nil, fmt.Errorf("unknown config key %q in config file", k)
+		}
+	}
+
+	return result, nil
+}
+
+// WriteConfigFile writes the config file from a map of key->value.
+// Empty values are filtered out before writing.
+func WriteConfigFile(values map[string]string) error {
+	path := ConfigFilePath()
+	dir := filepath.Dir(path)
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+
+	// Filter out empty values
+	filtered := make(map[string]string)
+	for k, v := range values {
+		if v != "" {
+			filtered[k] = v
+		}
+	}
+
+	data, err := yaml.Marshal(filtered)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
+	return nil
+}
+
 // LoadConfig reads configuration from the environment and config file.
+// Loading priority (highest to lowest): env vars > config file > defaults.
 func LoadConfig() (*Config, error) {
 	cfg := DefaultConfig()
 
-	// Override with environment variables
+	// Layer 1: Start with defaults
+	// Layer 2: Override with config file values
+	configValues, err := ReadConfigFile()
+	if err != nil {
+		// Log warning but don't fail — config file is optional
+		fmt.Fprintf(os.Stderr, "Warning: could not read config file: %v\n", err)
+	}
+
+	if val, ok := configValues["LLM_MANAGER_VERBOSE"]; ok && (val == "true" || val == "1") {
+		cfg.Verbose = true
+	}
+
+	if val, ok := configValues["LLM_MANAGER_DATA_DIR"]; ok {
+		cfg.DataDir = val
+	}
+
+	if val, ok := configValues["LLM_MANAGER_LOG_DIR"]; ok {
+		cfg.LogDir = val
+	}
+
+	if val, ok := configValues["LLM_MANAGER_DATABASE_URL"]; ok {
+		cfg.DatabaseURL = val
+	}
+
+	if val, ok := configValues["LLM_MANAGER_LLM_DIR"]; ok {
+		cfg.LLMDir = val
+	}
+
+	if val, ok := configValues["LLM_MANAGER_INSTALL_DIR"]; ok {
+		cfg.InstallDir = val
+	}
+
+	if val, ok := configValues["LLM_MANAGER_HF_CACHE_DIR"]; ok {
+		cfg.HFCacheDir = val
+	}
+
+	if val, ok := configValues["LLM_MANAGER_LITELLM_URL"]; ok {
+		cfg.LiteLLMURL = val
+	}
+
+	// Layer 3: Override with environment variables (always wins)
 	if val := os.Getenv("LLM_MANAGER_VERBOSE"); val == "true" || val == "1" {
 		cfg.Verbose = true
 	}
@@ -84,6 +261,10 @@ func LoadConfig() (*Config, error) {
 
 	if val := os.Getenv("LLM_MANAGER_HF_CACHE_DIR"); val != "" {
 		cfg.HFCacheDir = val
+	}
+
+	if val := os.Getenv("LLM_MANAGER_LITELLM_URL"); val != "" {
+		cfg.LiteLLMURL = val
 	}
 
 	// Ensure directories exist
@@ -150,5 +331,6 @@ func (c *Config) String() string {
 	fmt.Fprintf(&b, "  llm dir:     %s\n", c.LLMDir)
 	fmt.Fprintf(&b, "  install dir: %s\n", c.InstallDir)
 	fmt.Fprintf(&b, "  hf cache:    %s\n", c.HFCacheDir)
+	fmt.Fprintf(&b, "  litellm url: %s\n", c.LiteLLMURL)
 	return b.String()
 }

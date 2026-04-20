@@ -19,6 +19,9 @@ type ImportOverrides struct {
 // ImportModel imports a model from a YAML file into the database.
 // It parses the YAML, validates it, checks for duplicates, maps to models.Model,
 // applies CLI overrides, and creates the model record.
+// LiteLLM params are auto-merged: api_base is constructed from config URL + model port,
+// and model name is derived from the slug.
+// model_info is auto-generated from capabilities.
 func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (*models.Model, error) {
 	// 1. Parse YAML
 	y, err := yamlparser.ParseYAML(yamlPath)
@@ -26,8 +29,16 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	// 2. Validate
-	if validationErrs := yamlparser.Validate(y); len(validationErrs) > 0 {
+	// 2. Validate — skip capability validation when CLI overrides are provided
+	// (the overrides will replace YAML capabilities entirely)
+	var validationErrs []error
+	if len(overrides.Capabilities) > 0 {
+		// Validate only non-capability fields when overrides are present
+		validationErrs = yamlparser.ValidateNonCapabilities(y)
+	} else {
+		validationErrs = yamlparser.Validate(y)
+	}
+	if len(validationErrs) > 0 {
 		var msgParts []string
 		for _, e := range validationErrs {
 			msgParts = append(msgParts, e.Error())
@@ -40,7 +51,13 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		return nil, fmt.Errorf("model %s already exists", y.Slug)
 	}
 
-	// 4. Map ModelYAML → models.Model
+	// 4. Build litellm_params map from YAML, auto-merging system values
+	litellmParams := s.buildLiteLLMParams(y, s.cfg.LiteLLMURL, y.Slug, y.Port)
+
+	// 5. Build model_info map from capabilities (auto-generated) + YAML overrides
+	modelInfo := s.buildModelInfo(y)
+
+	// 6. Map ModelYAML → models.Model
 	model := &models.Model{
 		Slug:            y.Slug,
 		Type:            "llm",
@@ -89,7 +106,23 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		model.Capabilities = string(b)
 	}
 
-	// 5. Apply CLI overrides
+	// Marshal litellm_params and model_info to JSON for DB storage
+	if len(litellmParams) > 0 {
+		b, err := json.Marshal(litellmParams)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal litellm_params: %w", err)
+		}
+		model.LiteLLMParams = string(b)
+	}
+	if len(modelInfo) > 0 {
+		b, err := json.Marshal(modelInfo)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal model_info: %w", err)
+		}
+		model.ModelInfo = string(b)
+	}
+
+	// 7. Apply CLI overrides
 	if overrides.InputCost != nil {
 		model.InputTokenCost = *overrides.InputCost
 	}
@@ -104,12 +137,105 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		model.Capabilities = string(b)
 	}
 
-	// 6. Create in database
+	// 8. Create in database
 	if err := s.db.CreateModel(model); err != nil {
 		return nil, fmt.Errorf("failed to create model: %w", err)
 	}
 
 	return model, nil
+}
+
+// buildLiteLLMParams constructs the litellm_params map from YAML values,
+// auto-merging system-provided values (api_base, model name) and excluding
+// values already present at the YAML root level (input_cost_per_token,
+// output_cost_per_token).
+// System values take precedence when not explicitly set in YAML.
+func (s *ModelService) buildLiteLLMParams(y *yamlparser.ModelYAML, litellmURL string, slug string, port int) map[string]interface{} {
+	params := make(map[string]interface{})
+
+	// Start with YAML-provided values
+	if y.LiteLLMParams != nil {
+		for k, v := range y.LiteLLMParams {
+			params[k] = v
+		}
+	}
+
+	// Remove input/output cost from litellm_params - they're already at root level
+	delete(params, "input_cost_per_token")
+	delete(params, "output_cost_per_token")
+
+	// Auto-construct api_base from config URL + model port
+	// If api_base is already set in YAML, keep it (user override)
+	if _, hasAPIBase := params["api_base"]; !hasAPIBase && litellmURL != "" {
+		// Append /v1 if not already present
+		base := litellmURL
+		if !strings.HasSuffix(base, "/v1") {
+			base = strings.TrimRight(base, "/") + "/v1"
+		}
+		params["api_base"] = base
+	}
+
+	// Auto-set model name from slug (if not already set in YAML)
+	if _, hasModel := params["model"]; !hasModel {
+		params["model"] = slug
+	}
+
+	return params
+}
+
+// buildModelInfo constructs the model_info map by:
+// 1. Starting with YAML-provided model_info values
+// 2. Auto-setting boolean fields based on capabilities
+// 3. Setting defaults for fields not explicitly provided
+func (s *ModelService) buildModelInfo(y *yamlparser.ModelYAML) map[string]interface{} {
+	info := make(map[string]interface{})
+
+	// Start with YAML-provided model_info values
+	if y.ModelInfo != nil {
+		for k, v := range y.ModelInfo {
+			info[k] = v
+		}
+	}
+
+	// Auto-generate support fields from capabilities
+	for _, cap := range y.Capabilities {
+		if fieldNames, ok := yamlparser.CapabilitiesToModelInfo[cap]; ok {
+			for _, fieldName := range fieldNames {
+				// Only set if not already provided in YAML
+				if _, exists := info[fieldName]; !exists {
+					info[fieldName] = true
+				}
+			}
+		}
+	}
+
+	// Set defaults for fields not explicitly provided
+	if _, exists := info["direct_access"]; !exists {
+		info["direct_access"] = false
+	}
+	if _, exists := info["litellm_provider"]; !exists {
+		info["litellm_provider"] = "vllm" // default based on engine
+	}
+	if _, exists := info["mode"]; !exists {
+		info["mode"] = "chat"
+	}
+	if _, exists := info["supports_vision"]; !exists {
+		info["supports_vision"] = false
+	}
+	if _, exists := info["supports_function_calling"]; !exists {
+		info["supports_function_calling"] = false
+	}
+	if _, exists := info["supports_tool_choice"]; !exists {
+		info["supports_tool_choice"] = false
+	}
+	if _, exists := info["supports_reasoning"]; !exists {
+		info["supports_reasoning"] = false
+	}
+	if _, exists := info["supports_embedding_image_input"]; !exists {
+		info["supports_embedding_image_input"] = false
+	}
+
+	return info
 }
 
 // ExportModel exports a model from the database to a ModelYAML struct.
@@ -122,15 +248,17 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 
 	// 2. Convert JSON strings back to maps/slices
 	y := &yamlparser.ModelYAML{
-		Slug:         model.Slug,
-		Name:         model.Name,
-		Engine:       model.EngineType,
-		HFRepo:       model.HFRepo,
-		Container:    model.Container,
-		Port:         model.Port,
-		EnvVars:      map[string]string{},
-		CommandArgs:  map[string]string{},
-		Capabilities: []string{},
+		Slug:          model.Slug,
+		Name:          model.Name,
+		Engine:        model.EngineType,
+		HFRepo:        model.HFRepo,
+		Container:     model.Container,
+		Port:          model.Port,
+		EnvVars:       map[string]string{},
+		CommandArgs:   map[string]string{},
+		Capabilities:  []string{},
+		LiteLLMParams: map[string]interface{}{},
+		ModelInfo:     map[string]interface{}{},
 	}
 
 	// Parse env_vars JSON string
@@ -158,6 +286,22 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 		var caps []string
 		if err := json.Unmarshal([]byte(model.Capabilities), &caps); err == nil {
 			y.Capabilities = caps
+		}
+	}
+
+	// Parse litellm_params JSON string
+	if model.LiteLLMParams != "" {
+		var litellmParams map[string]interface{}
+		if err := json.Unmarshal([]byte(model.LiteLLMParams), &litellmParams); err == nil {
+			y.LiteLLMParams = litellmParams
+		}
+	}
+
+	// Parse model_info JSON string
+	if model.ModelInfo != "" {
+		var modelInfo map[string]interface{}
+		if err := json.Unmarshal([]byte(model.ModelInfo), &modelInfo); err == nil {
+			y.ModelInfo = modelInfo
 		}
 	}
 

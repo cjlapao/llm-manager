@@ -24,8 +24,18 @@ type Model struct {
 	InputTokenCost  float64   `gorm:"default:0"`
 	OutputTokenCost float64   `gorm:"default:0"`
 	Capabilities    string    `gorm:"type:text"`
-	CreatedAt       time.Time `gorm:"autoCreateTime"`
-	UpdatedAt       time.Time `gorm:"autoUpdateTime"`
+	// LiteLLMParams stores the litellm_params as JSON for passing to LiteLLM proxy.
+	// Contains fields like input_cost_per_token, output_cost_per_token, api_base,
+	// custom_llm_provider, model, temperature, top_p, top_k, presence_penalty,
+	// repetition_penalty, extra_body, etc.
+	LiteLLMParams string `gorm:"type:text"`
+	// ModelInfo stores model metadata from LiteLLM's model registry as JSON.
+	// Contains fields like direct_access, litellm_provider, mode, supports_vision,
+	// supports_function_calling, supports_tool_choice, supports_embedding_image_input,
+	// supports_reasoning, supported_openai_params, etc.
+	ModelInfo string `gorm:"type:text"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 
 // TableName returns the database table name for Model.
