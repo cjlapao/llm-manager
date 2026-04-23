@@ -44,15 +44,20 @@ var KVBytes = map[string]float64{
 
 // jsonModel represents an entry in models.json.
 type jsonModel struct {
-	Slug string `json:"slug"`
-	Type string `json:"type"`
-	Name string `json:"name"`
-	YML  string `json:"yml"`
+	Slug      string `json:"slug"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	YML       string `json:"yml"`
+	HFRepo    string `json:"hf_repo"`
+	Container string `json:"container"`
+	Port      int    `json:"port"`
 }
 
 // ModelConfig represents the config.json from a HuggingFace model.
+// For MoE/VLM models, text_config is nested inside text_config field.
 type ModelConfig struct {
 	Architectures         []string `json:"architectures"`
+	ModelType             string   `json:"model_type"`
 	HiddenSize            int      `json:"hidden_size"`
 	NumHiddenLayers       int      `json:"num_hidden_layers"`
 	NumAttentionHeads     int      `json:"num_attention_heads"`
@@ -66,11 +71,36 @@ type ModelConfig struct {
 	ImageSize             int      `json:"image_size"`
 	PaddingSide           string   `json:"padding_side"`
 	TieWordEmbeddings     bool     `json:"tie_word_embeddings"`
+	TextConfig            *ModelConfig `json:"text_config"`
 	QuantizationConfig    *struct {
 		LoadIn4Bit   bool   `json:"load_in_4bit"`
 		LoadIn8Bit   bool   `json:"load_in_8bit"`
 		BnbQuantType string `json:"bnb_4bit_quant_type"`
 	} `json:"quantization_config"`
+}
+
+// EffectiveTextConfig returns the effective text config, unwrapping nested text_config.
+func (c *ModelConfig) EffectiveTextConfig() *ModelConfig {
+	if c == nil {
+		return nil
+	}
+	if c.TextConfig != nil {
+		return c.TextConfig
+	}
+	return c
+}
+
+// HFModelInfo represents the top-level response from the HF API models endpoint.
+// It provides total parameter counts directly without parsing config.json.
+type HFModelInfo struct {
+	Safetensors *struct {
+		Total  int64 `json:"total"`
+		BF16   int64 `json:"BF16"`
+		FP16   int64 `json:"FP16"`
+		FP32   int64 `json:"FP32"`
+		Int8   int64 `json:"Int8"`
+		Int4   int64 `json:"Int4"`
+	} `json:"safetensors"`
 }
 
 // MemEstimationResult holds the VRAM estimation for a single model.
@@ -104,6 +134,13 @@ func NewMemService(db database.DatabaseManager, cfg *config.Config) *MemService 
 	}
 }
 
+// modelsJSON represents the top-level structure of models.json.
+type modelsJSON struct {
+	Version    string            `json:"version"`
+	HFCacheDir string            `json:"hf_cache_dir"`
+	Models     map[string]jsonModel `json:"models"`
+}
+
 // EstimateVRAM estimates VRAM usage for models.
 // If slug is empty, estimates for all LLM-type models.
 func (s *MemService) EstimateVRAM(slug string) ([]MemEstimationResult, error) {
@@ -122,19 +159,19 @@ func (s *MemService) EstimateVRAM(slug string) ([]MemEstimationResult, error) {
 		return nil, fmt.Errorf("failed to read models.json: %w", err)
 	}
 
-	// Parse models.json
-	var jsonModels []jsonModel
-	if err := json.Unmarshal(modelsData, &jsonModels); err != nil {
+	// Parse models.json as an object with a "models" map
+	var modelsFile modelsJSON
+	if err := json.Unmarshal(modelsData, &modelsFile); err != nil {
 		return nil, fmt.Errorf("failed to parse models.json: %w", err)
 	}
 
-	// Filter to LLM-type models
+	// Convert map to slice, filtering to LLM-type models
 	var llmModels []jsonModel
-	for _, m := range jsonModels {
+	for slugKey, m := range modelsFile.Models {
 		if m.Type != "llm" {
 			continue
 		}
-		if slug != "" && m.Slug != slug {
+		if slug != "" && slugKey != slug {
 			continue
 		}
 		llmModels = append(llmModels, m)
@@ -206,18 +243,51 @@ func (s *MemService) estimateSingleModel(m jsonModel) (MemEstimationResult, erro
 		qb = 2.0 // default to bf16
 	}
 
+	// Try to get total params from HF API metadata (most reliable for MoE models)
+	apiParams := s.getParamsFromHFAPIMetadata(m.HFRepo)
+
 	// Load model config
-	config, source, err := s.loadModelConfig(m.Slug)
+	config, source, err := s.loadModelConfig(m.Slug, m.HFRepo)
 	if err != nil {
+		// If we have params from API, use them as fallback
+		if apiParams > 0 {
+			result.Weights = uint64(float64(apiParams) * qb)
+			result.Source = "api"
+			result.KV4K = 0
+			result.KV32K = 0
+			result.KV128K = 0
+			result.KV262K = 0
+			result.MaxCtx = 0
+			return result, nil
+		}
 		result.Source = source
 		return result, nil
 	}
 
-	// Compute parameters
-	params := s.computeParams(config)
+	// Unwrap nested text_config for MoE/VLM models
+	textCfg := config.EffectiveTextConfig()
+
+	// Compute parameters from config
+	params := s.computeParams(textCfg)
 	if params == 0 {
+		// If config-based computation failed, try API metadata
+		if apiParams > 0 {
+			result.Weights = uint64(float64(apiParams) * qb)
+			result.Source = "api"
+			result.KV4K = 0
+			result.KV32K = 0
+			result.KV128K = 0
+			result.KV262K = 0
+			result.MaxCtx = 0
+			return result, nil
+		}
 		result.Source = source
 		return result, fmt.Errorf("could not compute params for %s", m.Slug)
+	}
+
+	// Use API params if available (more accurate for MoE models)
+	if apiParams > 0 {
+		params = apiParams
 	}
 
 	// Compute weights in bytes
@@ -225,7 +295,7 @@ func (s *MemService) estimateSingleModel(m jsonModel) (MemEstimationResult, erro
 
 	// Compute KV cache sizes
 	kvBytes := s.getKVBytes(ymlContent)
-	kvBPT := 2.0 * float64(config.NumHiddenLayers) * float64(config.NumKeyValHeads) * float64(s.headDim(config)) * kvBytes
+	kvBPT := 2.0 * float64(textCfg.NumHiddenLayers) * float64(textCfg.NumKeyValHeads) * float64(s.headDim(textCfg)) * kvBytes
 
 	contexts := []int{4096, 32768, 131072, 262144}
 	for i, ctx := range contexts {
@@ -243,7 +313,7 @@ func (s *MemService) estimateSingleModel(m jsonModel) (MemEstimationResult, erro
 	}
 
 	// Max context
-	result.MaxCtx = s.maxContext(config, ymlContent)
+	result.MaxCtx = s.maxContext(textCfg, ymlContent)
 	result.Source = source
 
 	return result, nil
@@ -292,14 +362,22 @@ func (s *MemService) detectQuant(slug, ymlContent string) string {
 }
 
 // loadModelConfig loads model config from local cache or HF API.
-func (s *MemService) loadModelConfig(slug string) (*ModelConfig, string, error) {
+func (s *MemService) loadModelConfig(slug string, hfRepo string) (*ModelConfig, string, error) {
+	// If hfRepo is provided (from models.json), use it directly
+	// Otherwise, try to get it from the database
+	if hfRepo == "" && s.db != nil {
+		if model, err := s.db.GetModel(slug); err == nil && model.HFRepo != "" {
+			hfRepo = model.HFRepo
+		}
+	}
+
 	// Try local cache first
-	if config, err := s.loadConfigFromCache(slug); err == nil {
+	if config, err := s.loadConfigFromCache(slug, hfRepo); err == nil {
 		return config, "cache", nil
 	}
 
 	// Try HF API
-	if config, err := s.loadConfigFromAPI(slug); err == nil {
+	if config, err := s.loadConfigFromAPI(slug, hfRepo); err == nil {
 		return config, "api", nil
 	}
 
@@ -307,18 +385,19 @@ func (s *MemService) loadModelConfig(slug string) (*ModelConfig, string, error) 
 }
 
 // loadConfigFromCache loads config from HF cache directory.
-func (s *MemService) loadConfigFromCache(slug string) (*ModelConfig, error) {
-	// Get HF repo from DB
-	model, err := s.db.GetModel(slug)
-	if err != nil {
-		return nil, err
+func (s *MemService) loadConfigFromCache(slug string, hfRepo string) (*ModelConfig, error) {
+	// If hfRepo is empty, try to get it from the database
+	if hfRepo == "" && s.db != nil {
+		if model, err := s.db.GetModel(slug); err == nil {
+			hfRepo = model.HFRepo
+		}
 	}
-	if model.HFRepo == "" {
+	if hfRepo == "" {
 		return nil, fmt.Errorf("no HF repo for %s", slug)
 	}
 
 	// Convert repo to cache dir: Qwen/Qwen3.6-35B-A3B -> models--Qwen--Qwen3.6-35B-A3B
-	cacheDir := "models--" + strings.ReplaceAll(model.HFRepo, "/", "--")
+	cacheDir := "models--" + strings.ReplaceAll(hfRepo, "/", "--")
 	snapshotsDir := filepath.Join(s.cfg.HFCacheDir, cacheDir, "snapshots")
 
 	// Find snapshot directory
@@ -348,22 +427,24 @@ func (s *MemService) loadConfigFromCache(slug string) (*ModelConfig, error) {
 }
 
 // loadConfigFromAPI loads config from HuggingFace API.
-func (s *MemService) loadConfigFromAPI(slug string) (*ModelConfig, error) {
-	model, err := s.db.GetModel(slug)
-	if err != nil {
-		return nil, err
+func (s *MemService) loadConfigFromAPI(slug string, hfRepo string) (*ModelConfig, error) {
+	// If hfRepo is empty, try to get it from the database
+	if hfRepo == "" && s.db != nil {
+		if model, err := s.db.GetModel(slug); err == nil {
+			hfRepo = model.HFRepo
+		}
 	}
-	if model.HFRepo == "" {
+	if hfRepo == "" {
 		return nil, fmt.Errorf("no HF repo for %s", slug)
 	}
 
-	url := "https://huggingface.co/" + model.HFRepo + "/resolve/main/config.json"
+	url := "https://huggingface.co/" + hfRepo + "/resolve/main/config.json"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	hfToken := os.Getenv("HF_TOKEN")
+	hfToken := s.cfg.HfToken
 	if hfToken == "" {
 		hfToken = os.Getenv("HUGGING_FACE_HUB_TOKEN")
 	}
@@ -391,6 +472,62 @@ func (s *MemService) loadConfigFromAPI(slug string) (*ModelConfig, error) {
 		return nil, err
 	}
 	return &config, nil
+}
+
+// getParamsFromHFAPIMetadata fetches total parameter count from the HF API metadata endpoint.
+// This is the most reliable source for MoE models where config.json has nested text_config.
+func (s *MemService) getParamsFromHFAPIMetadata(hfRepo string) int64 {
+	if hfRepo == "" {
+		return 0
+	}
+
+	url := "https://huggingface.co/api/models/" + hfRepo
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return 0
+	}
+
+	hfToken := s.cfg.HfToken
+	if hfToken == "" {
+		hfToken = os.Getenv("HUGGING_FACE_HUB_TOKEN")
+	}
+	if hfToken != "" {
+		req.Header.Set("Authorization", "Bearer "+hfToken)
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		return 0
+	}
+
+	var hfInfo HFModelInfo
+	if err := json.Unmarshal(data, &hfInfo); err != nil {
+		return 0
+	}
+
+	if hfInfo.Safetensors == nil {
+		return 0
+	}
+
+	// Prefer BF16 params (most common for LLMs), fall back to total
+	if hfInfo.Safetensors.BF16 > 0 {
+		return hfInfo.Safetensors.BF16
+	}
+	if hfInfo.Safetensors.Total > 0 {
+		return hfInfo.Safetensors.Total
+	}
+
+	return 0
 }
 
 // computeParams computes total parameter count from model config.
@@ -524,7 +661,13 @@ func (s *ContainerService) IsHFCached(hfRepo string) bool {
 
 	// Convert repo to cache dir: Qwen/Qwen3.6-35B-A3B -> models--Qwen--Qwen3.6-35B-A3B
 	cacheDir := "models--" + strings.ReplaceAll(hfRepo, "/", "--")
-	snapshotsDir := filepath.Join(s.cfg.HFCacheDir, cacheDir, "snapshots")
+
+	// Try hub/ subdirectory first (standard HF cache layout)
+	snapshotsDir := filepath.Join(s.cfg.HFCacheDir, "hub", cacheDir, "snapshots")
+	if !dirExists(snapshotsDir) {
+		// Fall back to direct path under HFCacheDir (legacy/non-standard)
+		snapshotsDir = filepath.Join(s.cfg.HFCacheDir, cacheDir, "snapshots")
+	}
 
 	// Check if snapshots directory exists and has content
 	entries, err := os.ReadDir(snapshotsDir)
@@ -544,4 +687,13 @@ func (s *ContainerService) IsHFCached(hfRepo string) bool {
 	}
 
 	return false
+}
+
+// dirExists checks if a directory exists.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }

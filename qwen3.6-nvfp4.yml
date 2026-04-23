@@ -1,0 +1,42 @@
+slug: qwen3.6-nvfp4
+name: "Qwen3.6 35B-A3B NVFP4"
+engine: vllm
+hf_repo: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+container: llm-qwen3.6-nvfp4
+port: 8020
+
+environment:
+  VLLM_HOST: "0.0.0.0"
+  HF_TOKEN: "${HF_TOKEN}"
+
+command:
+  model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+  max-model-len: "131072"
+  gpu-memory-utilization: "0.85"
+  moe-backend: "flashinfer_cutlass"
+  reasoning-parser: "qwen3"
+  tool-call-parser: "qwen3_xml"
+  enable-auto-tool-choice: "true"
+
+input_token_cost: 0.00000228
+output_token_cost: 0.00000456
+
+capabilities:
+  - reasoning
+  - tool-use
+  - multi-turn
+
+litellm_params:
+  custom_llm_provider: hosted_vllm
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 20
+  presence_penalty: 1.5
+  repetition_penalty: 1.0
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+  variants:
+    thinking:
+      suffix: -thinking
+      top_k: 10

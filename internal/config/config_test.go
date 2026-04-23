@@ -110,7 +110,7 @@ func TestReadConfigFile_Existing(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
 	// Write a test config file
-	err := os.WriteFile(configPath, []byte(`LLM_MANAGER_LITELLM_URL: "http://example.com"
+	err := os.WriteFile(configPath, []byte(`LITELLM_URL: "http://example.com"
 LLM_MANAGER_DATA_DIR: "/custom/data"
 `), 0o644)
 	if err != nil {
@@ -128,8 +128,8 @@ LLM_MANAGER_DATA_DIR: "/custom/data"
 		t.Fatalf("ReadConfigFile() = %d entries, want 2", len(result))
 	}
 
-	if result["LLM_MANAGER_LITELLM_URL"] != "http://example.com" {
-		t.Errorf("LLM_MANAGER_LITELLM_URL = %q, want %q", result["LLM_MANAGER_LITELLM_URL"], "http://example.com")
+	if result["LITELLM_URL"] != "http://example.com" {
+		t.Errorf("LITELLM_URL = %q, want %q", result["LITELLM_URL"], "http://example.com")
 	}
 
 	if result["LLM_MANAGER_DATA_DIR"] != "/custom/data" {
@@ -142,7 +142,7 @@ func TestReadConfigFile_InvalidKey(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
 	// Write a config file with an unknown key
-	err := os.WriteFile(configPath, []byte(`LLM_MANAGER_LITELLM_URL: "http://example.com"
+	err := os.WriteFile(configPath, []byte(`LITELLM_URL: "http://example.com"
 UNKNOWN_KEY: "value"
 `), 0o644)
 	if err != nil {
@@ -169,7 +169,7 @@ func TestWriteConfigFile(t *testing.T) {
 
 	// Write values
 	err := WriteConfigFile(map[string]string{
-		"LLM_MANAGER_LITELLM_URL": "http://example.com",
+		"LITELLM_URL": "http://example.com",
 		"LLM_MANAGER_DATA_DIR":    "/custom/data",
 	})
 	if err != nil {
@@ -182,8 +182,8 @@ func TestWriteConfigFile(t *testing.T) {
 		t.Fatalf("ReadConfigFile() returned error: %v", err)
 	}
 
-	if result["LLM_MANAGER_LITELLM_URL"] != "http://example.com" {
-		t.Errorf("LLM_MANAGER_LITELLM_URL = %q, want %q", result["LLM_MANAGER_LITELLM_URL"], "http://example.com")
+	if result["LITELLM_URL"] != "http://example.com" {
+		t.Errorf("LITELLM_URL = %q, want %q", result["LITELLM_URL"], "http://example.com")
 	}
 
 	if result["LLM_MANAGER_DATA_DIR"] != "/custom/data" {
@@ -199,7 +199,7 @@ func TestWriteConfigFile_FiltersEmptyValues(t *testing.T) {
 
 	// Write values including an empty one
 	err := WriteConfigFile(map[string]string{
-		"LLM_MANAGER_LITELLM_URL": "http://example.com",
+		"LITELLM_URL": "http://example.com",
 		"LLM_MANAGER_DATA_DIR":    "", // should be filtered
 	})
 	if err != nil {
@@ -229,7 +229,7 @@ func TestWriteConfigFile_UpdateExisting(t *testing.T) {
 
 	// Write initial value
 	err := WriteConfigFile(map[string]string{
-		"LLM_MANAGER_LITELLM_URL": "http://old.com",
+		"LITELLM_URL": "http://old.com",
 	})
 	if err != nil {
 		t.Fatalf("WriteConfigFile() returned error: %v", err)
@@ -237,7 +237,7 @@ func TestWriteConfigFile_UpdateExisting(t *testing.T) {
 
 	// Update value
 	err = WriteConfigFile(map[string]string{
-		"LLM_MANAGER_LITELLM_URL": "http://new.com",
+		"LITELLM_URL": "http://new.com",
 	})
 	if err != nil {
 		t.Fatalf("WriteConfigFile() returned error: %v", err)
@@ -249,8 +249,8 @@ func TestWriteConfigFile_UpdateExisting(t *testing.T) {
 		t.Fatalf("ReadConfigFile() returned error: %v", err)
 	}
 
-	if result["LLM_MANAGER_LITELLM_URL"] != "http://new.com" {
-		t.Errorf("LLM_MANAGER_LITELLM_URL = %q, want %q", result["LLM_MANAGER_LITELLM_URL"], "http://new.com")
+	if result["LITELLM_URL"] != "http://new.com" {
+		t.Errorf("LITELLM_URL = %q, want %q", result["LITELLM_URL"], "http://new.com")
 	}
 }
 
@@ -265,8 +265,9 @@ func TestNormalizeKey_Valid(t *testing.T) {
 		"LLM_MANAGER_LLM_DIR",
 		"LLM_MANAGER_INSTALL_DIR",
 		"LLM_MANAGER_HF_CACHE_DIR",
-		"LLM_MANAGER_LITELLM_URL",
+		"LITELLM_URL",
 		"LLM_MANAGER_CONFIG",
+		"HF_TOKEN",
 	}
 
 	for _, key := range validKeys {
@@ -290,7 +291,7 @@ func TestNormalizeKey_Invalid(t *testing.T) {
 		t.Errorf("Error should mention unknown key: %v", err)
 	}
 
-	if !contains(err.Error(), "LLM_MANAGER_LITELLM_URL") {
+	if !contains(err.Error(), "LITELLM_URL") {
 		t.Errorf("Error should list valid keys: %v", err)
 	}
 }
@@ -312,13 +313,13 @@ func TestValidConfigKeys(t *testing.T) {
 	// Check known keys are present
 	hasLitellm := false
 	for _, k := range keys {
-		if k == "LLM_MANAGER_LITELLM_URL" {
+		if k == "LITELLM_URL" {
 			hasLitellm = true
 			break
 		}
 	}
 	if !hasLitellm {
-		t.Error("ValidConfigKeys() missing LLM_MANAGER_LITELLM_URL")
+		t.Error("ValidConfigKeys() missing LITELLM_URL")
 	}
 }
 
@@ -381,7 +382,7 @@ func TestLoadConfig_DefaultsWhenNoFileOrEnv(t *testing.T) {
 
 	t.Setenv("LLM_MANAGER_CONFIG", configPath)
 	t.Setenv("LLM_MANAGER_DATA_DIR", "")
-	t.Setenv("LLM_MANAGER_LITELLM_URL", "")
+	t.Setenv("LITELLM_URL", "")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -400,14 +401,14 @@ func TestLoadConfig_LiteLLMURLFromConfigFile(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
 	// Write a config file with LiteLLM URL
-	err := os.WriteFile(configPath, []byte(`LLM_MANAGER_LITELLM_URL: "http://litellm:4000"
+	err := os.WriteFile(configPath, []byte(`LITELLM_URL: "http://litellm:4000"
 `), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write test config: %v", err)
 	}
 
 	t.Setenv("LLM_MANAGER_CONFIG", configPath)
-	t.Setenv("LLM_MANAGER_LITELLM_URL", "")
+	t.Setenv("LITELLM_URL", "")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -424,14 +425,14 @@ func TestLoadConfig_LiteLLMURLEnvOverride(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
 	// Write a config file
-	err := os.WriteFile(configPath, []byte(`LLM_MANAGER_LITELLM_URL: "http://litellm:4000"
+	err := os.WriteFile(configPath, []byte(`LITELLM_URL: "http://litellm:4000"
 `), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write test config: %v", err)
 	}
 
 	t.Setenv("LLM_MANAGER_CONFIG", configPath)
-	t.Setenv("LLM_MANAGER_LITELLM_URL", "http://env-litellm:4000")
+	t.Setenv("LITELLM_URL", "http://env-litellm:4000")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -471,3 +472,93 @@ func TestConfigFilePath(t *testing.T) {
 		t.Errorf("ConfigFilePath() = %q, want %q", path, customPath)
 	}
 }
+
+// --- Tests for HF_TOKEN loading priority ---
+
+func TestLoadConfig_HFTOKENFromConfigFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Write a config file with HF_TOKEN
+	err := os.WriteFile(configPath, []byte(`HF_TOKEN: "hf_config_file_token_12345"
+`), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	t.Setenv("LLM_MANAGER_CONFIG", configPath)
+	t.Setenv("HF_TOKEN", "")
+	t.Setenv("HUGGING_FACE_HUB_TOKEN", "")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() returned error: %v", err)
+	}
+
+	if cfg.HfToken != "hf_config_file_token_12345" {
+		t.Errorf("LoadConfig().HfToken = %q, want %q (from config file)", cfg.HfToken, "hf_config_file_token_12345")
+	}
+}
+
+func TestLoadConfig_HF_TOKEEnvOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Write a config file
+	err := os.WriteFile(configPath, []byte(`HF_TOKEN: "hf_config_file_token_12345"
+`), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	t.Setenv("LLM_MANAGER_CONFIG", configPath)
+	t.Setenv("HF_TOKEN", "hf_env_token_override")
+	t.Setenv("HUGGING_FACE_HUB_TOKEN", "")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() returned error: %v", err)
+	}
+
+	if cfg.HfToken != "hf_env_token_override" {
+		t.Errorf("LoadConfig().HfToken = %q, want %q (HF_TOKEN env var wins over config file)", cfg.HfToken, "hf_env_token_override")
+	}
+}
+
+func TestLoadConfig_HUGGING_FACE_HUB_TOKENFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	t.Setenv("LLM_MANAGER_CONFIG", configPath)
+	t.Setenv("HF_TOKEN", "")
+	t.Setenv("HUGGING_FACE_HUB_TOKEN", "hf_fallback_hub_token")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() returned error: %v", err)
+	}
+
+	if cfg.HfToken != "hf_fallback_hub_token" {
+		t.Errorf("LoadConfig().HfToken = %q, want %q (HUGGING_FACE_HUB_TOKEN fallback)", cfg.HfToken, "hf_fallback_hub_token")
+	}
+}
+
+func TestMaskAPIKey_HF_TOKEN(t *testing.T) {
+	hfToken := DefaultValues()["HF_TOKEN"]
+	masked := maskAPIKey(hfToken)
+
+	if hfToken == "" && masked != "****" {
+		t.Errorf("maskAPIKey(empty) = %q, want %q", masked, "****")
+	}
+
+	longToken := "hf_test_token_that_is_long_enough_for_masking"
+	maskedLong := maskAPIKey(longToken)
+	expectedPrefix := longToken[:8]
+	expectedSuffix := longToken[len(longToken)-4:]
+	expected := expectedPrefix + "..." + expectedSuffix
+	if maskedLong != expected {
+		t.Errorf("maskAPIKey(%q) = %q, want %q", longToken, maskedLong, expected)
+	}
+}
+
+

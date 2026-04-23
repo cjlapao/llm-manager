@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/user/llm-manager/internal/config"
+	"github.com/user/llm-manager/internal/crypto"
 	"github.com/user/llm-manager/internal/database"
 	"github.com/user/llm-manager/internal/service"
 )
@@ -92,7 +93,12 @@ func (c *ConfigCommand) runList() int {
 	// Build a map of DB values for quick lookup
 	dbValues := make(map[string]string)
 	for _, cfg := range dbConfigs {
-		dbValues[cfg.Key] = cfg.Value
+		value := cfg.Value
+		// Hide encrypted secret values in display
+		if crypto.IsEncrypted(cfg.Value) {
+			value = "[ENCRYPTED]"
+		}
+		dbValues[cfg.Key] = value
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -262,7 +268,11 @@ func (c *ConfigCommand) runEdit() int {
 		fmt.Println("  (none)")
 	} else {
 		for _, cfg := range dbConfigs {
-			fmt.Printf("  %s = %s\n", cfg.Key, cfg.Value)
+			value := cfg.Value
+			if crypto.IsEncrypted(cfg.Value) {
+				value = "[ENCRYPTED]"
+			}
+			fmt.Printf("  %s = %s\n", cfg.Key, value)
 		}
 	}
 	fmt.Println("\nUse 'llm-manager config set KEY VALUE' to modify database config.")
@@ -301,8 +311,10 @@ VALID KEYS:
   LLM_MANAGER_LLM_DIR       string (path)
   LLM_MANAGER_INSTALL_DIR   string (path)
   LLM_MANAGER_HF_CACHE_DIR  string (path)
-  LLM_MANAGER_LITELLM_URL   string (URL)
-  LLM_MANAGER_CONFIG        string (path)
+   LITELLM_URL             string (URL)
+   LLM_MANAGER_CONFIG        string (path)
+   HF_TOKEN                string (HuggingFace token)
+   OPENAI_API_URL          string (OpenAI API base URL)
 
 EXAMPLES:
   llm-manager config                     # show full configuration

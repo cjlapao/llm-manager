@@ -403,6 +403,8 @@ func TestSlugRegex(t *testing.T) {
 		"a_b_c",
 		"123",
 		"a1b2c3",
+		"has.dot",          // dots are allowed
+		"model.name.v2",    // multiple dots
 	}
 	for _, slug := range validSlugs {
 		if !slugRegex.MatchString(slug) {
@@ -416,8 +418,7 @@ func TestSlugRegex(t *testing.T) {
 		"Start-Caps",
 		"has space",
 		"has/slash",
-		"has.dot",
-		"has@symbol",
+		"@start-symbol",
 	}
 	for _, slug := range invalidSlugs {
 		if slugRegex.MatchString(slug) {

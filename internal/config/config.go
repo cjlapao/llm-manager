@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/user/llm-manager/internal/database"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,6 +35,13 @@ type Config struct {
 	// LiteLLMURL is the base URL of the LiteLLM proxy for constructing api_base.
 	// Format: http://host:port or http://host
 	LiteLLMURL string
+	// LiteLLMAPIKey is the API key for authenticating with the LiteLLM proxy.
+	LiteLLMAPIKey string
+	// HfToken is the token for authenticating with the HuggingFace API.
+	HfToken string
+	// OpenAIAPIURL is the base URL of the OpenAI-compatible API endpoint.
+	// Format: http://host:port/v1 or http://host:port
+	OpenAIAPIURL string
 }
 
 // validConfigKeys defines the set of supported config keys and their defaults.
@@ -45,8 +53,11 @@ var validConfigKeys = map[string]string{
 	"LLM_MANAGER_LLM_DIR":      "",
 	"LLM_MANAGER_INSTALL_DIR":  "",
 	"LLM_MANAGER_HF_CACHE_DIR": "",
-	"LLM_MANAGER_LITELLM_URL":  "",
+	"LITELLM_URL":              "",
+	"LITELLM_API_KEY":          "",
 	"LLM_MANAGER_CONFIG":       "",
+	"HF_TOKEN":                 "",
+	"OPENAI_API_URL":           "",
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -84,8 +95,11 @@ func DefaultValues() map[string]string {
 		"LLM_MANAGER_LLM_DIR":      "/opt/ai-server/llm-compose",
 		"LLM_MANAGER_INSTALL_DIR":  "/opt/ai-server",
 		"LLM_MANAGER_HF_CACHE_DIR": "/opt/ai-server/models",
-		"LLM_MANAGER_LITELLM_URL":  "",
+		"LITELLM_URL":              "",
+		"LITELLM_API_KEY":          "",
 		"LLM_MANAGER_CONFIG":       "",
+		"HF_TOKEN":                 "",
+		"OPENAI_API_URL":           "",
 	}
 }
 
@@ -226,8 +240,20 @@ func LoadConfig() (*Config, error) {
 		cfg.HFCacheDir = val
 	}
 
-	if val, ok := configValues["LLM_MANAGER_LITELLM_URL"]; ok {
+	if val, ok := configValues["LITELLM_URL"]; ok {
 		cfg.LiteLLMURL = val
+	}
+
+	if val, ok := configValues["LITELLM_API_KEY"]; ok {
+		cfg.LiteLLMAPIKey = val
+	}
+
+	if val, ok := configValues["HF_TOKEN"]; ok {
+		cfg.HfToken = val
+	}
+
+	if val, ok := configValues["OPENAI_API_URL"]; ok {
+		cfg.OpenAIAPIURL = val
 	}
 
 	// Layer 3: Override with environment variables (always wins)
@@ -263,8 +289,22 @@ func LoadConfig() (*Config, error) {
 		cfg.HFCacheDir = val
 	}
 
-	if val := os.Getenv("LLM_MANAGER_LITELLM_URL"); val != "" {
+	if val := os.Getenv("LITELLM_URL"); val != "" {
 		cfg.LiteLLMURL = val
+	}
+
+	if val := os.Getenv("LITELLM_API_KEY"); val != "" {
+		cfg.LiteLLMAPIKey = val
+	}
+
+	if val := os.Getenv("HF_TOKEN"); val != "" {
+		cfg.HfToken = val
+	} else if val := os.Getenv("HUGGING_FACE_HUB_TOKEN"); val != "" {
+		cfg.HfToken = val
+	}
+
+	if val := os.Getenv("OPENAI_API_URL"); val != "" {
+		cfg.OpenAIAPIURL = val
 	}
 
 	// Ensure directories exist
@@ -294,6 +334,15 @@ func DataDir() string {
 		return ".local/share/llm-manager"
 	}
 	return filepath.Join(homeDir, ".local", "share", "llm-manager")
+}
+
+// maskAPIKey masks an API key for safe display.
+// Shows first 8 and last 4 characters, masks the middle with asterisks.
+func maskAPIKey(key string) string {
+	if len(key) <= 12 {
+		return "****"
+	}
+	return key[:8] + "..." + key[len(key)-4:]
 }
 
 // ensureDir creates a directory if it does not exist.
@@ -331,6 +380,40 @@ func (c *Config) String() string {
 	fmt.Fprintf(&b, "  llm dir:     %s\n", c.LLMDir)
 	fmt.Fprintf(&b, "  install dir: %s\n", c.InstallDir)
 	fmt.Fprintf(&b, "  hf cache:    %s\n", c.HFCacheDir)
-	fmt.Fprintf(&b, "  litellm url: %s\n", c.LiteLLMURL)
-	return b.String()
+	fmt.Fprintf(&b, "  litellm url:     %s\n", c.LiteLLMURL)
+		fmt.Fprintf(&b, "  litellm api key: %s\n", maskAPIKey(c.LiteLLMAPIKey))
+		fmt.Fprintf(&b, "  hf token:        %s\n", maskAPIKey(c.HfToken))
+		fmt.Fprintf(&b, "  openai api url:  %s\n", c.OpenAIAPIURL)
+		return b.String()
+	}
+
+// MergeFromDB fills empty config fields from database values.
+// Only fields that are still empty are filled — env/file values take priority.
+func (c *Config) MergeFromDB(db database.DatabaseManager) {
+	configs, err := db.ListConfig()
+	if err != nil {
+		// DB not available or error — silently skip
+		return
+	}
+
+	for _, cfg := range configs {
+		switch cfg.Key {
+		case "LITELLM_URL":
+			if c.LiteLLMURL == "" {
+				c.LiteLLMURL = cfg.Value
+			}
+		case "LITELLM_API_KEY":
+			if c.LiteLLMAPIKey == "" {
+				c.LiteLLMAPIKey = cfg.Value
+			}
+		case "HF_TOKEN":
+			if c.HfToken == "" {
+				c.HfToken = cfg.Value
+			}
+		case "OPENAI_API_URL":
+			if c.OpenAIAPIURL == "" {
+				c.OpenAIAPIURL = cfg.Value
+			}
+		}
+	}
 }

@@ -20,27 +20,28 @@ var ValidCapabilities = []string{"vision", "tool-use", "reasoning", "multi-turn"
 // tool-use -> supports_function_calling, supports_tool_choice
 // reasoning -> supports_reasoning
 var CapabilitiesToModelInfo = map[string][]string{
-	"vision":    {"supports_vision", "supports_embedding_image_input"},
-	"tool-use":  {"supports_function_calling", "supports_tool_choice"},
-	"reasoning": {"supports_reasoning"},
+	"vision":     {"supports_vision", "supports_embedding_image_input"},
+	"tool-use":   {"supports_function_calling", "supports_tool_choice"},
+	"reasoning":  {"supports_reasoning"},
+	"multi-turn": {"supports_multi_turn"},
 }
 
-// slugRegex validates that a slug is alphanumeric (with hyphens/underscores), starting with alphanumeric.
-var slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+// slugRegex validates that a slug is alphanumeric (with hyphens/underscores/dots), starting with alphanumeric.
+var slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
 // ModelYAML represents the YAML schema for model import.
 type ModelYAML struct {
-	Slug            string            `yaml:"slug"`
-	Name            string            `yaml:"name"`
-	Engine          string            `yaml:"engine"`
-	HFRepo          string            `yaml:"hf_repo"`
-	Container       string            `yaml:"container"`
-	Port            int               `yaml:"port"`
+	Slug            string      `yaml:"slug"`
+	Name            string      `yaml:"name"`
+	Engine          string      `yaml:"engine"`
+	HFRepo          string      `yaml:"hf_repo"`
+	Container       string      `yaml:"container"`
+	Port            int         `yaml:"port"`
 	EnvVars         map[string]string `yaml:"environment"`
-	CommandArgs     map[string]string `yaml:"command"`
-	InputTokenCost  *float64          `yaml:"input_token_cost"`
-	OutputTokenCost *float64          `yaml:"output_token_cost"`
-	Capabilities    []string          `yaml:"capabilities"`
+	CommandArgs     []interface{} `yaml:"command"`
+	InputTokenCost  *float64    `yaml:"input_token_cost"`
+	OutputTokenCost *float64    `yaml:"output_token_cost"`
+	Capabilities    []string    `yaml:"capabilities"`
 	// LiteLLM parameters - optional, supports mixed types (float, int, string, bool, nested maps, arrays).
 	// The system will auto-construct api_base (from config URL + port) and model (from slug) during import.
 	LiteLLMParams map[string]interface{} `yaml:"litellm_params"`
@@ -71,7 +72,7 @@ func Validate(y *ModelYAML) []error {
 	if y.Slug == "" {
 		errs = append(errs, fmt.Errorf("slug is required"))
 	} else if !slugRegex.MatchString(y.Slug) {
-		errs = append(errs, fmt.Errorf("slug must match ^[a-z0-9][a-z0-9_-]*$ (got %q)", y.Slug))
+		errs = append(errs, fmt.Errorf("slug must match ^[a-z0-9][a-z0-9._-]*$ (got %q)", y.Slug))
 	}
 
 	if y.Name == "" {
@@ -132,7 +133,7 @@ func ValidateNonCapabilities(y *ModelYAML) []error {
 	if y.Slug == "" {
 		errs = append(errs, fmt.Errorf("slug is required"))
 	} else if !slugRegex.MatchString(y.Slug) {
-		errs = append(errs, fmt.Errorf("slug must match ^[a-z0-9][a-z0-9_-]*$ (got %q)", y.Slug))
+		errs = append(errs, fmt.Errorf("slug must match ^[a-z0-9][a-z0-9._-]*$ (got %q)", y.Slug))
 	}
 
 	if y.Name == "" {

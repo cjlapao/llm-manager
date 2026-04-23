@@ -140,7 +140,7 @@ func TestSetConfig_MultipleKeys(t *testing.T) {
 	keys := []string{
 		"LLM_MANAGER_DATA_DIR",
 		"LLM_MANAGER_LOG_DIR",
-		"LLM_MANAGER_LITELLM_URL",
+		"LITELLM_URL",
 	}
 	values := []string{
 		"/custom/data",
@@ -335,7 +335,7 @@ func TestListConfig(t *testing.T) {
 	}
 
 	// Set some values
-	mgr.SetConfig("LLM_MANAGER_LITELLM_URL", "http://example.com")
+	mgr.SetConfig("LITELLM_URL", "http://example.com")
 	mgr.SetConfig("LLM_MANAGER_DATA_DIR", "/custom/data")
 	mgr.SetConfig("LLM_MANAGER_LOG_DIR", "/custom/log")
 
@@ -365,7 +365,7 @@ func TestListConfig(t *testing.T) {
 	expected := map[string]string{
 		"LLM_MANAGER_DATA_DIR":    "/custom/data",
 		"LLM_MANAGER_LOG_DIR":     "/custom/log",
-		"LLM_MANAGER_LITELLM_URL": "http://example.com",
+		"LITELLM_URL": "http://example.com",
 	}
 
 	for k, v := range expected {

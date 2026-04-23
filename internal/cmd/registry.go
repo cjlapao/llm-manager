@@ -74,7 +74,7 @@ func (d *CommandDispatcher) Dispatch(cmdName string, args []string) int {
 	factory, ok := commandRegistry[cmdName]
 	registryMu.RUnlock()
 	if !ok {
-		return 1
+		return 127
 	}
 
 	cmd := factory(root)

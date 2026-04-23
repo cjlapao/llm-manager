@@ -79,6 +79,12 @@ func (c *ModelCommand) Run(args []string) int {
 		return NewExportCommand(c.cfg).Run(args[1:])
 	case "compose":
 		return NewComposeCommand(c.cfg).Run(args[1:])
+	case "clear-cache":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "Error: 'clear-cache' requires a model slug\n")
+			return 1
+		}
+		return c.runClearCache(args[1])
 	case "help", "-h", "--help":
 		c.PrintHelp()
 		return 0
@@ -307,6 +313,95 @@ func (c *ModelCommand) runInfo(slug string) int {
 	return 0
 }
 
+// runClearCache removes the entire HF cache directory for a model (blobs, refs, snapshots).
+func (c *ModelCommand) runClearCache(slug string) int {
+	model, err := c.svc.GetModel(slug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: model %s not found: %v\n", slug, err)
+		return 1
+	}
+
+	if model.HFRepo == "" {
+		fmt.Fprintf(os.Stderr, "Error: model %s has no HF repo configured\n", slug)
+		return 1
+	}
+
+	// Convert HF repo to cache directory name: Qwen/Qwen3.6-35B-A3B -> models--Qwen--Qwen3.6-35B-A3B
+	cacheDir := "models--" + strings.ReplaceAll(model.HFRepo, "/", "--")
+
+	// Check both standard and legacy cache layouts
+	cachePaths := []string{
+		filepath.Join(c.cfg.cfg.HFCacheDir, "hub", cacheDir),
+		filepath.Join(c.cfg.cfg.HFCacheDir, cacheDir),
+	}
+
+	var deletedPaths []string
+	for _, dir := range cachePaths {
+		if _, err := os.Stat(dir); err == nil {
+			// Count files before deletion
+			fileCount, dirSize := countDirFiles(dir)
+
+			fmt.Printf("Removing cache for %s (%s):\n", slug, model.HFRepo)
+			fmt.Printf("  Path: %s\n", dir)
+			fmt.Printf("  Files: %d (%s)\n", fileCount, formatSize(dirSize))
+
+			if err := os.RemoveAll(dir); err != nil {
+				fmt.Fprintf(os.Stderr, "  Error: failed to remove %s: %v\n", dir, err)
+				continue
+			}
+
+			deletedPaths = append(deletedPaths, dir)
+			fmt.Printf("  ✓ Removed\n")
+		}
+	}
+
+	if len(deletedPaths) == 0 {
+		fmt.Printf("No cache found for %s (%s)\n", slug, model.HFRepo)
+		return 0
+	}
+
+	fmt.Printf("\nCache cleared for %d path(s)\n", len(deletedPaths))
+	return 0
+}
+
+// countDirFiles recursively counts files and sums total size under a directory.
+func countDirFiles(root string) (int64, int64) {
+	var files int64
+	var size int64
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			files++
+			size += info.Size()
+		}
+		return nil
+	})
+	return files, size
+}
+
+// formatSize formats a byte count as human-readable.
+func formatSize(n int64) string {
+	const (
+		_ = iota
+		KB = 1 << (10 * iota)
+		MB
+		GB
+		TB
+	)
+	switch {
+	case n >= TB:
+		return fmt.Sprintf("%.1fTB", float64(n)/TB)
+	case n >= GB:
+		return fmt.Sprintf("%.1fGB", float64(n)/GB)
+	case n >= MB:
+		return fmt.Sprintf("%.1fMB", float64(n)/MB)
+	default:
+		return fmt.Sprintf("%dB", n)
+	}
+}
+
 // printNestedMap recursively prints a map with indentation.
 func printNestedMap(m map[string]interface{}, indent string) {
 	for k, v := range m {
@@ -352,6 +447,7 @@ SUBCOMMANDS:
   import <file.yaml> [options]        Import a model from a YAML file
   export <slug> [options]             Export a model to a YAML file
   compose <slug> [options]            Generate a docker-compose.yml file
+  clear-cache <slug>                  Remove cached model weights
 
 OPTIONS:
   --input-cost <float>              Override input token cost (import)
@@ -369,7 +465,8 @@ EXAMPLES:
   llm-manager model import model.yaml
   llm-manager model import model.yaml --input-cost 0.000001
   llm-manager model export qwen3_6
-  llm-manager model export qwen3_6 --output backup.yaml`)
+  llm-manager model export qwen3_6 --output backup.yaml
+  llm-manager model clear-cache qwen3_6`)
 }
 
 // knownFluxModels returns the list of known flux model slugs.

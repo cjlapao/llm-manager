@@ -41,6 +41,9 @@ func (c *RootCommand) Run(args []string) int {
 	c.db = db
 	defer db.Close()
 
+	// Merge database config into the config struct (env/file take priority)
+	c.cfg.MergeFromDB(c.db)
+
 	if len(args) < 1 {
 		c.PrintHelp()
 		return 0
@@ -63,7 +66,7 @@ func (c *RootCommand) Run(args []string) int {
 	// Dispatch to registered commands
 	dispatcher := NewCommandDispatcher(c.cfg, c.db)
 	exitCode := dispatcher.Dispatch(args[0], args[1:])
-	if exitCode == 1 {
+	if exitCode == 127 {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 		c.PrintHelp()
 		return 1

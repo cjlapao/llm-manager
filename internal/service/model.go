@@ -3,16 +3,53 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/user/llm-manager/internal/database/models"
 	"github.com/user/llm-manager/pkg/yamlparser"
 )
 
+// resolvePortCollision scans existing models for any conflict with the requested port.
+// It returns (resolvedPort, changed bool) where changed=true means the user's explicit
+// value was bumped because another model already claimed that slot. If no collisions
+// exist within a reasonable search window the original port stays untouched.
+func (s *ModelService) resolvePortCollision(requestedPort int) (int, bool) {
+    allModels, err := s.db.ListModels()
+    if err != nil || len(allModels) == 0 { // Nothing in DB yet
+        return requestedPort, false
+    }
+
+    usedPortSet := make(map[int]struct{})
+    for _, m := range allModels {
+        if m.Port > 0 {
+            usedPortSet[m.Port] = struct{}{}
+        }
+    }
+
+    candidate := requestedPort
+    const maxShift = 256 // Sufficiently large cap; realistically < 100 models
+    for shift := 0; shift <= maxShift; shift++ {
+        if _, occupied := usedPortSet[candidate]; !occupied {
+                if shift != 0 { // Bumped away from user-requested slot
+                     fmt.Printf("ℹ Port %d already in use\n",requestedPort)
+                  fmt.Printf ("→ Using free port %d instead.\n,",candidate )  
+               }
+              return candidate, shift != 0
+        }
+        candidate++
+    }
+    
+    // All slots blocked up to boundary; fail gracefully
+    return requestedPort, false
+	}
+	
 // ImportOverrides holds CLI argument overrides for model import.
 type ImportOverrides struct {
 	InputCost    *float64
 	OutputCost   *float64
+	Capabilities []string
+}
 	Capabilities []string
 }
 
@@ -52,7 +89,10 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	}
 
 	// 4. Build litellm_params map from YAML, auto-merging system values
-	litellmParams := s.buildLiteLLMParams(y, s.cfg.LiteLLMURL, y.Slug, y.Port)
+	litellmParams, err := s.buildLiteLLMParams(y, s.cfg.OpenAIAPIURL, y.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build litellm params: %w", err)
+	}
 
 	// 5. Build model_info map from capabilities (auto-generated) + YAML overrides
 	modelInfo := s.buildModelInfo(y)
@@ -149,8 +189,10 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 // auto-merging system-provided values (api_base, model name) and excluding
 // values already present at the YAML root level (input_cost_per_token,
 // output_cost_per_token).
+// Requires openaiAPIURL to be set for api_base construction; returns an error
+// if openaiAPIURL is empty and no api_base is provided in YAML.
 // System values take precedence when not explicitly set in YAML.
-func (s *ModelService) buildLiteLLMParams(y *yamlparser.ModelYAML, litellmURL string, slug string, port int) map[string]interface{} {
+func (s *ModelService) buildLiteLLMParams(y *yamlparser.ModelYAML, openaiAPIURL string, slug string) (map[string]interface{}, error) {
 	params := make(map[string]interface{})
 
 	// Start with YAML-provided values
@@ -164,11 +206,14 @@ func (s *ModelService) buildLiteLLMParams(y *yamlparser.ModelYAML, litellmURL st
 	delete(params, "input_cost_per_token")
 	delete(params, "output_cost_per_token")
 
-	// Auto-construct api_base from config URL + model port
+	// Auto-construct api_base from OPENAI_API_URL
 	// If api_base is already set in YAML, keep it (user override)
-	if _, hasAPIBase := params["api_base"]; !hasAPIBase && litellmURL != "" {
+	if _, hasAPIBase := params["api_base"]; !hasAPIBase {
+		if openaiAPIURL == "" {
+			return nil, fmt.Errorf("OPENAI_API_URL must be set to construct api_base for model creation/update")
+		}
 		// Append /v1 if not already present
-		base := litellmURL
+		base := openaiAPIURL
 		if !strings.HasSuffix(base, "/v1") {
 			base = strings.TrimRight(base, "/") + "/v1"
 		}
@@ -180,7 +225,7 @@ func (s *ModelService) buildLiteLLMParams(y *yamlparser.ModelYAML, litellmURL st
 		params["model"] = slug
 	}
 
-	return params
+	return params, nil
 }
 
 // buildModelInfo constructs the model_info map by:
@@ -214,7 +259,7 @@ func (s *ModelService) buildModelInfo(y *yamlparser.ModelYAML) map[string]interf
 		info["direct_access"] = false
 	}
 	if _, exists := info["litellm_provider"]; !exists {
-		info["litellm_provider"] = "vllm" // default based on engine
+		info["litellm_provider"] = y.Engine // default based on engine type
 	}
 	if _, exists := info["mode"]; !exists {
 		info["mode"] = "chat"
@@ -277,7 +322,7 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 		}
 		y.CommandArgs = make(map[string]string, len(cmdArgs))
 		for k, v := range cmdArgs {
-			y.CommandArgs[k] = fmt.Sprintf("%v", v)
+			y.CommandArgs[k] = formatTypedValue(v)
 		}
 	}
 
@@ -314,4 +359,34 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 	}
 
 	return y, nil
+}
+
+// formatTypedValue converts a typed JSON value back to a string for YAML export.
+// Unlike fmt.Sprintf("%v", v), this handles nil, nested maps, and arrays safely.
+func formatTypedValue(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch val := v.(type) {
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	case float64:
+		// JSON numbers are float64; format without unnecessary decimals
+		s := strconv.FormatFloat(val, 'f', -1, 64)
+		return s
+	case string:
+		return val
+	case fmt.Stringer:
+		return val.String()
+	default:
+		// For nested maps/arrays, serialize to JSON string
+		b, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		return string(b)
+	}
 }

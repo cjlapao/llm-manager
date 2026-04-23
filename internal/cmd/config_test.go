@@ -206,9 +206,9 @@ func TestConfigCommand_Get_Default(t *testing.T) {
 	cmd, _ := newTestConfigCommand(t)
 
 	// No DB, file, or env — should show default
-	exitCode := cmd.Run([]string{"get", "LLM_MANAGER_LITELLM_URL"})
+	exitCode := cmd.Run([]string{"get", "LITELLM_URL"})
 	if exitCode != 0 {
-		t.Errorf("Run([get, LLM_MANAGER_LITELLM_URL]) = %d, want 0", exitCode)
+		t.Errorf("Run([get, LITELLM_URL]) = %d, want 0", exitCode)
 	}
 }
 
@@ -300,9 +300,9 @@ func TestConfigCommand_Set_DefaultValue(t *testing.T) {
 	cmd, _ := newTestConfigCommand(t)
 
 	// Setting a value that matches default should produce a note
-	exitCode := cmd.Run([]string{"set", "LLM_MANAGER_LITELLM_URL", ""})
+	exitCode := cmd.Run([]string{"set", "LITELLM_URL", ""})
 	if exitCode != 0 {
-		t.Errorf("Run([set, LLM_MANAGER_LITELLM_URL, \"\"]) = %d, want 0", exitCode)
+		t.Errorf("Run([set, LITELLM_URL, \"\"]) = %d, want 0", exitCode)
 	}
 }
 

@@ -85,6 +85,7 @@ func TestImportCommand_ValidYAML(t *testing.T) {
 	}
 
 	cfg := config.DefaultConfig()
+	cfg.OpenAIAPIURL = "http://localhost:8000"
 	root := &RootCommand{cfg: cfg, db: db}
 	cmd := NewImportCommand(root)
 
@@ -230,6 +231,7 @@ func TestImportCommand_WithOverrides(t *testing.T) {
 	}
 
 	cfg := config.DefaultConfig()
+	cfg.OpenAIAPIURL = "http://localhost:8000"
 	root := &RootCommand{cfg: cfg, db: db}
 	cmd := NewImportCommand(root)
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/user/llm-manager/internal/config"
+	"github.com/user/llm-manager/internal/crypto"
 	"github.com/user/llm-manager/internal/database"
 )
 
@@ -121,7 +122,7 @@ func TestConfigService_List(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Set() returned error: %v", err)
 	}
-	err = svc.Set("LLM_MANAGER_LITELLM_URL", "http://example.com")
+	err = svc.Set("LITELLM_URL", "http://example.com")
 	if err != nil {
 		t.Fatalf("Set() returned error: %v", err)
 	}
@@ -139,12 +140,12 @@ func TestConfigService_List(t *testing.T) {
 func TestConfigService_SetEmptyValue(t *testing.T) {
 	svc, _ := newTestConfigService(t)
 
-	err := svc.Set("LLM_MANAGER_LITELLM_URL", "")
+	err := svc.Set("LITELLM_URL", "")
 	if err != nil {
 		t.Fatalf("Set() with empty value returned error: %v", err)
 	}
 
-	cfg, err := svc.Get("LLM_MANAGER_LITELLM_URL")
+	cfg, err := svc.Get("LITELLM_URL")
 	if err != nil {
 		t.Fatalf("Get() returned error: %v", err)
 	}
@@ -208,5 +209,62 @@ func TestConfigService_ConfigFileOverride(t *testing.T) {
 	}
 	if cfg.Value != "/db/data" {
 		t.Errorf("Value = %q, want %q (service should store DB value regardless of overrides)", cfg.Value, "/db/data")
+	}
+}
+
+func TestConfigService_HFTOKENSecretEncrypted(t *testing.T) {
+	svc, _ := newTestConfigService(t)
+
+	hfToken := "hf_test_secret_token_abc123"
+
+	err := svc.Set("HF_TOKEN", hfToken)
+	if err != nil {
+		t.Fatalf("Set(HF_TOKEN) returned error: %v", err)
+	}
+
+	cfg, err := svc.Get("HF_TOKEN")
+	if err != nil {
+		t.Fatalf("Get(HF_TOKEN) returned error: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("Get(HF_TOKEN) returned nil")
+	}
+
+	// The stored value should be encrypted (bcrypt prefixed)
+	if !crypto.IsEncrypted(cfg.Value) {
+		t.Errorf("HF_TOKEN was not encrypted in DB: got raw value %q", cfg.Value)
+	}
+
+	// It should NOT match the plaintext
+	if cfg.Value == hfToken {
+		t.Error("HF_TOKEN stored as plaintext in DB instead of encrypted")
+	}
+}
+
+func TestConfigService_HFTOKENVerifyCorrectly(t *testing.T) {
+	svc, _ := newTestConfigService(t)
+
+	hfToken := "hf_verify_correct_token_xyz789"
+
+	err := svc.Set("HF_TOKEN", hfToken)
+	if err != nil {
+		t.Fatalf("Set(HF_TOKEN) returned error: %v", err)
+	}
+
+	matched, err := svc.VerifySecret("HF_TOKEN", hfToken)
+	if err != nil {
+		t.Fatalf("VerifySecret() returned error: %v", err)
+	}
+	if !matched {
+		t.Error("VerifySecret() expected true for correct token, got false")
+	}
+
+	wrongToken := "wrong_token_here"
+	matched, err = svc.VerifySecret("HF_TOKEN", wrongToken)
+	if err != nil {
+		t.Fatalf("VerifySecret() with wrong token returned error: %v", err)
+	}
+	if matched {
+		t.Error("VerifySecret() expected false for wrong token, got true")
 	}
 }

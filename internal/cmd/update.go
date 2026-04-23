@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/user/llm-manager/internal/config"
 	"github.com/user/llm-manager/internal/database"
@@ -51,14 +50,13 @@ func (c *UpdateCommand) Run(args []string) int {
 
 // runUpdateModel pulls weights for a single model or all models.
 func (c *UpdateCommand) runUpdateModel(target string) int {
-	// Check for HF_TOKEN
-	hfToken := os.Getenv("HF_TOKEN")
+	// Check for HF_TOKEN via config first
+	hfToken := c.cfg.HfToken
 	if hfToken == "" {
 		hfToken = os.Getenv("HUGGING_FACE_HUB_TOKEN")
 	}
 	if hfToken == "" {
-		fmt.Fprintf(os.Stderr, "Error: HF_TOKEN or HUGGING_FACE_HUB_TOKEN environment variable is not set.\n")
-		fmt.Fprintf(os.Stderr, "Set it to pull model weights from HuggingFace.\n")
+		fmt.Fprintf(os.Stderr, "Error: HF_TOKEN is not configured. Set it via 'llm-manager config set HF_TOKEN <token>' or HUGGING_FACE_HUB_TOKEN environment variable.\n")
 		return 1
 	}
 
@@ -116,14 +114,16 @@ func (c *UpdateCommand) runUpdateModel(target string) int {
 	for _, m := range models {
 		fmt.Printf("Pulling weights for %s (%s)...\n", m.Slug, m.HFRepo)
 
-		cmd := exec.Command("hf", "download", m.HFRepo, "--token", hfToken, "--quiet")
+		// Run hf download with real-time output streaming
+		cmd := exec.Command("hf", "download", m.HFRepo, "--token", hfToken)
 		cmd.Env = append(os.Environ(),
 			"HF_HOME="+c.cfg.HFCacheDir,
 		)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  ✗ Failed to update %s: %s\n", m.Slug, strings.TrimSpace(string(output)))
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "  ✗ Failed to update %s\n", m.Slug)
 			failures++
 			continue
 		}
