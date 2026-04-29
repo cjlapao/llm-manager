@@ -684,7 +684,10 @@ func (s *ContainerService) StartEmbed() error {
 	if len(models) == 0 {
 		return fmt.Errorf("no embedding models found")
 	}
-	return s.StartModelBySlug(models[0].Slug)
+	// Use StartModelBySlugWithAllow with allowMultiple=false so that
+	// starting an embed model stops any other running embed containers
+	// in the same type+subtype group (per-subtype isolation).
+	return s.StartModelBySlugWithAllow(models[0].Slug, false)
 }
 
 // StopEmbed stops the first available embed model container.
@@ -712,7 +715,10 @@ func (s *ContainerService) StartRerank() error {
 	if len(models) == 0 {
 		return fmt.Errorf("no reranker models found")
 	}
-	return s.StartModelBySlug(models[0].Slug)
+	// Use StartModelBySlugWithAllow with allowMultiple=false so that
+	// starting a rerank model stops any other running rerank containers
+	// in the same type+subtype group (per-subtype isolation).
+	return s.StartModelBySlugWithAllow(models[0].Slug, false)
 }
 
 // StopRerank stops the first available rerank model container.
@@ -945,9 +951,12 @@ func (s *ContainerService) StartModelBySlugWithAllow(slug string, allowMultiple 
 			return fmt.Errorf("failed to write compose file %s: %w", ymlPath, writeErr)
 		}
 
-		// Run docker compose up -d from the compose file directory
+		// Run docker compose up -d with a unique project name per model
+		// to prevent Docker Compose from reconciling services across
+		// different compose files in the same directory.
 		composeDir := filepath.Dir(ymlPath)
-		composeUp := exec.Command("docker", "compose", "-f", ymlPath, "up", "-d")
+		projectName := "rag-" + strings.ReplaceAll(model.Slug, ".", "-")
+		composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
 		composeUp.Dir = composeDir
 		if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
 			return fmt.Errorf("failed to create container %s: %s (%w)", model.Container, string(composeOut), composeErr)

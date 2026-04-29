@@ -36,9 +36,9 @@ func (c *RerankCommand) Run(args []string) int {
 
 	switch args[0] {
 	case "start":
-		return c.runStart()
+		return c.runStart(args[1:])
 	case "stop":
-		return c.runStop()
+		return c.runStop(args[1:])
 	case "info":
 		return c.runInfo()
 	case "help", "-h", "--help":
@@ -100,8 +100,7 @@ func (c *RerankCommand) resolveSlug(args []string) (string, error) {
 
 // runStart starts a rerank model.
 // Usage: rerank start [--default] [<slug>]
-func (c *RerankCommand) runStart() int {
-	args := os.Args[2:] // skip "llm-manager rerank start"
+func (c *RerankCommand) runStart(args []string) int {
 	slug, err := c.resolveSlug(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -118,8 +117,7 @@ func (c *RerankCommand) runStart() int {
 
 // runStop stops a rerank model.
 // Usage: rerank stop [--default] [<slug>]
-func (c *RerankCommand) runStop() int {
-	args := os.Args[2:] // skip "llm-manager rerank stop"
+func (c *RerankCommand) runStop(args []string) int {
 	slug, err := c.resolveSlug(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

@@ -389,9 +389,7 @@ func (s *LiteLLMService) loadExistingModels(slug string, variants interface{}) (
 
 	// Collect ALL matching deployments, not just one per name
 	uuids := make(map[string][]string)
-	totalChecked := 0
 	for _, raw := range resp.Data {
-		totalChecked++
 		var item struct {
 			ModelName    string                 `json:"model_name"`
 			Info         map[string]interface{} `json:"model_info"`
@@ -411,13 +409,11 @@ func (s *LiteLLMService) loadExistingModels(slug string, variants interface{}) (
 		// Match by deployment type
 		if item.ModelName == slug {
 			// Base deployment: exact model_name match
-			fmt.Printf("[SCAN] MATCH (base): %s (id=%s)\n", item.ModelName, id)
 			uuids[item.ModelName] = append(uuids[item.ModelName], id)
 		} else if item.ModelName == "active" || item.ModelName == "active_thinking" {
 			// Alias: check that litellm_params.model points to this slug
 			if item.LiteLLMParams != nil {
 				if paramsModel, ok := item.LiteLLMParams["model"].(string); ok && paramsModel == slug {
-					fmt.Printf("[SCAN] MATCH (alias): %s (id=%s, params.model=%s)\n", item.ModelName, id, paramsModel)
 					uuids[item.ModelName] = append(uuids[item.ModelName], id)
 				}
 			}
@@ -428,27 +424,17 @@ func (s *LiteLLMService) loadExistingModels(slug string, variants interface{}) (
 			if expectedVariantNames[potentialName] {
 				if item.LiteLLMParams != nil {
 					if paramsModel, ok := item.LiteLLMParams["model"].(string); ok && paramsModel == slug {
-						fmt.Printf("[SCAN] MATCH (variant expected): %s (id=%s, params.model=%s)\n", item.ModelName, id, paramsModel)
 						uuids[item.ModelName] = append(uuids[item.ModelName], id)
 					}
 				}
 			} else if item.LiteLLMParams != nil {
 				// Fallback: any deployment starting with slug+ that points here is ours
 				if paramsModel, ok := item.LiteLLMParams["model"].(string); ok && paramsModel == slug {
-					fmt.Printf("[SCAN] MATCH (variant fallback): %s (id=%s, params.model=%s)\n", item.ModelName, id, paramsModel)
 					uuids[item.ModelName] = append(uuids[item.ModelName], id)
-				}
-			}
-		} else {
-			// Debug: log non-matching items that have litellm_params.model == slug
-			if item.LiteLLMParams != nil {
-				if paramsModel, ok := item.LiteLLMParams["model"].(string); ok && paramsModel == slug {
-					fmt.Printf("[SCAN] SKIP (no prefix): %s != %s and no prefix match (id=%s)\n", item.ModelName, slug, id)
 				}
 			}
 		}
 	}
-	fmt.Printf("[SCAN] Checked %d items, matched %d groups\n", totalChecked, len(uuids))
 	return uuids, nil
 }
 
@@ -868,12 +854,6 @@ func (s *LiteLLMService) AddModel(slug string) error {
 		names[i] = sp.Name
 	}
 
-	fmt.Printf("[STAGE 1] Collected %d deployment(s):\n", len(specs))
-	for _, sp := range specs {
-		fmt.Printf("  📋 %-30s (%s)\n", sp.Name, sp.Type)
-	}
-	fmt.Println()
-
 	// ┌─────────────────────────────────────────┐
 	// │ STAGE 2: SCAN — single API call         │
 	// │         gets ALL model ids incl         │
@@ -952,12 +932,6 @@ func (s *LiteLLMService) UpdateModel(slug string) error {
 		names[i] = sp.Name
 	}
 
-	fmt.Printf("[STAGE 1] Updated %d deployment(s):\n", len(specs))
-	for _, sp := range specs {
-		fmt.Printf("  📋 %-30s (%s)\n", sp.Name, sp.Type)
-	}
-	fmt.Println()
-
 	// ┌─────────────────────────────────────────┐
 	// │ STAGE 2: SCAN                           │
 	// └─────────────────────────────────────────┘
@@ -965,19 +939,6 @@ func (s *LiteLLMService) UpdateModel(slug string) error {
 	if err != nil {
 		return fmt.Errorf("stage 2 scan: %w", err)
 	}
-
-	fmt.Printf("[SYNC] Stage 2 scan: found %d deployment groups\n", len(existing))
-	for name, ids := range existing {
-		fmt.Printf("[SYNC]   %s: %d deployment(s) [", name, len(ids))
-		for i, id := range ids {
-			if i > 0 {
-				fmt.Print(", ")
-			}
-			fmt.Print(id[:10])
-		}
-		fmt.Println("]")
-	}
-	fmt.Println()
 
 	// ┌─────────────────────────────────────────┐
 	// │ STAGE 3: REPLICATE                      │
@@ -1140,49 +1101,13 @@ func (s *LiteLLMService) CleanDuplicates(slug string) error {
 					lastErr = fmt.Errorf("%w; failed to delete duplicate \"%s\" (id=%s): %w", lastErr, item.ModelName, id, dErr)
 				} else {
 					deleted++
-					fmt.Printf("  [CLEAN] Deleted %s (id=%s)\n", item.ModelName, id)
 				}
 			}
 		}
 	}
 
 	if deleted > 0 {
-		fmt.Printf("[CLEAN] Cleaned %d duplicate deployment(s) for %s\n", deleted, slug)
-	} else {
-		fmt.Printf("[CLEAN] No duplicate deployments found for %s (deleted=%d)\n", slug, deleted)
-	}
-
-	// Verify: re-scan to confirm nothing remains
-	fmt.Printf("[CLEAN] Post-cleanup verification scan for slug=%s\n", slug)
-	verifyBody, err := s.doRequest("GET", "/model/info", nil)
-	if err != nil {
-		fmt.Printf("[CLEAN] Warning: could not verify cleanup: %v\n", err)
-	} else {
-		var verifyResp struct {
-			Data []json.RawMessage `json:"data"`
-		}
-		if err := json.Unmarshal(verifyBody, &verifyResp); err == nil {
-			remaining := 0
-			for _, raw := range verifyResp.Data {
-				var item struct {
-					ModelName    string                 `json:"model_name"`
-					Info         map[string]interface{} `json:"model_info"`
-					LiteLLMParams map[string]interface{} `json:"litellm_params"`
-				}
-				if err := json.Unmarshal(raw, &item); err != nil {
-					continue
-				}
-				if item.LiteLLMParams != nil {
-					if pm, ok := item.LiteLLMParams["model"].(string); ok && pm == slug {
-						remaining++
-						if id2, _ := item.Info["id"].(string); id2 != "" {
-							fmt.Printf("  [CLEAN] REMAINING after cleanup: %s (id=%s)\n", item.ModelName, id2)
-						}
-					}
-				}
-			}
-			fmt.Printf("[CLEAN] Post-cleanup: %d deployment(s) still matching litellm_params.model=%s\n", remaining, slug)
-		}
+		fmt.Printf("Cleaned %d duplicate deployment(s) for %s\n", deleted, slug)
 	}
 
 	return lastErr
@@ -1193,19 +1118,12 @@ func (s *LiteLLMService) SyncModel(slug string) error {
 		return fmt.Errorf("model %s not found in database: %w", slug, err)
 	}
 
-	fmt.Printf("[SYNC] LitellmModelID='%s' (empty=%v)\n", dbModel.LitellmModelID, dbModel.LitellmModelID == "")
-	fmt.Printf("[SYNC] LitellmActiveAliases='%s'\n", dbModel.LitellmActiveAliases)
-	fmt.Printf("[SYNC] LitellmVariantIDs='%s'\n", dbModel.LitellmVariantIDs)
-
 	if dbModel.LitellmModelID == "" {
-		fmt.Printf("[SYNC] No stored IDs — calling AddModel\n")
 		return s.AddModel(slug)
 	}
 
-	fmt.Printf("[SYNC] Has stored IDs — calling UpdateModel\n")
 	err = s.UpdateModel(slug)
 	if err == nil {
-		fmt.Printf("[SYNC] UpdateModel succeeded\n")
 		fmt.Printf("Model %s updated in LiteLLM (base=%s)\n", slug, dbModel.LitellmModelID)
 		return nil
 	}
@@ -1215,7 +1133,6 @@ func (s *LiteLLMService) SyncModel(slug string) error {
 		strings.Contains(errMsg, "not found")
 
 	if isRemoteGone {
-		fmt.Println("[SYNC] Remote model missing — performing fresh sync")
 		s.db.UpdateModel(slug, map[string]interface{}{
 			"litellm_model_id":       "",
 			"litellm_active_aliases": "",

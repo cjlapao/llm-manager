@@ -2,8 +2,6 @@ package database
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/glebarez/sqlite"
@@ -518,15 +516,13 @@ func (m *sqliteManager) DeleteBaseImage(slug string) error {
 	if m.db == nil {
 		return fmt.Errorf("database not open")
 	}
-	baseimage, err := m.GetBaseImageBySlug(slug)
+	_, err := m.GetBaseImageBySlug(slug)
 	if err != nil {
 		return err
 	}
-	// Remove composed yml file if it exists
-	if baseimage.ComposedYmlFile != "" {
-		ymlPath := filepath.Join("/opt/ai-server/llm-compose", baseimage.ComposedYmlFile)
-		os.Remove(ymlPath) // best-effort remove
-	}
+	// Note: ComposedYmlFile cleanup is handled by the service layer,
+	// not the persistence layer. Best-effort file removal is avoided
+	// here because the path is environment-specific.
 	result := m.db.Where("slug = ?", slug).Delete(&models.BaseImage{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete base image %s: %w", slug, result.Error)
