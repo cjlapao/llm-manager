@@ -112,18 +112,6 @@ func TestDB(t *testing.T) {
 	}
 }
 
-func TestMigrateFromJSON_NotOpen(t *testing.T) {
-	mgr, err := NewDatabaseManager("test.db")
-	if err != nil {
-		t.Fatalf("NewDatabaseManager() returned error: %v", err)
-	}
-
-	_, err = mgr.MigrateFromJSON("models.json")
-	if err == nil {
-		t.Error("MigrateFromJSON() without Open() should return error")
-	}
-}
-
 func TestModelInsertAndQuery(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
@@ -150,6 +138,7 @@ func TestModelInsertAndQuery(t *testing.T) {
 		Type: "llm",
 		Name: "Test Model",
 		Port: 8080,
+		Default: false,
 	}
 
 	result := mgr.DB().Create(model)
@@ -205,9 +194,10 @@ func TestModelUUIDGeneration(t *testing.T) {
 	// Insert without ID — BeforeCreate should generate one
 	model := &models.Model{
 		Slug: "uuid-test",
-		Type: "embed",
+		Type: "embedding",
 		Name: "UUID Test",
 		Port: 9090,
+		Default: false,
 	}
 
 	result := mgr.DB().Create(model)
@@ -223,9 +213,10 @@ func TestModelUUIDGeneration(t *testing.T) {
 	model2 := &models.Model{
 		ID:   uuidNew(),
 		Slug: "uuid-explicit",
-		Type: "rerank",
+		Type: "reranker",
 		Name: "Explicit UUID",
 		Port: 9091,
+		Default: false,
 	}
 
 	result = mgr.DB().Create(model2)

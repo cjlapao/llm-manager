@@ -44,6 +44,9 @@ func (c *LogsCommand) Run(args []string) int {
 		switch arg {
 		case "-f", "--follow":
 			follow = true
+		case "-h", "--help", "help":
+			c.PrintHelp()
+			return 0
 		default:
 			if slug == "" {
 				slug = arg
@@ -74,11 +77,9 @@ func (c *LogsCommand) runLogs(slug string, lines int, follow bool) int {
 	}
 
 	if follow {
-		// Follow mode: stream logs in real-time
+		// Follow mode: stream logs in real-time, signal-safe
 		cmd := exec.Command("docker", "logs", "-f", "--tail", fmt.Sprintf("%d", lines), containerName)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := RunInteractive(cmd); err != nil {
 			fmt.Fprintf(os.Stderr, "Error following logs for %s: %v\n", containerName, err)
 			return 1
 		}

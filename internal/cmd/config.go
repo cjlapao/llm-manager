@@ -240,11 +240,7 @@ func (c *ConfigCommand) runEdit() int {
 		}
 
 		cmd := exec.Command(editor, path)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
+		if err := RunInteractive(cmd); err != nil {
 			if _, ok := err.(*exec.ExitError); ok {
 				// Editor exited with non-zero status (e.g., :q in vi)
 				return 0

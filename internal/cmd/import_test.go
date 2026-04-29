@@ -101,8 +101,8 @@ environment:
   VLLM_HOST: "0.0.0.0"
 
 command:
-  model: "test/import-model"
-  max-model-len: "8192"
+  - "--model test/import-model"
+  - "-max-model-len 8192"
 
 input_token_cost: 0.0000003
 output_token_cost: 0.0000004
@@ -156,10 +156,11 @@ func TestImportCommand_DuplicateSlug(t *testing.T) {
 
 	// Create existing model
 	existing := &models.Model{
-		Slug: "existing-model",
-		Type: "llm",
-		Name: "Existing Model",
-		Port: 8000,
+		Slug:    "existing-model",
+		Type:    "llm",
+		Name:    "Existing Model",
+		Port:    8000,
+		Default: false,
 	}
 	if err := db.CreateModel(existing); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)

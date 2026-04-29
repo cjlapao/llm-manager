@@ -2,6 +2,7 @@ package yamlparser
 
 import (
 	"os"
+	"strings"
 	"path/filepath"
 	"testing"
 )
@@ -197,7 +198,7 @@ func TestValidate_ValidAllFields(t *testing.T) {
 		Container:       "llm-qwen3-next",
 		Port:            8017,
 		EnvVars:         map[string]string{"HUGGING_FACE_HUB_TOKEN": "${HF_TOKEN}", "VLLM_HOST": "0.0.0.0"},
-		CommandArgs:     map[string]string{"model": "Qwen/Qwen3-Next-80B-A3B-Instruct", "max-model-len": "131072"},
+		CommandArgs:     []string{"--model", "Qwen/Qwen3-Next-80B-A3B-Instruct", "--max-model-len", "131072"},
 		InputTokenCost:  &inputCost,
 		OutputTokenCost: &outputCost,
 		Capabilities:    []string{"reasoning", "tool-use", "multi-turn"},
@@ -218,10 +219,7 @@ func TestValidate_EnvVarsAndCommandArgs(t *testing.T) {
 			"KEY1": "value1",
 			"KEY2": "value2",
 		},
-		CommandArgs: map[string]string{
-			"arg1": "val1",
-			"arg2": "val2",
-		},
+		CommandArgs: []string{"--arg1", "val1", "--arg2", "val2"},
 	}
 	errs := Validate(y)
 	if len(errs) != 0 {
@@ -230,8 +228,8 @@ func TestValidate_EnvVarsAndCommandArgs(t *testing.T) {
 	if len(y.EnvVars) != 2 {
 		t.Errorf("EnvVars has %d entries, want 2", len(y.EnvVars))
 	}
-	if len(y.CommandArgs) != 2 {
-		t.Errorf("CommandArgs has %d entries, want 2", len(y.CommandArgs))
+	if len(y.CommandArgs) != 4 {
+		t.Errorf("CommandArgs has %d entries, want 4", len(y.CommandArgs))
 	}
 }
 
@@ -266,11 +264,11 @@ environment:
   VLLM_HOST: "0.0.0.0"
 
 command:
-  model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
-  served-model-name: "qwen3-next"
-  max-model-len: "131072"
-  kv-cache-dtype: "fp8"
-  gpu-memory-utilization: "0.78"
+  - "--model Qwen/Qwen3-Next-80B-A3B-Instruct"
+  - "-served-model-name qwen3-next"
+  - "-max-model-len 131072"
+  - "-kv-cache-dtype fp8"
+  - "-gpu-memory-utilization 0.78"
 
 input_token_cost: 0.0000003
 output_token_cost: 0.0000004
@@ -320,11 +318,23 @@ capabilities:
 	if len(y.CommandArgs) != 5 {
 		t.Errorf("CommandArgs has %d entries, want 5", len(y.CommandArgs))
 	}
-	if y.CommandArgs["model"] != "Qwen/Qwen3-Next-80B-A3B-Instruct" {
-		t.Errorf("CommandArgs[model] = %q, want %q", y.CommandArgs["model"], "Qwen/Qwen3-Next-80B-A3B-Instruct")
+	foundModel := false
+	for _, arg := range y.CommandArgs {
+		if strings.Contains(arg, "--model") && strings.Contains(arg, "Qwen/Qwen3-Next-80B-A3B-Instruct") {
+			foundModel = true
+		}
 	}
-	if y.CommandArgs["kv-cache-dtype"] != "fp8" {
-		t.Errorf("CommandArgs[kv-cache-dtype] = %q, want %q", y.CommandArgs["kv-cache-dtype"], "fp8")
+	if !foundModel {
+		t.Errorf("CommandArgs missing --model Qwen/Qwen3-Next-80B-A3B-Instruct, got %v", y.CommandArgs)
+	}
+	foundKVCache := false
+	for _, arg := range y.CommandArgs {
+		if strings.Contains(arg, "kv-cache-dtype") && strings.Contains(arg, "fp8") {
+			foundKVCache = true
+		}
+	}
+	if !foundKVCache {
+		t.Errorf("CommandArgs missing kv-cache-dtype fp8, got %v", y.CommandArgs)
 	}
 
 	inputCost := 0.0000003

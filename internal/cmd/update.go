@@ -114,15 +114,15 @@ func (c *UpdateCommand) runUpdateModel(target string) int {
 	for _, m := range models {
 		fmt.Printf("Pulling weights for %s (%s)...\n", m.Slug, m.HFRepo)
 
-		// Run hf download with real-time output streaming
+		// Run hf download with real-time output streaming, signal-safe
 		cmd := exec.Command("hf", "download", m.HFRepo, "--token", hfToken)
-		cmd.Env = append(os.Environ(),
+		cmd.Env = envWithOverrides(os.Environ(),
 			"HF_HOME="+c.cfg.HFCacheDir,
+			"HF_TOKEN="+hfToken,
+			"HUGGING_FACE_HUB_TOKEN="+hfToken,
 		)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
 
-		if err := cmd.Run(); err != nil {
+		if err := RunInteractive(cmd); err != nil {
 			fmt.Fprintf(os.Stderr, "  ✗ Failed to update %s\n", m.Slug)
 			failures++
 			continue

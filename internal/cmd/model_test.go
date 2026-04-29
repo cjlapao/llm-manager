@@ -200,7 +200,9 @@ func TestContainerCommand_ResolveServiceAlias(t *testing.T) {
 	aliases := map[string]string{
 		"comfyui":    "comfyui-flux",
 		"embed":      "llm-embed",
+		"embedding":  "llm-embed",
 		"rerank":     "llm-rerank",
+		"reranker":   "llm-rerank",
 		"whisper":    "whisper-stt",
 		"kokoro":     "kokoro-tts",
 		"litellm":    "litellm",
@@ -269,6 +271,7 @@ func TestModelCommand_GetWithNewDB(t *testing.T) {
 		YML:       "test.yml",
 		Container: "test-container",
 		Port:      8080,
+		Default:   false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)

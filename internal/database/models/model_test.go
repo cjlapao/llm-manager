@@ -92,7 +92,7 @@ func TestModelFields(t *testing.T) {
 		{
 			name: "embed model",
 			slug: "qwen3-embedding",
-			typ:  "embed",
+			typ:  "embedding",
 			nm:   "Qwen3-Embedding 0.6B",
 			hf:   "Qwen/Qwen3-Embedding-0.6B",
 			ct:   "llm-embed",
@@ -101,7 +101,7 @@ func TestModelFields(t *testing.T) {
 		{
 			name: "rerank model",
 			slug: "qwen3-reranker",
-			typ:  "rerank",
+			typ:  "reranker",
 			nm:   "Qwen3-Reranker 0.6B",
 			hf:   "Qwen/Qwen3-Reranker-0.6B",
 			ct:   "llm-rerank",

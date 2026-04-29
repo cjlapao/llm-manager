@@ -13,7 +13,7 @@ import (
 // ────────────── Unit helpers ──────────────
 
 func TestParseInstallArgs_Empty(t *testing.T) {
-	slug, start := parseInstallArgs([]string{})
+	slug, start, _, _ := parseInstallArgs([]string{})
 	if slug != "" {
 		t.Errorf("parseInstallArgs([]) slug = %q, want \"\"", slug)
 	}
@@ -23,7 +23,7 @@ func TestParseInstallArgs_Empty(t *testing.T) {
 }
 
 func TestParseInstallArgs_SlugOnly(t *testing.T) {
-	slug, start := parseInstallArgs([]string{"my-model"})
+	slug, start, _, _ := parseInstallArgs([]string{"my-model"})
 	if slug != "my-model" {
 		t.Errorf("slug = %q, want \"my-model\"", slug)
 	}
@@ -34,7 +34,7 @@ func TestParseInstallArgs_SlugOnly(t *testing.T) {
 
 func TestParseInstallArgs_StartFlag(t *testing.T) {
 	for _, flag := range []string{"--start", "-s"} {
-		slug, start := parseInstallArgs([]string{"my-model", flag})
+		slug, start, _, _ := parseInstallArgs([]string{"my-model", flag})
 		if slug != "my-model" {
 			t.Errorf("flag %s: slug = %q, want \"my-model\"", flag, slug)
 		}
@@ -45,14 +45,14 @@ func TestParseInstallArgs_StartFlag(t *testing.T) {
 }
 
 func TestParseInstallArgs_HelpSkipped(t *testing.T) {
-	slug, _ := parseInstallArgs([]string{"help", "--start"})
+	slug, _, _, _ := parseInstallArgs([]string{"help", "--start"})
 	if slug != "" {
 		t.Errorf("with 'help' arg should return empty slug, got %q", slug)
 	}
 }
 
 func TestParseInstallArgs_DuplicateSlug(t *testing.T) {
-	slug, _ := parseInstallArgs([]string{"a", "b"})
+	slug, _, _, _ := parseInstallArgs([]string{"a", "b"})
 	if slug == "b" {
 		t.Error("duplicate slug should return first only, not second")
 	}
@@ -190,6 +190,7 @@ func TestInstallCommand_MissingHFToken(t *testing.T) {
 		CommandArgs:     commandArgsJSON,
 		InputTokenCost:  0.000001,
 		OutputTokenCost: 0.000002,
+		Default:         false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
@@ -240,6 +241,7 @@ func TestInstallCommand_MissingLLMDir(t *testing.T) {
 		EnvVars:        envVarsJSON,
 		CommandArgs:    commandArgsJSON,
 		InputTokenCost: 0.000001,
+		Default:        false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
@@ -281,13 +283,14 @@ func TestInstallCommand_NoContainerField(t *testing.T) {
 		Name:           "No Container",
 		HFRepo:         "Qwen/Qwen3-70B",
 		YML:            "models/no-container.yml",
-		Container:      "", // <-- empty
+		Container:      "",
 		Port:           8082,
 		EngineType:     "vllm",
 		EnvVars:        "{}",
 		CommandArgs:    `{"model":"Qwen/Qwen3-70B"}`,
-		InputTokenCost:     0.0000005,
-		OutputTokenCost:    0.0000007,
+		InputTokenCost: 0.0000005,
+		OutputTokenCost: 0.0000007,
+		Default:        false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
@@ -360,6 +363,7 @@ func TestInstallCommand_BackupAndRegenerate_CleanInstall(t *testing.T) {
 		CommandArgs:     commandArgsJSON,
 		InputTokenCost:  0.0000005,
 		OutputTokenCost: 0.0000007,
+		Default:         false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)

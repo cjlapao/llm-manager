@@ -12,6 +12,10 @@ import (
 
 func newTestConfigService(t *testing.T) (*ConfigService, string) {
 	t.Helper()
+
+	// Set encryption key for tests (32 bytes base64-encoded)
+	t.Setenv("LLM_MANAGER_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 

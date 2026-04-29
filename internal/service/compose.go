@@ -16,36 +16,44 @@ type composeTemplateData struct {
 	Container   string            // e.g. "llm-qwen3-next"
 	Port        int               // e.g. 8017
 	EnvVars     map[string]string // from model.EnvVars JSON
-	CommandArgs map[string]string // from model.CommandArgs JSON
+	CommandArgs []string          // from model.CommandArgs JSON as ["--flag", "val", ...]
+	BaseImage   string            // base image slug for extends
 }
 
 // composeTemplate is the docker-compose YAML template.
 const composeTemplate = `services:
   llm:
     extends:
-      file: base-pgx-llm.yml
+      file: {{.BaseImage}}
       service: {{.ServiceName}}
     container_name: {{.Container}}
     ports:
       - "{{.Port}}:8000"
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - HF_TOKEN=${HF_TOKEN}
 {{- range $k, $v := .EnvVars}}
       - {{ $k }}={{ $v }}
 {{- end}}
     command: >
-{{- range $k, $v := .CommandArgs}}
-      --{{ $k }} {{ $v }}{{ end }}
+{{- range $arg := .CommandArgs}}
+      {{ $arg }}{{ end }}
 `
 
 // ComposeGenerator generates docker-compose YAML from a model record.
 type ComposeGenerator struct {
-	vllmTemplate *template.Template
+	vllmTemplate   *template.Template
 	sglangTemplate *template.Template
+	db             DatabaseManager
+}
+
+// DatabaseManager interface for base image lookups.
+type DatabaseManager interface {
+	GetBaseImageBySlug(slug string) (*models.BaseImage, error)
 }
 
 // NewComposeGenerator creates a new ComposeGenerator with pre-parsed templates.
-func NewComposeGenerator() (*ComposeGenerator, error) {
+func NewComposeGenerator(db DatabaseManager) (*ComposeGenerator, error) {
 	vllmTmpl, err := template.New("compose").Parse(composeTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse compose template: %w", err)
@@ -59,6 +67,7 @@ func NewComposeGenerator() (*ComposeGenerator, error) {
 	return &ComposeGenerator{
 		vllmTemplate:   vllmTmpl,
 		sglangTemplate: sglangTmpl,
+		db:             db,
 	}, nil
 }
 
@@ -70,6 +79,31 @@ func parseJSONField(s string, target interface{}) error {
 	return json.Unmarshal([]byte(s), target)
 }
 
+// commandArgsToArray converts a JSON array of strings from CommandArgs.
+// Returns nil/empty slice if the data is in the old map format or empty.
+func commandArgsToArray(commandArgsJSON string) ([]string, error) {
+	if commandArgsJSON == "" {
+		return nil, nil
+	}
+
+	// Try array format first
+	var arr []string
+	if err := json.Unmarshal([]byte(commandArgsJSON), &arr); err == nil {
+		return arr, nil
+	}
+
+	// Fall back to old map format — convert to [key, val, key, val, ...]
+	m := map[string]string{}
+	if err := json.Unmarshal([]byte(commandArgsJSON), &m); err != nil {
+		return nil, fmt.Errorf("command_args is neither array nor map: %w", err)
+	}
+	result := make([]string, 0, len(m)*2)
+	for k, v := range m {
+		result = append(result, k, v)
+	}
+	return result, nil
+}
+
 // GenerateVLLM generates a docker-compose YAML for a vLLM model.
 func (g *ComposeGenerator) GenerateVLLM(model *models.Model) (string, error) {
 	envVars := map[string]string{}
@@ -77,9 +111,17 @@ func (g *ComposeGenerator) GenerateVLLM(model *models.Model) (string, error) {
 		return "", fmt.Errorf("failed to parse env_vars: %w", err)
 	}
 
-	commandArgs := map[string]string{}
-	if err := parseJSONField(model.CommandArgs, &commandArgs); err != nil {
+	args, err := commandArgsToArray(model.CommandArgs)
+	if err != nil {
 		return "", fmt.Errorf("failed to parse command_args: %w", err)
+	}
+
+	// Look up base image
+	baseImageFile := "base-pgx-llm.yml" // default fallback
+	if model.BaseImageID != "" {
+		if baseImage, err := g.db.GetBaseImageBySlug(model.BaseImageID); err == nil && baseImage.ComposedYmlFile != "" {
+			baseImageFile = baseImage.ComposedYmlFile
+		}
 	}
 
 	data := composeTemplateData{
@@ -87,7 +129,8 @@ func (g *ComposeGenerator) GenerateVLLM(model *models.Model) (string, error) {
 		Container:   model.Container,
 		Port:        model.Port,
 		EnvVars:     envVars,
-		CommandArgs: commandArgs,
+		CommandArgs: args,
+		BaseImage:   baseImageFile,
 	}
 
 	var buf bytes.Buffer
@@ -105,9 +148,17 @@ func (g *ComposeGenerator) GenerateSGLang(model *models.Model) (string, error) {
 		return "", fmt.Errorf("failed to parse env_vars: %w", err)
 	}
 
-	commandArgs := map[string]string{}
-	if err := parseJSONField(model.CommandArgs, &commandArgs); err != nil {
+	args, err := commandArgsToArray(model.CommandArgs)
+	if err != nil {
 		return "", fmt.Errorf("failed to parse command_args: %w", err)
+	}
+
+	// Look up base image
+	baseImageFile := "base-pgx-llm.yml" // default fallback
+	if model.BaseImageID != "" {
+		if baseImage, err := g.db.GetBaseImageBySlug(model.BaseImageID); err == nil && baseImage.ComposedYmlFile != "" {
+			baseImageFile = baseImage.ComposedYmlFile
+		}
 	}
 
 	data := composeTemplateData{
@@ -115,7 +166,8 @@ func (g *ComposeGenerator) GenerateSGLang(model *models.Model) (string, error) {
 		Container:   model.Container,
 		Port:        model.Port,
 		EnvVars:     envVars,
-		CommandArgs: commandArgs,
+		CommandArgs: args,
+		BaseImage:   baseImageFile,
 	}
 
 	var buf bytes.Buffer

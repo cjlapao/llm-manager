@@ -653,40 +653,107 @@ func FormatKV(n uint64) string {
 	return FormatVRAM(n)
 }
 
-// IsHFCached checks if a model's weights are cached locally.
-func (s *ContainerService) IsHFCached(hfRepo string) bool {
+// HFCacheInfo holds information about a model's HuggingFace cache.
+type HFCacheInfo struct {
+	Cached  bool
+	Size    int64
+	Files   int
+	SnapDir string
+}
+
+// HFCacheSize returns detailed information about a model's HuggingFace cache
+// including whether it's cached, total size, and file count.
+func (s *ContainerService) HFCacheSize(hfRepo string) HFCacheInfo {
+	info := HFCacheInfo{}
 	if hfRepo == "" {
-		return false
+		return info
 	}
 
-	// Convert repo to cache dir: Qwen/Qwen3.6-35B-A3B -> models--Qwen--Qwen3.6-35B-A3B
 	cacheDir := "models--" + strings.ReplaceAll(hfRepo, "/", "--")
 
 	// Try hub/ subdirectory first (standard HF cache layout)
-	snapshotsDir := filepath.Join(s.cfg.HFCacheDir, "hub", cacheDir, "snapshots")
-	if !dirExists(snapshotsDir) {
+	baseDir := filepath.Join(s.cfg.HFCacheDir, "hub", cacheDir)
+	if !dirExists(baseDir) {
 		// Fall back to direct path under HFCacheDir (legacy/non-standard)
-		snapshotsDir = filepath.Join(s.cfg.HFCacheDir, cacheDir, "snapshots")
+		baseDir = filepath.Join(s.cfg.HFCacheDir, cacheDir)
 	}
 
-	// Check if snapshots directory exists and has content
-	entries, err := os.ReadDir(snapshotsDir)
-	if err != nil {
-		return false
+	if !dirExists(baseDir) {
+		return info
 	}
 
-	// Check for at least one snapshot subdirectory
-	for _, entry := range entries {
-		if entry.IsDir() {
-			// Check for config.json in snapshot
-			configPath := filepath.Join(snapshotsDir, entry.Name(), "config.json")
-			if _, err := os.Stat(configPath); err == nil {
-				return true
+	// Collect all snapshot dirs
+	var snapshotDirs []string
+	hubSnapshots := filepath.Join(baseDir, "snapshots")
+	if dirExists(hubSnapshots) {
+		entries, err := os.ReadDir(hubSnapshots)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					snapshotDirs = append(snapshotDirs, filepath.Join(hubSnapshots, entry.Name()))
+				}
 			}
 		}
 	}
 
-	return false
+	if len(snapshotDirs) == 0 {
+		return info
+	}
+
+	// Walk the snapshot directories to compute size and count files
+	var totalSize int64
+	var fileCount int
+	var foundConfig bool
+
+	for _, snapDir := range snapshotDirs {
+		walkErr := filepath.Walk(snapDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if !info.IsDir() {
+				totalSize += info.Size()
+				fileCount++
+				if info.Name() == "config.json" {
+					foundConfig = true
+				}
+			}
+			return nil
+		})
+		if walkErr != nil {
+			continue
+		}
+	}
+
+	// Also count blobs (actual weight files in .cache/hub/blobs)
+	blobDir := filepath.Join(baseDir, "blobs")
+	if dirExists(blobDir) {
+		blobEntries, err := os.ReadDir(blobDir)
+		if err == nil {
+			for _, entry := range blobEntries {
+				if !entry.IsDir() {
+					info, err := os.Stat(filepath.Join(blobDir, entry.Name()))
+					if err == nil {
+						totalSize += info.Size()
+						fileCount++
+					}
+				}
+			}
+		}
+	}
+
+	info.Cached = foundConfig
+	info.Size = totalSize
+	info.Files = fileCount
+	if len(snapshotDirs) > 0 {
+		info.SnapDir = snapshotDirs[0]
+	}
+
+	return info
+}
+
+// IsHFCached is deprecated; use HFCacheSize instead.
+func (s *ContainerService) IsHFCached(hfRepo string) bool {
+	return s.HFCacheSize(hfRepo).Cached
 }
 
 // dirExists checks if a directory exists.

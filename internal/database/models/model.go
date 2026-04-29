@@ -13,26 +13,29 @@ import (
 // Model represents an LLM model in the registry.
 type Model struct {
 	ID                   uuid.UUID `gorm:"type:uuid;primaryKey"`
-	Slug                 string    `gorm:"uniqueIndex;size:128;not null"`
-	Type                 string    `gorm:"size:32;not null;index"`
-	Name                 string    `gorm:"size:256;not null"`
-	HFRepo               string    `gorm:"size:512"`
-	YML                  string    `gorm:"type:text"`
-	Container            string    `gorm:"size:256"`
-	Port                 int       `gorm:"not null"`
-	EngineType           string    `gorm:"size:16;default:'vllm'"`
-	EnvVars              string    `gorm:"type:text"`
-	CommandArgs          string    `gorm:"type:text"`
-	InputTokenCost       float64   `gorm:"default:0"`
-	OutputTokenCost      float64   `gorm:"default:0"`
-	Capabilities         string    `gorm:"type:text"`
-	LiteLLMParams        string    `gorm:"type:text"`
-	ModelInfo            string    `gorm:"type:text"`
-	LitellmModelID       string    `gorm:"type:varchar(36);size:36"` // base model UUID in LiteLLM proxy
-	LitellmActiveAliases string    `gorm:"type:text"`                // JSON: {"active": "<uuid>", "active-thinking": "<uuid>"}
-	LitellmVariantIDs    string    `gorm:"type:text"`                // JSON: {"thinking": "<uuid>", "instruct": "<uuid>"}
-	CreatedAt            time.Time `gorm:"autoCreateTime"`
-	UpdatedAt            time.Time `gorm:"autoUpdateTime"`
+	Slug                 string    `gorm:"uniqueIndex;size:128;not null;column:slug"`
+	Type                 string    `gorm:"size:32;not null;index;column:type"`
+	SubType              string    `gorm:"size:32;column:sub_type"`
+	Name                 string    `gorm:"size:256;not null;column:name"`
+	HFRepo               string    `gorm:"size:512;column:hf_repo"`
+	YML                  string    `gorm:"type:text;column:yml"`
+	Container            string    `gorm:"size:256;column:container"`
+	Port                 int       `gorm:"not null;column:port"`
+	EngineType           string    `gorm:"size:16;default:'vllm';column:engine_type"`
+	EnvVars              string    `gorm:"type:text;column:env_vars"`
+	CommandArgs          string    `gorm:"type:text;column:command_args"`
+	InputTokenCost       float64   `gorm:"default:0;column:input_token_cost"`
+	OutputTokenCost      float64   `gorm:"default:0;column:output_token_cost"`
+	Capabilities         string    `gorm:"type:text;column:capabilities"`
+	LiteLLMParams        string    `gorm:"type:text;column:lite_llm_params"`
+	ModelInfo            string    `gorm:"type:text;column:model_info"`
+	LitellmModelID       string    `gorm:"type:varchar(36);size:36;column:litellm_model_id"`
+	LitellmActiveAliases string    `gorm:"type:text;column:litellm_active_aliases"`
+	LitellmVariantIDs    string    `gorm:"type:text;column:litellm_variant_ids"`
+	Default              bool      `gorm:"type:boolean;default:false;column:default"`
+	BaseImageID          string    `gorm:"size:128;column:base_image_id"`
+	CreatedAt            time.Time `gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt            time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }
 
 // TableName returns the database table name for Model.
@@ -69,7 +72,6 @@ func (m *Model) GetLitellmActiveAliases() map[string]string {
 // raw text column on this model. Pass nil to clear all active aliases.
 func (m *Model) SetLitellmActiveAliases(aliases map[string]string) {
 	if aliases == nil || len(aliases) == 0 {
-		// Marshal produces "null"; store empty string for clarity.
 		if m.LitellmActiveAliases != "" {
 			m.LitellmActiveAliases = ""
 		}
@@ -77,22 +79,6 @@ func (m *Model) SetLitellmActiveAliases(aliases map[string]string) {
 	}
 	b, _ := json.Marshal(aliases)
 	m.LitellmActiveAliases = string(b)
-}
-
-// getVariantsMap returns the "variants" value from the parsed litellm_params.
-// Variants use object/map format where keys are variant names and values are specs.
-// Returns the map and true if present, nil and false otherwise.
-func (m *Model) getVariantsMap() (map[string]interface{}, bool) {
-	block := parseParamBlock(m.LiteLLMParams)
-	v, ok := block["variants"].(map[string]interface{})
-	return v, ok
-}
-
-// HasVariants checks if this model defines any variants in its litellm_params block.
-// Returns false when no variants are present or the map is empty.
-func (m *Model) HasVariants() bool {
-	variants, ok := m.getVariantsMap()
-	return ok && len(variants) > 0
 }
 
 // GetLitellmVariantIDs deserializes the JSON map and returns the variant ids
@@ -111,7 +97,6 @@ func (m *Model) GetLitellmVariantIDs() map[string]string {
 // the raw text column on this model. Pass nil to clear all variant ids.
 func (m *Model) SetLitellmVariantIDs(ids map[string]string) {
 	if ids == nil || len(ids) == 0 {
-		// Marshal produces "null"; store empty string for clarity.
 		if m.LitellmVariantIDs != "" {
 			m.LitellmVariantIDs = ""
 		}
@@ -151,90 +136,28 @@ func (m *Model) VariantSpec(name string) (map[string]interface{}, bool) {
 	return nil, false
 }
 
-// parseParamBlock attempts to unmarshal the LiteLLMParams JSON blob.
-// Returns an empty map when the blob is unset/bad.
-//
-// Conversion: when the key "derivates" is present as a JSON array, each
-// entry (which carries a "name" + override fields) is converted into a
-// "variants" map entry keyed by name. All non-"name" fields from the
-// derivates entry are copied into the variant spec preserving their structure
-// (e.g., extra_body remains nested). The original "derivates" key is deleted
-// so re-parsing is idempotent.
+func (m *Model) getVariantsMap() (map[string]interface{}, bool) {
+	block := parseParamBlock(m.LiteLLMParams)
+	v, ok := block["variants"].(map[string]interface{})
+	return v, ok
+}
+
+// parseParamBlock parses a JSON-encoded litellm_params string into a map.
+// Returns an empty map when the input is empty or invalid JSON.
 func parseParamBlock(raw string) map[string]interface{} {
-	var block map[string]interface{}
-	if err := json.Unmarshal([]byte(raw), &block); err != nil || block == nil {
-		block = make(map[string]interface{})
+	if raw == "" {
+		return make(map[string]interface{})
 	}
-	if derivates, hasDerivates := block["derivates"].([]interface{}); hasDerivates && len(derivates) > 0 {
-		if _, hasVariants := block["variants"]; !hasVariants {
-			block["variants"] = make(map[string]interface{})
-		}
-		variants := block["variants"].(map[string]interface{})
-		for _, entry := range derivates {
-			if der, ok := entry.(map[string]interface{}); ok {
-				name, _ := der["name"].(string)
-				if name == "" {
-					continue
-				}
-				spec := make(map[string]interface{})
-				// Copy all fields except "name" (which is used solely as the key)
-				for k, v := range der {
-					if k == "name" {
-						continue
-					}
-					spec[k] = v
-				}
-				variants[name] = spec
-			}
-		}
-		delete(block, "derivates")
+	var block map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &block); err != nil {
+		return make(map[string]interface{})
 	}
 	return block
 }
 
-// DeepMerge deeply merges *src into *dst. Map values are merged recursively;
-// leaf values from src overwrite the corresponding destination value. Returns dst.
-func DeepMerge(dst, src interface{}) interface{} {
-	srcMap, ok := shallowCastToMap(src)
-	if !ok {
-		// At the leaves simply replace.
-		return src
-	}
-	dstCopy, ok := shallowCastToMap(inheritFrom(dst))
-	if !ok {
-		dstCopy = make(map[string]interface{})
-	}
-	for k, v := range srcMap {
-		if existing, exists := dstCopy[k]; exists {
-			merged := DeepMerge(existing, v)
-			dstCopy[k] = merged
-		} else {
-			dstCopy[k] = inheritFrom(v)
-		}
-	}
-	return dstCopy
-}
-
-// shallowCastToMap tries to interpret val as map[string]interface{}.
-func shallowCastToMap(val interface{}) (map[string]interface{}, bool) {
-	if mv, ok := val.(map[string]interface{}); ok {
-		return mv, true
-	}
-	if mv, ok := val.(map[string]interface{}); ok {
-		return mv, true
-	}
-	return nil, false
-}
-
-// inheritFrom ensures only plain string-keyed maps are propagated upward so
-// that nested merges operate on consistent data structures (no []*T etc.).
-func inheritFrom(val interface{}) interface{} {
-	if sv, ok := val.(map[string]interface{}); ok {
-		copied := make(map[string]interface{})
-		for k, v := range sv {
-			copied[k] = inheritFrom(v)
-		}
-		return copied
-	}
-	return val
+// HasVariants checks if this model defines any variants in its litellm_params block.
+// Returns false when no variants are present or the map is empty.
+func (m *Model) HasVariants() bool {
+	variants, ok := m.getVariantsMap()
+	return ok && len(variants) > 0
 }

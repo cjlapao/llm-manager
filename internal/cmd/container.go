@@ -49,16 +49,16 @@ func (c *ContainerCommand) Run(args []string) int {
 		return c.runStatus(args[1])
 	case "start":
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Error: 'start' requires a slug\n")
+			fmt.Fprintf(os.Stderr, "Error: 'start' requires a slug (e.g., llm-manager container start qwen3_6 --allow-multiple)\n")
 			return 1
 		}
-		return c.runStart(args[1])
+		return c.runStart(args[1:])
 	case "stop":
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Error: 'stop' requires a slug\n")
+			fmt.Fprintf(os.Stderr, "Error: 'stop' requires a slug (e.g., llm-manager container stop qwen3_6)\n")
 			return 1
 		}
-		return c.runStop(args[1])
+		return c.runStop(args[1:])
 	case "restart":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "Error: 'restart' requires a slug\n")
@@ -69,6 +69,36 @@ func (c *ContainerCommand) Run(args []string) int {
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "Error: 'logs' requires a slug\n")
 			return 1
+		}
+		if args[1] == "-h" || args[1] == "--help" || args[1] == "help" {
+			fmt.Println(`logs - View container logs for an LLM model or service.
+
+USAGE:
+  llm-manager container logs <slug> [-f] [lines]
+
+ARGUMENTS:
+  slug      The model slug or service alias
+  -f, --follow  Follow mode: stream logs in real-time (blocks until Ctrl+C)
+  lines     Number of log lines to show (default: 50, only in non-follow mode)
+
+SERVICE ALIASES:
+  comfyui, flux   -> comfyui-flux
+  embed           -> llm-embed
+  rerank          -> llm-rerank
+  whisper         -> whisper-stt
+  kokoro          -> kokoro-tts
+  litellm         -> litellm
+  swap-api, swapapi -> swap-api
+  open-webui, webui -> open-webui
+  mcp             -> mcpo
+
+EXAMPLES:
+  llm-manager container logs qwen3_6
+  llm-manager container logs qwen3_6 200
+  llm-manager container logs qwen3_6 -f
+  llm-manager container logs comfyui -f
+  llm-manager container logs embed 100`)
+			return 0
 		}
 		lines := 50
 		follow := false
@@ -281,19 +311,27 @@ func (c *ContainerCommand) runRefreshAll() int {
 }
 
 // runStart starts a container with flux/3D handling.
-func (c *ContainerCommand) runStart(slug string) int {
+func (c *ContainerCommand) runStart(args []string) int {
+	slug := args[0]
+	allowMultiple := false
+	for _, arg := range args[1:] {
+		if arg == "--allow-multiple" || arg == "-m" {
+			allowMultiple = true
+		}
+	}
+
 	// Check if it's a flux model
 	if isFluxModel(slug) {
-		return c.runFluxStart(slug)
+		return c.runFluxStart(slug, allowMultiple)
 	}
 
 	// Check if it's a 3D model
 	if is3DModel(slug) {
-		return c.run3DStart(slug)
+		return c.run3DStart(slug, allowMultiple)
 	}
 
 	// Normal LLM start
-	if err := c.svc.StartContainer(slug); err != nil {
+	if err := c.svc.StartContainer(slug, allowMultiple); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting container: %v\n", err)
 		return 1
 	}
@@ -303,13 +341,17 @@ func (c *ContainerCommand) runStart(slug string) int {
 }
 
 // runFluxStart handles starting a flux model.
-func (c *ContainerCommand) runFluxStart(slug string) int {
+func (c *ContainerCommand) runFluxStart(slug string, allowMultiple bool) int {
 	fmt.Printf("Starting flux model: %s\n", slug)
 
-	// Stop all LLM containers
-	fmt.Println("Stopping all LLM containers...")
-	if err := c.svc.StopAllLLMs(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to stop LLM containers: %v\n", err)
+	if !allowMultiple {
+		// Stop all LLM containers
+		fmt.Println("Stopping all LLM containers...")
+		if err := c.svc.StopAllLLMs(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to stop LLM containers: %v\n", err)
+		}
+	} else {
+		fmt.Println("Skipping stop of other LLM containers (--allow-multiple)")
 	}
 
 	// Deactivate 3D model
@@ -336,13 +378,17 @@ func (c *ContainerCommand) runFluxStart(slug string) int {
 }
 
 // run3DStart handles starting a 3D model.
-func (c *ContainerCommand) run3DStart(slug string) int {
+func (c *ContainerCommand) run3DStart(slug string, allowMultiple bool) int {
 	fmt.Printf("Starting 3D model: %s\n", slug)
 
-	// Stop all LLM containers
-	fmt.Println("Stopping all LLM containers...")
-	if err := c.svc.StopAllLLMs(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to stop LLM containers: %v\n", err)
+	if !allowMultiple {
+		// Stop all LLM containers
+		fmt.Println("Stopping all LLM containers...")
+		if err := c.svc.StopAllLLMs(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to stop LLM containers: %v\n", err)
+		}
+	} else {
+		fmt.Println("Skipping stop of other LLM containers (--allow-multiple)")
 	}
 
 	// Remove active flux file
@@ -370,7 +416,13 @@ func (c *ContainerCommand) run3DStart(slug string) int {
 }
 
 // runStop stops a container with flux/3D handling.
-func (c *ContainerCommand) runStop(slug string) int {
+func (c *ContainerCommand) runStop(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Error: 'stop' requires a slug\n")
+		return 1
+	}
+
+	slug := args[0]
 	// Check if it's a flux model
 	if isFluxModel(slug) {
 		return c.runFluxStop(slug)
@@ -439,9 +491,7 @@ func (c *ContainerCommand) runLogs(slug string, lines int, follow bool) int {
 
 	if follow {
 		cmd := exec.Command("docker", "logs", "-f", "--tail", fmt.Sprintf("%d", lines), containerName)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := RunInteractive(cmd); err != nil {
 			fmt.Fprintf(os.Stderr, "Error following logs for %s: %v\n", containerName, err)
 			return 1
 		}
@@ -502,6 +552,9 @@ SUBCOMMANDS:
   swap <slug>       GPU-safe model swap (stop all LLMs, drop cache, start target)
   logs <slug> [-f] [lines]  Show container logs (-f for follow mode)
 
+FLAGS:
+  --allow-multiple   Only for 'start': don't stop other running LLM containers before starting
+
 SERVICE ALIASES (for logs):
   comfyui, flux   -> comfyui-flux
   embed           -> llm-embed
@@ -518,6 +571,7 @@ EXAMPLES:
   llm-manager container status
   llm-manager container status qwen3_6
   llm-manager container start qwen3_6
+  llm-manager container start qwen3_6 --allow-multiple
   llm-manager container start flux-schnell
   llm-manager container stop flux-schnell
   llm-manager container swap qwen3_6

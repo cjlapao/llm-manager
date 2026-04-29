@@ -1,0 +1,82 @@
+# ═══════════════════════════════════════════════════════════════
+# Qwen3 Coder Next FP8 — FP8
+# Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x)
+# vLLM >= 0.19.0 | SM121 (Blackwell)
+# gpu_memory_utilization: 0.5 (~64GB of 128GB)
+# ═══════════════════════════════════════════════════════════════
+
+slug: qwen3-coder-next-fp8
+name: "Qwen3 Coder Next FP8"
+engine: vllm
+hf_repo: "Qwen/Qwen3-Coder-Next-FP8"
+container: llm-qwen3-coder-next-fp8
+port: 8010
+type: llm
+subtype: chat
+
+environment:
+  VLLM_LOAD_FORMAT_DEVICE: cuda
+  VLLM_TEST_FORCE_FP8_MARLIN: 1
+
+input_token_cost: 0.00000228
+output_token_cost: 0.00000456
+
+command:
+  - ${{ .hf_repo }}
+  - "--model ${{ .hf_repo }}"
+  - "--served-model-name ${{ .slug }}"
+  - "--max-model-len 262144"
+  - "--kv-cache-dtype fp8_e4m3"
+  - "--dtype auto"
+  - "--gpu-memory-utilization 0.65"
+  - "--enable-chunked-prefill"
+  - "--max-num-batched-tokens 32768"
+  - "--max-num-seqs 4"
+  - "--tool-call-parser qwen3_coder"
+  - "--enable-auto-tool-choice"
+  - "--enable-prefix-caching"
+  - "--trust-remote-code"
+  - "--trust-request-chat-template"
+  - "--generation-config auto"
+  - "--mm-processor-cache-type shm"
+  - "--disable-custom-all-reduce"
+  - "--enable-expert-parallel"
+  - "--load-format instanttensor"
+
+capabilities:
+  - tool-use
+  - multi-turn
+
+litellm_params:
+  custom_llm_provider: hosted_vllm
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 40
+  min_p: 0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+  variants:
+    coder:
+      suffix: -coder
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 40
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+    coder-precise:
+      suffix: -coder-precise
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 40
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+    coder-fast:
+      suffix: -coder-fast
+      temperature: 0.6
+      top_p: 0.9
+      top_k: 40
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.05
