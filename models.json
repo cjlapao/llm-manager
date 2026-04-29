@@ -108,14 +108,14 @@
       "port": 8025
     },
     "qwen3-embedding": {
-      "type": "embed",
+      "type": "embedding",
       "name": "Qwen3-Embedding 0.6B",
       "hf_repo": "Qwen/Qwen3-Embedding-0.6B",
       "container": "llm-embed",
       "port": 8020
     },
     "qwen3-reranker": {
-      "type": "rerank",
+      "type": "reranker",
       "name": "Qwen3-Reranker 0.6B",
       "hf_repo": "Qwen/Qwen3-Reranker-0.6B",
       "container": "llm-rerank",

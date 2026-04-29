@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/user/llm-manager/internal/crypto"
 	"github.com/user/llm-manager/internal/database"
 	"gopkg.in/yaml.v3"
 )
@@ -387,8 +388,14 @@ func (c *Config) String() string {
 		return b.String()
 	}
 
+// secretConfigKeys defines config keys whose values are encrypted in the database.
+var secretConfigKeys = map[string]bool{
+	"HF_TOKEN": true,
+}
+
 // MergeFromDB fills empty config fields from database values.
 // Only fields that are still empty are filled — env/file values take priority.
+// Encrypted secret values are decrypted before being stored.
 func (c *Config) MergeFromDB(db database.DatabaseManager) {
 	configs, err := db.ListConfig()
 	if err != nil {
@@ -397,22 +404,32 @@ func (c *Config) MergeFromDB(db database.DatabaseManager) {
 	}
 
 	for _, cfg := range configs {
+		value := cfg.Value
+		if secretConfigKeys[cfg.Key] && crypto.IsEncrypted(cfg.Value) {
+			decrypted, err := crypto.Decrypt(cfg.Value)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not decrypt %s from database: %v\n", cfg.Key, err)
+				continue
+			}
+			value = decrypted
+		}
+
 		switch cfg.Key {
 		case "LITELLM_URL":
 			if c.LiteLLMURL == "" {
-				c.LiteLLMURL = cfg.Value
+				c.LiteLLMURL = value
 			}
 		case "LITELLM_API_KEY":
 			if c.LiteLLMAPIKey == "" {
-				c.LiteLLMAPIKey = cfg.Value
+				c.LiteLLMAPIKey = value
 			}
 		case "HF_TOKEN":
 			if c.HfToken == "" {
-				c.HfToken = cfg.Value
+				c.HfToken = value
 			}
 		case "OPENAI_API_URL":
 			if c.OpenAIAPIURL == "" {
-				c.OpenAIAPIURL = cfg.Value
+				c.OpenAIAPIURL = value
 			}
 		}
 	}

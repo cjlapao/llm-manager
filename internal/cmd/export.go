@@ -63,6 +63,9 @@ func (c *ExportCommand) Run(args []string) int {
 					return 0
 				}
 			}
+		} else if arg == "-h" || arg == "--help" || arg == "help" {
+			c.PrintHelp()
+			return 0
 		} else {
 			if slug == "" {
 				slug = arg

@@ -64,3 +64,5 @@ profile.out
 cpuprofile
 memprofile
 mutagen.*
+coverage.txt
+.opencode/

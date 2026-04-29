@@ -97,7 +97,7 @@ func (c *ServiceCommand) runList() int {
 
 // runStart starts a service.
 func (c *ServiceCommand) runStart(slug string) int {
-	if err := c.svc.StartService(slug); err != nil {
+	if err := c.svc.StartService(slug, false); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting service: %v\n", err)
 		return 1
 	}

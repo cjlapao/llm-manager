@@ -237,9 +237,10 @@ func TestMemService_EstimateSingleModel_NoYML(t *testing.T) {
 
 	// Create a model with HF repo but no yml
 	model := &models.Model{
-		Slug:   "test-model",
-		HFRepo: "test/test-model",
-		YML:    "",
+		Slug:    "test-model",
+		HFRepo:  "test/test-model",
+		YML:     "",
+		Default: false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)

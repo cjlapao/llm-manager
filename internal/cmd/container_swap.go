@@ -34,6 +34,11 @@ func (c *ContainerSwapCommand) Run(args []string) int {
 		return 1
 	}
 
+	if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		c.PrintHelp()
+		return 0
+	}
+
 	slug := args[0]
 	return c.runSwap(slug)
 }
@@ -66,7 +71,7 @@ func (c *ContainerSwapCommand) runSwap(slug string) int {
 
 	// Step 4: Start the target model
 	fmt.Printf("Starting model: %s\n", slug)
-	if err := c.svc.StartContainer(slug); err != nil {
+	if err := c.svc.StartContainer(slug, false); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting container: %v\n", err)
 		return 1
 	}

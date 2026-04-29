@@ -9,12 +9,19 @@ import (
 type DatabaseManager interface {
 	Open() error
 	Close() error
+
+	// Schema version tracking and migrations
+	SchemaVersion() (int, error)
+	LatestVersion() (int, error)
+	ApplyPendingMigrations() error
+	MigrateTo(targetVersion int) error
 	AutoMigrate() error
+
 	DB() *gorm.DB
-	MigrateFromJSON(path string) (int, error)
 
 	// Model CRUD
 	ListModels() ([]models.Model, error)
+	ListModelsByTypeSubType(modelType string, subType string) ([]models.Model, error)
 	GetModel(slug string) (*models.Model, error)
 	CreateModel(model *models.Model) error
 	UpdateModel(slug string, updates map[string]interface{}) error
@@ -35,4 +42,12 @@ type DatabaseManager interface {
 	SetConfig(key, value string) error
 	UnsetConfig(key string) error
 	ListConfig() ([]models.Config, error)
+
+	// BaseImage CRUD
+	ListBaseImages() ([]models.BaseImage, error)
+	GetBaseImageBySlug(slug string) (*models.BaseImage, error)
+	GetBaseImageByID(id string) (*models.BaseImage, error)
+	CreateBaseImage(image *models.BaseImage) error
+	UpdateBaseImage(slug string, updates map[string]interface{}) error
+	DeleteBaseImage(slug string) error
 }

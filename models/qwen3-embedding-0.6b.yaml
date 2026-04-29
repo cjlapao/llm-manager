@@ -1,0 +1,34 @@
+# ═══════════════════════════════════════════════════════════════
+# Qwen3.6 35B-A3B — BF16 (unquantized)
+# Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x)
+# vLLM >= 0.19.0 | SM121 (Blackwell)
+# gpu_memory_utilization: 0.65 (~83GB of 128GB)
+# ═══════════════════════════════════════════════════════════════
+
+slug: qwen3-embedding-0.6b
+name: "Qwen3 Embedding 0.6B"
+engine: vllm
+hf_repo: "Qwen/Qwen3-Embedding-0.6B"
+container: rag-qwen3-embedding-0.6b
+port: 8111
+type: rag
+subtype: embedding
+
+environment:
+  VLLM_LOAD_FORMAT_DEVICE: cuda
+
+input_token_cost: 0.00000228
+output_token_cost: 0.00000456
+
+command:
+  - ${{ .hf_repo }}
+  - "--model ${{ .hf_repo }}"
+  - "--served-model-name ${{ .slug }}"
+  - "--gpu-memory-utilization 0.05"
+  - "--max-model-len 4096"
+  - "--enforce-eager"
+  - "--trust-remote-code"
+
+
+capabilities:
+  - embedding

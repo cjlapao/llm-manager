@@ -108,7 +108,7 @@ func TestComposeCommand_VLLMModel(t *testing.T) {
 
 	// Create a test model with vLLM engine
 	envVarsJSON := `{"HUGGING_FACE_HUB_TOKEN":"${HF_TOKEN}","VLLM_HOST":"0.0.0.0"}`
-	commandArgsJSON := `{"model":"Qwen/Qwen3-Next-80B-A3B-Instruct","max-model-len":"131072","kv-cache-dtype":"fp8"}`
+	commandArgsJSON := `["--model","Qwen/Qwen3-Next-80B-A3B-Instruct","--max-model-len","131072","--kv-cache-dtype","fp8"]`
 
 	model := &models.Model{
 		Slug:            "compose-vllm-test",
@@ -122,6 +122,7 @@ func TestComposeCommand_VLLMModel(t *testing.T) {
 		CommandArgs:     commandArgsJSON,
 		InputTokenCost:  0.0000003,
 		OutputTokenCost: 0.0000004,
+		Default:         false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
@@ -196,7 +197,7 @@ func TestComposeCommand_SGLangModel(t *testing.T) {
 
 	// Create a test model with SGLang engine
 	envVarsJSON := `{"HF_TOKEN":"${HF_TOKEN}"}`
-	commandArgsJSON := `{"model":"test/model","port":"8000"}`
+	commandArgsJSON := `["--model","test/model","--port","8000"]`
 
 	model := &models.Model{
 		Slug:            "compose-sglang-test",
@@ -210,6 +211,7 @@ func TestComposeCommand_SGLangModel(t *testing.T) {
 		CommandArgs:     commandArgsJSON,
 		InputTokenCost:  0,
 		OutputTokenCost: 0,
+		Default:         false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
@@ -270,6 +272,7 @@ func TestComposeCommand_DefaultOutputPath(t *testing.T) {
 		EngineType:  "vllm",
 		EnvVars:     `{}`,
 		CommandArgs: `{}`,
+		Default:     false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
@@ -320,6 +323,7 @@ func TestComposeCommand_CustomOutputPath(t *testing.T) {
 		EngineType:  "vllm",
 		EnvVars:     `{}`,
 		CommandArgs: `{}`,
+		Default:     false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
@@ -393,6 +397,7 @@ func TestComposeCommand_ModelWithoutContainer(t *testing.T) {
 		EngineType:  "vllm",
 		EnvVars:     `{}`,
 		CommandArgs: `{}`,
+		Default:     false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
@@ -417,7 +422,7 @@ func TestComposeCommand_ModelWithoutContainer(t *testing.T) {
 }
 
 func TestComposeGenerator_Generate(t *testing.T) {
-	generator, err := service.NewComposeGenerator()
+	generator, err := service.NewComposeGenerator(nil)
 	if err != nil {
 		t.Fatalf("NewComposeGenerator() error: %v", err)
 	}
@@ -434,6 +439,7 @@ func TestComposeGenerator_Generate(t *testing.T) {
 		CommandArgs:     `{"arg1":"val1"}`,
 		InputTokenCost:  0.000001,
 		OutputTokenCost: 0.000002,
+		Default:         false,
 	}
 
 	// Test vLLM generation

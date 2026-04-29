@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -10,47 +11,79 @@ import (
 	"github.com/user/llm-manager/pkg/yamlparser"
 )
 
+// DeleteModeler provides an interface for deleting models from external systems like LiteLLM.
+type DeleteModeler interface {
+	DeleteModel(slug string) error
+}
+
 // resolvePortCollision scans existing models for any conflict with the requested port.
 // It returns (resolvedPort, changed bool) where changed=true means the user's explicit
 // value was bumped because another model already claimed that slot. If no collisions
 // exist within a reasonable search window the original port stays untouched.
 func (s *ModelService) resolvePortCollision(requestedPort int) (int, bool) {
-    allModels, err := s.db.ListModels()
-    if err != nil || len(allModels) == 0 { // Nothing in DB yet
-        return requestedPort, false
-    }
-
-    usedPortSet := make(map[int]struct{})
-    for _, m := range allModels {
-        if m.Port > 0 {
-            usedPortSet[m.Port] = struct{}{}
-        }
-    }
-
-    candidate := requestedPort
-    const maxShift = 256 // Sufficiently large cap; realistically < 100 models
-    for shift := 0; shift <= maxShift; shift++ {
-        if _, occupied := usedPortSet[candidate]; !occupied {
-                if shift != 0 { // Bumped away from user-requested slot
-                     fmt.Printf("ℹ Port %d already in use\n",requestedPort)
-                  fmt.Printf ("→ Using free port %d instead.\n,",candidate )  
-               }
-              return candidate, shift != 0
-        }
-        candidate++
-    }
-    
-    // All slots blocked up to boundary; fail gracefully
-    return requestedPort, false
+	allModels, err := s.db.ListModels()
+	if err != nil || len(allModels) == 0 { // Nothing in DB yet
+		return requestedPort, false
 	}
-	
+
+	usedPortSet := make(map[int]struct{})
+	for _, m := range allModels {
+		if m.Port > 0 {
+			usedPortSet[m.Port] = struct{}{}
+		}
+	}
+
+	candidate := requestedPort
+	const maxShift = 256 // Sufficiently large cap; realistically < 100 models
+	for shift := 0; shift <= maxShift; shift++ {
+		if _, occupied := usedPortSet[candidate]; !occupied {
+			if shift != 0 { // Bumped away from user-requested slot
+				fmt.Printf("ℹ Port %d already in use\n", requestedPort)
+				fmt.Printf("→ Using free port %d instead.\n", candidate)
+			}
+			return candidate, shift != 0
+		}
+		candidate++
+	}
+
+	// All slots blocked up to boundary; fail gracefully
+	return requestedPort, false
+}
+
 // ImportOverrides holds CLI argument overrides for model import.
 type ImportOverrides struct {
 	InputCost    *float64
 	OutputCost   *float64
 	Capabilities []string
+	Type         string // llm, rag, speech, comfyui (defaults to "llm")
+	Engine       string // vllm, sglang, llama.cpp (defaults to "vllm")
+	Override     bool // if true, delete existing DB record + LiteLLM deployments, then re-import from YAML
 }
-	Capabilities []string
+
+// configValues builds a flat map of uppercase ENV keys -> values, used to resolve
+// ${{ .config.XXX }} references in model YAML during import. Keys come from both
+// environment variables and the loaded config struct; env vars always win.
+func (s *ModelService) configValues() map[string]string {
+	cfg := s.cfg
+	v := make(map[string]string, 12)
+	// Config-derived values -- stored at the top level so they're easily discoverable.
+	if cfg.OpenAIAPIURL != "" {
+		v["OPENAI_API_URL"] = cfg.OpenAIAPIURL
+	}
+	if cfg.LiteLLMURL != "" {
+		v["LITELLM_URL"] = cfg.LiteLLMURL
+	}
+	if cfg.HfToken != "" {
+		v["HF_TOKEN"] = cfg.HfToken
+	}
+	// Environment overrides -- always checked last so they take priority over config file values.
+	for _, k := range []string{"OPENAI_API_URL", "LITELLM_URL", "HF_TOKEN",
+		"LITELLM_API_KEY", "VLLM_HOST", "DOCKER_HOST"} {
+		if val := os.Getenv(k); val != "" {
+			v[k] = val
+		}
+	}
+	return v
 }
 
 // ImportModel imports a model from a YAML file into the database.
@@ -66,8 +99,34 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	// 2. Validate — skip capability validation when CLI overrides are provided
-	// (the overrides will replace YAML capabilities entirely)
+	// 1b. Expand template references (${{ .xxx }}) in string fields
+	cfgValues := s.configValues()
+	if err := yamlparser.ApplyTemplateVars(y, cfgValues); err != nil {
+		return nil, fmt.Errorf("template expansion failed: %w", err)
+	}
+
+	// 1c. Auto-inject capabilities from type/subtype (e.g., rag/embedding → "embedding")
+	yamlparser.InjectCapabilitiesFromTypeSubtype(y)
+
+	// Handle override — delete existing DB record + LiteLLM deployments before reimport from YAML
+	if overrides.Override {
+		if existing, dbErr := s.db.GetModel(y.Slug); dbErr == nil && existing != nil {
+			fmt.Fprintf(os.Stderr, "Override mode: found existing model %s, deleting...\n", y.Slug)
+			if s.litellm != nil {
+				if delErr := s.litellm.DeleteModel(y.Slug); delErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to delete from liteLLM: %v\n", delErr)
+				} else {
+					fmt.Fprintf(os.Stderr, "Deleted from liteLLM ✓\n")
+				}
+			}
+			if delDbErr := s.db.DeleteModel(y.Slug); delDbErr != nil {
+				return nil, fmt.Errorf("failed to delete %s from DB: %w", y.Slug, delDbErr)
+			}
+			fmt.Fprintf(os.Stderr, "Deleted from DB ✓\n")
+		}
+	}
+
+	// Validate — skip capability validation when CLI overrides are provided
 	var validationErrs []error
 	if len(overrides.Capabilities) > 0 {
 		// Validate only non-capability fields when overrides are present
@@ -83,34 +142,49 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		return nil, fmt.Errorf("YAML validation failed: %s", strings.Join(msgParts, "; "))
 	}
 
-	// 3. Check for duplicate slug
+	// Check for duplicate slug (skip override if just cleared)
 	if _, err := s.db.GetModel(y.Slug); err == nil {
-		return nil, fmt.Errorf("model %s already exists", y.Slug)
+		if !overrides.Override {
+			return nil, fmt.Errorf("model %s already exists", y.Slug)
+		}
 	}
 
-	// 4. Build litellm_params map from YAML, auto-merging system values
-	litellmParams, err := s.buildLiteLLMParams(y, s.cfg.OpenAIAPIURL, y.Slug)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build litellm params: %w", err)
+	// LiteLLMParams is optional (e.g. rag/embed/rerank models may not need a proxy).
+	// buildLiteLLMParams returns an empty map when no API URL and no YAML api_base
+	// are available — ImportModel will store an empty string in the DB.
+	litellmParams := s.buildLiteLLMParams(y, s.cfg.OpenAIAPIURL, y.Slug, y.Port)
+
+	// Only LLM-type models need LiteLLM proxy routing (api_base + model name).
+	// rag/embedding, rag/reranker, speech/stt, speech/tts, speech/omni, comfyui
+	// do not route through LiteLLM — clear any auto-generated params.
+	if y.Type != "llm" && y.Type != "auto-complete" {
+		litellmParams = map[string]interface{}{}
 	}
 
-	// 5. Build model_info map from capabilities (auto-generated) + YAML overrides
+	// Build model_info map from capabilities (auto-generated) + YAML overrides
 	modelInfo := s.buildModelInfo(y)
 
-	// 6. Map ModelYAML → models.Model
+	// Map ModelYAML → models.Model
 	model := &models.Model{
 		Slug:            y.Slug,
-		Type:            "llm",
+		Type:            y.Type,    // from YAML (defaults to "llm" if empty)
+		SubType:         y.SubType, // from YAML
 		Name:            y.Name,
 		HFRepo:          y.HFRepo,
 		Container:       y.Container,
 		Port:            y.Port,
-		EngineType:      y.Engine,
+		EngineType:      "vllm", // default engine
 		InputTokenCost:  0.0,
 		OutputTokenCost: 0.0,
 		Capabilities:    "",
 		EnvVars:         "",
 		CommandArgs:     "",
+		Default:         false,
+	}
+
+	// Apply YAML-level optional fields
+	if y.Engine != "" {
+		model.EngineType = y.Engine
 	}
 
 	// Convert maps to JSON strings
@@ -123,12 +197,11 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	}
 
 	if len(y.CommandArgs) > 0 {
-		typedArgs := yamlparser.ParseTypedCommandArgs(y.CommandArgs)
-		b, err := yamlparser.CommandArgsToJSON(typedArgs)
+		b, err := json.Marshal(y.CommandArgs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal command_args: %w", err)
 		}
-		model.CommandArgs = b
+		model.CommandArgs = string(b)
 	}
 
 	// Apply YAML-level optional fields
@@ -176,6 +249,12 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		}
 		model.Capabilities = string(b)
 	}
+	if overrides.Type != "" {
+		model.Type = overrides.Type
+	}
+	if overrides.Engine != "" {
+		model.EngineType = overrides.Engine
+	}
 
 	// 8. Create in database
 	if err := s.db.CreateModel(model); err != nil {
@@ -185,14 +264,12 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	return model, nil
 }
 
-// buildLiteLLMParams constructs the litellm_params map from YAML values,
-// auto-merging system-provided values (api_base, model name) and excluding
-// values already present at the YAML root level (input_cost_per_token,
-// output_cost_per_token).
-// Requires openaiAPIURL to be set for api_base construction; returns an error
-// if openaiAPIURL is empty and no api_base is provided in YAML.
-// System values take precedence when not explicitly set in YAML.
-func (s *ModelService) buildLiteLLMParams(y *yamlparser.ModelYAML, openaiAPIURL string, slug string) (map[string]interface{}, error) {
+// buildLiteLLMParams builds a liteLLM params map from YAML values,
+// auto-merging api_base / model name from config. When openAIAURL is empty
+// and no api_base was supplied in YAML, the returned map is just the YAML
+// contents (plus "model" set to slug) — no error is raised so import stays
+// usable without a proxy.
+func (s *ModelService) buildLiteLLMParams(y *yamlparser.ModelYAML, openAIAURL string, slug string, port int) map[string]interface{} {
 	params := make(map[string]interface{})
 
 	// Start with YAML-provided values
@@ -206,16 +283,16 @@ func (s *ModelService) buildLiteLLMParams(y *yamlparser.ModelYAML, openaiAPIURL 
 	delete(params, "input_cost_per_token")
 	delete(params, "output_cost_per_token")
 
-	// Auto-construct api_base from OPENAI_API_URL
-	// If api_base is already set in YAML, keep it (user override)
-	if _, hasAPIBase := params["api_base"]; !hasAPIBase {
-		if openaiAPIURL == "" {
-			return nil, fmt.Errorf("OPENAI_API_URL must be set to construct api_base for model creation/update")
-		}
-		// Append /v1 if not already present
-		base := openaiAPIURL
-		if !strings.HasSuffix(base, "/v1") {
-			base = strings.TrimRight(base, "/") + "/v1"
+	// Auto-construct api_base from OPENAI_API_URL + PORT/v1 only when
+	// api_base is not already set in YAML and we have a config URL.
+	// When no API URL is configured and no YAML api_base exists, the map
+	// stays as-is (may be empty or YAML-only) — import still succeeds.
+	if _, hasAPIBase := params["api_base"]; !hasAPIBase && openAIAURL != "" {
+		base := strings.TrimRight(openAIAURL, "/")
+		if port > 0 {
+			base = fmt.Sprintf("%s:%d/v1", base, port)
+		} else {
+			base = fmt.Sprintf("%s/v1", base)
 		}
 		params["api_base"] = base
 	}
@@ -225,7 +302,7 @@ func (s *ModelService) buildLiteLLMParams(y *yamlparser.ModelYAML, openaiAPIURL 
 		params["model"] = slug
 	}
 
-	return params, nil
+	return params
 }
 
 // buildModelInfo constructs the model_info map by:
@@ -267,6 +344,9 @@ func (s *ModelService) buildModelInfo(y *yamlparser.ModelYAML) map[string]interf
 	if _, exists := info["supports_vision"]; !exists {
 		info["supports_vision"] = false
 	}
+	if _, exists := info["supports_embedding_image_input"]; !exists {
+		info["supports_embedding_image_input"] = false
+	}
 	if _, exists := info["supports_function_calling"]; !exists {
 		info["supports_function_calling"] = false
 	}
@@ -276,8 +356,26 @@ func (s *ModelService) buildModelInfo(y *yamlparser.ModelYAML) map[string]interf
 	if _, exists := info["supports_reasoning"]; !exists {
 		info["supports_reasoning"] = false
 	}
-	if _, exists := info["supports_embedding_image_input"]; !exists {
-		info["supports_embedding_image_input"] = false
+	if _, exists := info["supports_video"]; !exists {
+		info["supports_video"] = false
+	}
+	if _, exists := info["supports_document"]; !exists {
+		info["supports_document"] = false
+	}
+	if _, exists := info["supports_embedding"]; !exists {
+		info["supports_embedding"] = false
+	}
+	if _, exists := info["supports_reranking"]; !exists {
+		info["supports_reranking"] = false
+	}
+	if _, exists := info["supports_stt"]; !exists {
+		info["supports_stt"] = false
+	}
+	if _, exists := info["supports_tts"]; !exists {
+		info["supports_tts"] = false
+	}
+	if _, exists := info["supports_multimodal"]; !exists {
+		info["supports_multimodal"] = false
 	}
 
 	return info
@@ -300,7 +398,7 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 		Container:     model.Container,
 		Port:          model.Port,
 		EnvVars:       map[string]string{},
-		CommandArgs:   map[string]string{},
+		CommandArgs:   []string{},
 		Capabilities:  []string{},
 		LiteLLMParams: map[string]interface{}{},
 		ModelInfo:     map[string]interface{}{},
@@ -316,13 +414,8 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 
 	// Parse command_args JSON string
 	if model.CommandArgs != "" {
-		var cmdArgs map[string]interface{}
-		if err := json.Unmarshal([]byte(model.CommandArgs), &cmdArgs); err != nil {
+		if err := json.Unmarshal([]byte(model.CommandArgs), &y.CommandArgs); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal command_args: %w", err)
-		}
-		y.CommandArgs = make(map[string]string, len(cmdArgs))
-		for k, v := range cmdArgs {
-			y.CommandArgs[k] = formatTypedValue(v)
 		}
 	}
 

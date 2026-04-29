@@ -7,13 +7,39 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/user/llm-manager/internal/config"
 	"github.com/user/llm-manager/internal/database"
 	"github.com/user/llm-manager/internal/database/models"
 	"github.com/user/llm-manager/internal/service"
 )
+
+// envWithOverrides returns a copy of env with the given key=value overrides applied.
+// Any existing entries with matching keys are removed so the overrides always win.
+func envWithOverrides(env []string, overrides ...string) []string {
+	if len(overrides) == 0 {
+		return env
+	}
+	keys := make(map[string]bool)
+	for _, ov := range overrides {
+		idx := strings.IndexByte(ov, '=')
+		if idx >= 0 {
+			keys[ov[:idx]] = true
+		}
+	}
+	result := make([]string, 0, len(env)+len(overrides))
+	for _, e := range env {
+		idx := strings.IndexByte(e, '=')
+		if idx < 0 {
+			result = append(result, e)
+			continue
+		}
+		if !keys[e[:idx]] {
+			result = append(result, e)
+		}
+	}
+	return append(result, overrides...)
+}
 
 func init() {
 	RegisterCommand("install", func(root *RootCommand) Command {
@@ -30,12 +56,14 @@ type InstallCommand struct {
 	litellm    *service.LiteLLMService
 	composeGen *service.ComposeGenerator
 	start      bool
+	clean      bool
+	all        bool
 }
 
 // NewInstallCommand creates a new InstallCommand wired to the given root context.
 func NewInstallCommand(root *RootCommand) *InstallCommand {
 	configSvc := service.NewConfigService(root.db)
-	gen, err := service.NewComposeGenerator()
+	gen, err := service.NewComposeGenerator(root.db)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to create compose generator: %v\n", err)
 	}
@@ -56,11 +84,20 @@ func (c *InstallCommand) Run(args []string) int {
 		return 0
 	}
 
-	slug, startFlag := parseInstallArgs(args)
+	slug, startFlag, cleanFlag, allFlag := parseInstallArgs(args)
 	c.start = startFlag
+	c.clean = cleanFlag
+	c.all = allFlag
 
-	switch slug {
-	case "", "help", "-h", "--help":
+	if allFlag && slug != "" {
+		fmt.Fprintln(os.Stderr, "Error: cannot specify both --all and a model slug")
+		return 1
+	}
+
+	switch {
+	case allFlag:
+		return c.runInstallAll(startFlag, cleanFlag)
+	case slug == "" || slug == "help" || slug == "-h" || slug == "--help":
 		c.PrintHelp()
 		return 0
 	default:
@@ -68,16 +105,22 @@ func (c *InstallCommand) Run(args []string) int {
 	}
 }
 
-// parseInstallArgs splits positional args into the model slug and any flags.
-// Returns (slug, includeStart). Empty slug implies none was provided.
-func parseInstallArgs(args []string) (string, bool) {
+// parseInstallArgs splits positional args into the model slug, start flag, clean flag, and all flag.
+// Returns (slug, includeStart, includeClean, includeAll). Empty slug implies none was provided.
+func parseInstallArgs(args []string) (string, bool, bool, bool) {
 	var slug string
 	var hasStart bool
+	var hasClean bool
+	var hasAll bool
 
 	for _, arg := range args {
 		switch arg {
 		case "--start", "-s":
 			hasStart = true
+		case "--clean":
+			hasClean = true
+		case "--all":
+			hasAll = true
 		case "-h", "--help", "help":
 			continue
 		default:
@@ -86,12 +129,12 @@ func parseInstallArgs(args []string) (string, bool) {
 					slug = arg
 				} else {
 					fmt.Fprintf(os.Stderr, "Error: unexpected argument %q\n", arg)
-					return "", false
+					return "", false, false, false
 				}
 			}
 		}
 	}
-	return slug, hasStart
+	return slug, hasStart, hasClean, hasAll
 }
 
 // runInstall runs the full installation pipeline for a single model slug.
@@ -100,95 +143,9 @@ func (c *InstallCommand) runInstall(slug string) int {
 	fmt.Printf(" Installing model: %s\n", slug)
 	fmt.Printf("%s\n", strings.Repeat("═", 56))
 
-	// ──────── Stage A: pre-flight validation ────────
-	model, ok := c.preflight(slug)
-	if !ok {
-		return 1
+	if exitCode := c.runSingle(slug); exitCode != 0 {
+		return exitCode
 	}
-
-	// ──────── Stage B: back up old YAML & regenerate ────────
-	ymlPath := absYML(c.cfg.LLMDir, model.YML)
-	baseName := filepath.Base(ymlPath)
-
-	// Back up existing YAML if present.
-	if data, err := os.ReadFile(ymlPath); err == nil {
-		bak := ymlPath + ".bak"
-		if err := os.WriteFile(bak, data, 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "✗ Failed to back up %s: %v\n", baseName, err)
-			return 1
-		}
-		fmt.Printf("✓ Backed up %s -> %s.bak\n", baseName, baseName)
-	} else if !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "✗ Error reading %s: %v\n", ymlPath, err)
-		return 1
-	} else {
-		fmt.Printf("ℹ No existing %s — clean install\n", baseName)
-	}
-
-	// Regenerate docker-compose YAML from DB record.
-	composeYAML, err := c.composeGen.Generate(model)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "✗ Failed to generate docker-compose YAML: %v\n", err)
-		return 1
-	}
-
-	if err := os.WriteFile(ymlPath, []byte(composeYAML), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "✗ Failed to write %s: %v\n", ymlPath, err)
-		return 1
-	}
-	fmt.Printf("✓ Regenerated %s from DB record\n", baseName)
-
-	// ──────── Stage C: pull weights from HuggingFace ────────
-	hfToken := c.cfg.HfToken
-	if hfToken == "" {
-		hfToken = os.Getenv("HUGGING_FACE_HUB_TOKEN")
-	}
-	if model.HFRepo == "" || hfToken == "" {
-		fmt.Fprintln(os.Stderr, "✗ Weight pull cannot proceed: HF_REPO or HF_TOKEN not configured")
-		return 1
-	}
-
-	fmt.Println("Pulling weights from HuggingFace…")
-	cmd := exec.Command("hf", "download", model.HFRepo, "--token", hfToken)
-	cmd.Env = append(os.Environ(), "HF_HOME="+c.cfg.HFCacheDir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "✗ Weight pull failed — aborting install.\n")
-		return 1
-	}
-	fmt.Println("Weights pulled successfully")
-
-	// ──────── Stage D: start container (conditional) ────────
-	if c.start {
-		if model.Container == "" {
-			fmt.Fprintln(os.Stderr, "✗ Cannot start — model has no container configured")
-			return 1
-		}
-
-		if err := c.container.StartContainer(slug); err != nil {
-			fmt.Fprintf(os.Stderr, "✗ Failed to start container: %v\n", err)
-			return 1
-		}
-
-		fmt.Println("Waiting for container to initialise …")
-		time.Sleep(3 * time.Second)
-
-		status, _ := c.container.GetContainerStatus(slug)
-		upperStatus := strings.ToUpper(status)
-		if upperStatus == "" {
-			upperStatus = "UNKNOWN"
-		}
-		fmt.Printf("Container running (status=%s)\n", upperStatus)
-	}
-
-	// ──────── Stage E: sync with LiteLLM ────────
-	if err := c.litellm.SyncModel(slug); err != nil {
-		fmt.Fprintf(os.Stderr, "✗ LiteLLM sync failed: %v\n", err)
-		return 1
-	}
-	fmt.Println("Synced with LiteLLM proxy")
 
 	// ──────── Summary ────────
 	fmt.Println()
@@ -202,13 +159,152 @@ func (c *InstallCommand) runInstall(slug string) int {
 	} else {
 		fmt.Println("  ⌀ Container start skipped — use --start to begin")
 	}
-	fmt.Println("  ✓ Synced with LiteLLM proxy")
+	model, _ := c.db.GetModel(slug)
+	if model == nil || model.LiteLLMParams == "" {
+		fmt.Println("  ℹ LiteLLM sync skipped — model has no litellm_params")
+	} else {
+		fmt.Println("  ✓ Synced with LiteLLM proxy")
+	}
 	fmt.Println(strings.Repeat("─", 50))
 	fmt.Printf("  OpenAI API URL: %s\n", maskEndpoint(c.cfg.OpenAIAPIURL))
+	_, _ = c.db.GetModel(slug)
 	fmt.Printf("  Port:            %d\n", model.Port)
 	fmt.Println(strings.Repeat("─", 50))
 	fmt.Println("")
 
+	return 0
+}
+
+// runInstallAll installs all registered models in the database.
+func (c *InstallCommand) runInstallAll(startFlag, cleanFlag bool) int {
+	models, err := c.db.ListModels()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error listing models: %v\n", err)
+		return 1
+	}
+
+	if len(models) == 0 {
+		fmt.Println("No models registered. Use 'llm-manager model import' to add models.")
+		return 0
+	}
+
+	fmt.Printf("Installing %d model(s)...\n", len(models))
+	fmt.Println(strings.Repeat("─", 60))
+
+	total := len(models)
+	succeeded := 0
+	failed := 0
+
+	for i, m := range models {
+		fmt.Printf("\n[%d/%d] Installing: %s (%s)\n", i+1, total, m.Slug, m.Name)
+		c.clean = cleanFlag
+		c.start = startFlag
+		exitCode := c.runSingle(m.Slug)
+		if exitCode == 0 {
+			succeeded++
+		} else {
+			failed++
+		}
+	}
+
+	fmt.Println()
+	fmt.Println(strings.Repeat("─", 60))
+	fmt.Printf("Install complete: %d/%d succeeded, %d failed\n", succeeded, total, failed)
+	if failed > 0 {
+		return 1
+	}
+	return 0
+}
+
+// runSingle runs the install pipeline for a single model. Returns 0 on success.
+func (c *InstallCommand) runSingle(slug string) int {
+	model, ok := c.preflight(slug)
+	if !ok {
+		return 1
+	}
+
+	ymlPath := absYML(c.cfg.LLMDir, model.Slug+".yml")
+	baseName := filepath.Base(ymlPath)
+
+	if data, err := os.ReadFile(ymlPath); err == nil {
+		bak := ymlPath + ".bak"
+		if err := os.WriteFile(bak, data, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "  ✗ Failed to back up %s: %v\n", baseName, err)
+			return 1
+		}
+		fmt.Printf("  ✓ Backed up %s -> %s.bak\n", baseName, baseName)
+	} else if !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "  ✗ Error reading %s: %v\n", ymlPath, err)
+		return 1
+	} else {
+		fmt.Printf("  ℹ No existing %s — clean install\n", baseName)
+	}
+
+	composeYAML, err := c.composeGen.Generate(model)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ✗ Failed to generate docker-compose YAML: %v\n", err)
+		return 1
+	}
+
+	if err := os.WriteFile(ymlPath, []byte(composeYAML), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "  ✗ Failed to write %s: %v\n", ymlPath, err)
+		return 1
+	}
+	fmt.Printf("  ✓ Regenerated %s from DB record\n", baseName)
+
+	hfToken := c.cfg.HfToken
+	if hfToken == "" {
+		hfToken = os.Getenv("HUGGING_FACE_HUB_TOKEN")
+	}
+	if model.HFRepo == "" || hfToken == "" {
+		fmt.Fprintln(os.Stderr, "  ✗ Weight pull cannot proceed: HF_REPO or HF_TOKEN not configured")
+		return 1
+	}
+
+	fmt.Println("  Pulling weights from HuggingFace…")
+	cmd := exec.Command("hf", "download", model.HFRepo, "--token="+hfToken)
+	cmd.Env = envWithOverrides(os.Environ(),
+		"HF_HOME="+c.cfg.HFCacheDir,
+		"HF_TOKEN="+hfToken,
+		"HUGGING_FACE_HUB_TOKEN="+hfToken,
+	)
+
+	if err := RunInteractive(cmd); err != nil {
+		fmt.Fprintf(os.Stderr, "  ✗ Weight pull failed\n")
+		return 1
+	}
+	fmt.Println("  ✓ Weights pulled successfully")
+
+	if c.start {
+		if model.Container == "" {
+			fmt.Fprintln(os.Stderr, "  ✗ Cannot start — model has no container configured")
+			return 1
+		}
+
+		if err := c.container.StartContainer(slug, false); err != nil {
+			fmt.Fprintf(os.Stderr, "  ✗ Failed to start container: %v\n", err)
+			return 1
+		}
+
+		fmt.Println("  ✓ Container started")
+	}
+
+	if c.clean {
+		if err := c.litellm.CleanDuplicates(slug); err != nil {
+			fmt.Fprintf(os.Stderr, "  ✗ LiteLLM cleanup failed: %v\n", err)
+			return 1
+		}
+	}
+	skipSync := model.LiteLLMParams == ""
+	if !skipSync {
+		if err := c.litellm.SyncModel(model.Slug); err != nil {
+			fmt.Fprintf(os.Stderr, "  ✗ LiteLLM sync failed: %v\n", err)
+			return 1
+		}
+		fmt.Println("  ✓ Synced with LiteLLM proxy")
+	} else {
+		fmt.Println("  ℹ LiteLLM sync skipped — model has no litellm_params")
+	}
 	return 0
 }
 
@@ -263,7 +359,7 @@ func maskEndpoint(u string) string {
 		if colonIdx := strings.LastIndexByte(host, ':'); colonIdx > 0 {
 			host = host[:colonIdx]
 		}
-		return fmt.Sprintf("%s://%s...", parts[0], host)
+		return fmt.Sprintf("%s://%s/...", parts[0], host)
 	}
 	return u
 }
@@ -281,13 +377,17 @@ func (c *InstallCommand) PrintHelp() {
 	fmt.Println(`install - Install or reinstall a model from its database record.
 
 USAGE:
-  llm-manager install <slug> [--start|-s]
+  llm-manager install <slug> [--start|-s] [--clean]
+  llm-manager install --all [--start|-s] [--clean]
 
 ARGUMENTS:
   slug   The model slug to install (must exist in the database)
+  --all  Install all registered models in the database
 
 OPTIONS:
   --start, -s   Also start the container after install (default: skip start)
+  --clean       Before syncing, scan LiteLLM and delete all duplicate/stale
+                deployments where litellm_params.model matches this slug
 
 STEPS:
   1. Validate HF_TOKEN, OPENAI_API_URL, and model configuration
@@ -295,7 +395,8 @@ STEPS:
   3. Regenerate docker-compose YAML from database record
   4. Pull model weights from HuggingFace
   5. [--start] Start the Docker container
-  6. Sync model with LiteLLM proxy
+  6. [--clean] Clean duplicate/stale LiteLLM deployments
+  7. Sync model with LiteLLM proxy
 
 REQUIREMENTS:
   The model must already exist in the database. Use "llm-manager model import"
@@ -308,5 +409,8 @@ ENVIRONMENT VARIABLES:
 
 EXAMPLES:
   llm-manager install qwen3_6          # Install without starting container
-  llm-manager install qwen3_6 --start  # Install and start container`)
+  llm-manager install qwen3_6 --start  # Install and start container
+  llm-manager install qwen3_6 --clean  # Clean duplicates before syncing
+  llm-manager install --all            # Install all registered models
+  llm-manager install --all --start    # Install all and start containers`)
 }

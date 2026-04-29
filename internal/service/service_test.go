@@ -40,6 +40,7 @@ func seedTestModel(t *testing.T, db database.DatabaseManager, slug string) *mode
 		YML:       slug + ".yml",
 		Container: slug + "-container",
 		Port:      8000,
+		Default:   false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel(%s) error: %v", slug, err)
@@ -59,36 +60,22 @@ func TestContainerService_StopAllLLMs(t *testing.T) {
 	// Seed a non-LLM model
 	nonLLM := &models.Model{
 		Slug:      "embed-1",
-		Type:      "embed",
+		Type:      "embedding",
 		Name:      "Embed Model",
 		HFRepo:    "test/embed",
-		YML:       "embed.yml",
 		Container: "embed-container",
 		Port:      8020,
+		Default:   false,
 	}
 	if err := db.CreateModel(nonLLM); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
 	}
 
-	// Seed an LLM model without a YML file
-	noYML := &models.Model{
-		Slug:      "llm-no-yml",
-		Type:      "llm",
-		Name:      "No YML Model",
-		HFRepo:    "test/no-yml",
-		YML:       "",
-		Container: "no-yml-container",
-		Port:      8099,
-	}
-	if err := db.CreateModel(noYML); err != nil {
-		t.Fatalf("CreateModel() error: %v", err)
-	}
-
 	svc := NewContainerService(db, config.DefaultConfig())
 	err := svc.StopAllLLMs()
-	// Without Docker, the command will fail — that's expected in tests
-	if err == nil {
-		t.Error("StopAllLLMs() without Docker should return error")
+	// Without running containers, this should succeed (best-effort, logs skipped)
+	if err != nil {
+		t.Errorf("StopAllLLMs() with no running containers should succeed, got error: %v", err)
 	}
 }
 

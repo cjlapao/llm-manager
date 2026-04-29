@@ -16,15 +16,49 @@ import (
 	"github.com/user/llm-manager/pkg/yamlparser"
 )
 
+// OpenCodeModelEntry represents a model entry in opencode's provider.models.
+type OpenCodeModelEntry struct {
+	Name       string                 `json:"name,omitempty"`
+	Limit      *OpenCodeLimit         `json:"limit,omitempty"`
+	Options    map[string]interface{} `json:"options,omitempty"`
+	Variants   map[string]interface{} `json:"variants,omitempty"`
+	Modalities map[string][]string    `json:"modalities,omitempty"`
+}
+
+// OpenCodeLimit represents context and output token limits.
+type OpenCodeLimit struct {
+	Context int     `json:"context"`
+	Output  int     `json:"output"`
+	Price   *Price  `json:"price,omitempty"`
+}
+
+// Price represents input/output token pricing.
+type Price struct {
+	Input  *float64 `json:"input,omitempty"`
+	Output *float64 `json:"output,omitempty"`
+}
+
+// variantEntry holds a variant name and its merged parameters.
+type variantEntry struct {
+	Name   string
+	Params map[string]interface{}
+}
+
 // ModelService handles business logic for LLM model operations.
 type ModelService struct {
-	db  database.DatabaseManager
-	cfg *config.Config
+	db       database.DatabaseManager
+	cfg      *config.Config
+	litellm  DeleteModeler
 }
 
 // NewModelService creates a new ModelService.
 func NewModelService(db database.DatabaseManager, cfg *config.Config) *ModelService {
 	return &ModelService{db: db, cfg: cfg}
+}
+
+// SetLiteLLMService sets the optional LiteLLM deleter for delete+reimport mode.
+func (s *ModelService) SetLiteLLMService(l DeleteModeler) {
+	s.litellm = l
 }
 
 // ListModels returns all models from the database.
@@ -58,6 +92,12 @@ func (s *ModelService) UpdateModelWithYAML(slug string, yamlPath string) (*model
 	y, err := yamlparser.ParseYAML(yamlPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	// Expand template references (${{ .xxx }}) before validation.
+	cfgValues := s.configValues()
+	if err := yamlparser.ApplyTemplateVars(y, cfgValues); err != nil {
+		return nil, fmt.Errorf("template expansion failed: %w", err)
 	}
 
 	if errs := yamlparser.Validate(y); len(errs) > 0 {
@@ -96,12 +136,11 @@ func (s *ModelService) UpdateModelWithYAML(slug string, yamlPath string) (*model
 		updates["env_vars"] = string(envVarsJSON)
 	}
 	if len(y.CommandArgs) > 0 {
-		typedArgs := yamlparser.ParseTypedCommandArgs(y.CommandArgs)
-		commandArgsStr, err := yamlparser.CommandArgsToJSON(typedArgs)
+		commandArgsStr, err := json.Marshal(y.CommandArgs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal command_args: %w", err)
 		}
-		updates["command_args"] = commandArgsStr
+		updates["command_args"] = string(commandArgsStr)
 	}
 	if len(y.Capabilities) > 0 {
 		capabilitiesJSON, err := json.Marshal(y.Capabilities)
@@ -126,6 +165,195 @@ func (s *ModelService) UpdateModelWithYAML(slug string, yamlPath string) (*model
 	}
 
 	return s.db.GetModel(slug)
+}
+
+// GenerateOpenCodeModel generates opencode-compatible model entry for a single model.
+func (s *ModelService) GenerateOpenCodeModel(slug string) ([]byte, error) {
+	m, err := s.db.GetModel(slug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get model %s: %w", slug, err)
+	}
+
+	modelsMap := make(map[string]*OpenCodeModelEntry)
+	modelsMap[m.Slug] = s.buildOpenCodeEntry(m)
+	return json.MarshalIndent(modelsMap, "", "  ")
+}
+
+// GenerateOpenCodeModels generates opencode-compatible model entries from all
+// models registered in the database. It returns a JSON object of model entries
+// keyed by slug, suitable for pasting directly into a provider's models section.
+//
+// For each model it:
+//   - Includes the base model entry with name, limit, options, and variants
+//   - Includes all variants (from litellm_params.variants) but NOT the active alias
+//   - Includes input/output token costs if available
+//   - Excludes top_k/top_p from base params so they can be set at provider level
+func (s *ModelService) GenerateOpenCodeModels() ([]byte, error) {
+	models, err := s.db.ListModels()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list models: %w", err)
+	}
+
+	modelsMap := make(map[string]*OpenCodeModelEntry)
+	for _, m := range models {
+		modelsMap[m.Slug] = s.buildOpenCodeEntry(&m)
+	}
+
+	return json.MarshalIndent(modelsMap, "", "  ")
+}
+
+// buildOpenCodeEntry builds a single OpenCode model entry from a model record.
+func (s *ModelService) buildOpenCodeEntry(m *models.Model) *OpenCodeModelEntry {
+	oc := &OpenCodeModelEntry{}
+
+	displayName := m.Name
+	if displayName == "" {
+		displayName = m.Slug
+	}
+	oc.Name = displayName
+
+	oc.Options = map[string]interface{}{
+		"model": m.Slug,
+		"provider": map[string]interface{}{
+			"model": m.Slug,
+		},
+	}
+
+	contextLimit := 262144 // default context window
+	outputLimit := uint(4096) // default output limit
+
+	// Try to extract limits from model_info
+	if m.ModelInfo != "" {
+		var minfo map[string]interface{}
+		if err := json.Unmarshal([]byte(m.ModelInfo), &minfo); err == nil {
+			if inputTokens, ok := minfo["input_tokens_limits"].([]interface{}); ok && len(inputTokens) > 0 {
+				if v, ok := inputTokens[0].(float64); ok {
+					contextLimit = int(v)
+				}
+			}
+			if outputTokens, ok := minfo["output_token_limits"].([]interface{}); ok && len(outputTokens) > 0 {
+				if v, ok := outputTokens[0].(float64); ok {
+					outputLimit = uint(v)
+				}
+			}
+		}
+	}
+
+	oc.Limit = &OpenCodeLimit{
+		Context: contextLimit,
+		Output:  int(outputLimit),
+	}
+
+	if m.InputTokenCost > 0 || m.OutputTokenCost > 0 {
+		oc.Limit.Price = &Price{}
+		if m.InputTokenCost > 0 {
+			oc.Limit.Price.Input = &m.InputTokenCost
+		}
+		if m.OutputTokenCost > 0 {
+			oc.Limit.Price.Output = &m.OutputTokenCost
+		}
+	}
+
+	variants := s.extractVariants(*m)
+
+	var caps []string
+	json.Unmarshal([]byte(m.Capabilities), &caps)
+	hasReasoning := false
+	for _, c := range caps {
+		if c == "reasoning" {
+			hasReasoning = true
+		}
+	}
+
+	// Build modalities based on capabilities
+	oc.Modalities = map[string][]string{
+		"input":  {"text"},
+		"output": {"text"},
+	}
+	for _, c := range caps {
+		switch c {
+		case "image":
+			oc.Modalities["input"] = append(oc.Modalities["input"], "image")
+		case "video":
+			oc.Modalities["input"] = append(oc.Modalities["input"], "video")
+		case "document":
+			oc.Modalities["input"] = append(oc.Modalities["input"], "pdf")
+		}
+	}
+
+	if len(variants) > 0 {
+		oc.Variants = make(map[string]interface{})
+		for _, v := range variants {
+			vEntry := map[string]interface{}{
+				"model": m.Slug + "-" + v.Name,
+			}
+			if hasReasoning {
+				if strings.Contains(strings.ToLower(v.Name), "think") {
+					vEntry["thinking"] = map[string]interface{}{
+						"type":         "enabled",
+						"budgetTokens": 16000,
+					}
+				}
+			}
+			oc.Variants[v.Name] = vEntry
+		}
+	}
+
+	return oc
+}
+
+// extractVariants parses litellm_params from a model record and returns
+// a list of variant entries with their names and specs.
+// Excludes top_k and top_p from base params so they can be set at provider level.
+func (s *ModelService) extractVariants(m models.Model) []variantEntry {
+	var variants []variantEntry
+
+	if m.LiteLLMParams == "" {
+		return variants
+	}
+
+	var params map[string]interface{}
+	if err := json.Unmarshal([]byte(m.LiteLLMParams), &params); err != nil {
+		return variants
+	}
+
+	variantsMap, ok := params["variants"].(map[string]interface{})
+	if !ok || len(variantsMap) == 0 {
+		return variants
+	}
+
+	// Build base params (without variants key, top_k, top_p)
+	baseParams := make(map[string]interface{})
+	for k, v := range params {
+		if k != "variants" && k != "top_k" && k != "top_p" {
+			baseParams[k] = v
+		}
+	}
+
+	for name, spec := range variantsMap {
+		vEntry := variantEntry{
+			Name:   name,
+			Params: make(map[string]interface{}),
+		}
+
+		if specMap, ok := spec.(map[string]interface{}); ok {
+			// Merge base params with variant overrides
+			for k, v := range baseParams {
+				vEntry.Params[k] = v
+			}
+			// Override with variant-specific values (excluding top_k/top_p)
+			for k, v := range specMap {
+				if k == "top_k" || k == "top_p" {
+					continue
+				}
+				vEntry.Params[k] = v
+			}
+		}
+
+		variants = append(variants, vEntry)
+	}
+
+	return variants
 }
 
 // GenerateCompose generates a docker-compose YAML for the model using the given generator.
@@ -188,7 +416,7 @@ func (s *ContainerService) RefreshContainerStatus(slug string) error {
 }
 
 // StartContainer starts a Docker container via docker compose.
-func (s *ContainerService) StartContainer(slug string) error {
+func (s *ContainerService) StartContainer(slug string, allowMultiple bool) error {
 	model, err := s.db.GetModel(slug)
 	if err != nil {
 		return fmt.Errorf("model not found: %w", err)
@@ -198,15 +426,21 @@ func (s *ContainerService) StartContainer(slug string) error {
 		return fmt.Errorf("model %s has no container configured", slug)
 	}
 
-	ymlPath := model.YML
-	if !strings.HasPrefix(ymlPath, "/") {
-		ymlPath = s.cfg.LLMDir + "/" + ymlPath
+	if !allowMultiple {
+		fmt.Println("Stopping all other LLM containers...")
+		if err := s.StopAllLLMs(); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: failed to stop other LLM containers: %v\n", err)
+		}
+	} else {
+		fmt.Println("Starting without stopping other LLM containers (--allow-multiple)")
 	}
 
-	cmd := exec.Command("docker", "compose", "-f", ymlPath, "up", "-d")
+	composeFile := filepath.Join(s.cfg.LLMDir, slug+".yml")
+	projectName := "llm-" + strings.ReplaceAll(slug, ".", "-")
+	cmd := exec.Command("docker", "compose", "--project-name", projectName, "-f", composeFile, "up", "-d")
 	cmd.Dir = s.cfg.LLMDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start container %s: %s (%w)", slug, string(output), err)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to start container %s: %w", slug, err)
 	}
 
 	if err := s.db.UpdateContainerStatus(slug, "running"); err != nil {
@@ -215,8 +449,9 @@ func (s *ContainerService) StartContainer(slug string) error {
 	return nil
 }
 
-// StopContainer stops a Docker container via docker compose.
+// StopContainer stops a Docker container by name.
 func (s *ContainerService) StopContainer(slug string) error {
+	fmt.Printf("[TRACE] StopContainer called: slug=%s\n", slug)
 	model, err := s.db.GetModel(slug)
 	if err != nil {
 		return fmt.Errorf("model not found: %w", err)
@@ -226,15 +461,9 @@ func (s *ContainerService) StopContainer(slug string) error {
 		return fmt.Errorf("model %s has no container configured", slug)
 	}
 
-	ymlPath := model.YML
-	if !strings.HasPrefix(ymlPath, "/") {
-		ymlPath = s.cfg.LLMDir + "/" + ymlPath
-	}
-
-	cmd := exec.Command("docker", "compose", "-f", ymlPath, "down")
-	cmd.Dir = s.cfg.LLMDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to stop container %s: %s (%w)", slug, string(output), err)
+	cmd := exec.Command("docker", "stop", model.Container)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to stop container %s: %w", slug, err)
 	}
 
 	if err := s.db.UpdateContainerStatus(slug, "stopped"); err != nil {
@@ -248,7 +477,7 @@ func (s *ContainerService) RestartContainer(slug string) error {
 	if err := s.StopContainer(slug); err != nil {
 		return err
 	}
-	return s.StartContainer(slug)
+	return s.StartContainer(slug, false)
 }
 
 // GetContainerLogs retrieves logs for a container.
@@ -292,43 +521,58 @@ func (s *ContainerService) queryDockerStatus(slug string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// StopAllLLMs stops all LLM-type containers (those with a yml file).
+// StopAllLLMs stops all running LLM-type containers by name.
+// It cross-references docker ps with DB models, stops LLM containers,
+// and skips non-LLM containers (embed, comfyui, etc.).
 func (s *ContainerService) StopAllLLMs() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Get all running container names
+	cmd := exec.Command("docker", "ps", "--format", "{{.Names}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to list running containers: %w", err)
+	}
+
+	runningNames := make(map[string]bool)
+	for _, name := range strings.Fields(string(output)) {
+		runningNames[name] = true
+	}
+
+	// Get all models from DB
 	models, err := s.db.ListModels()
 	if err != nil {
 		return fmt.Errorf("failed to list models: %w", err)
 	}
 
-	var failures []string
+	var stopped int
+	var skippedNonLLM int
 	for _, m := range models {
-		if m.Type != "llm" || m.YML == "" {
+		if m.Container == "" {
 			continue
 		}
 
-		ymlPath := m.YML
-		if !strings.HasPrefix(ymlPath, "/") {
-			ymlPath = s.cfg.LLMDir + "/" + ymlPath
+		if m.Type != "llm" {
+			if runningNames[m.Container] {
+				skippedNonLLM++
+			}
+			continue
 		}
 
-		cmd := exec.Command("docker", "compose", "-f", ymlPath, "down")
-		cmd.Dir = s.cfg.LLMDir
-		if output, err := cmd.CombinedOutput(); err != nil {
-			failures = append(failures, fmt.Sprintf("  %s (%s): %s", m.Slug, m.YML, strings.TrimSpace(string(output))))
+		if !runningNames[m.Container] {
+			continue // not running, nothing to stop
+		}
+
+		stopCmd := exec.Command("docker", "stop", m.Container)
+		if err := stopCmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ Failed to stop %s: %v\n", m.Container, err)
+		} else {
+			stopped++
 		}
 	}
 
-	if len(failures) > 0 {
-		var msg strings.Builder
-		msg.WriteString("failed to stop the following containers:\n")
-		for _, f := range failures {
-			msg.WriteString(f + "\n")
-		}
-		return fmt.Errorf("some containers failed to stop:\n%s", msg.String())
-	}
-
+	fmt.Printf("  Stopped %d LLM container(s), skipped %d non-LLM container(s)\n", stopped, skippedNonLLM)
 	return nil
 }
 
@@ -429,64 +673,60 @@ func (s *ContainerService) StopComfyUI() error {
 	return nil
 }
 
-// StartEmbed starts the embed container via docker start.
+// StartEmbed starts the first available embed model container.
+// It delegates to StartModelBySlug after resolving the model from the database.
+// Backward-compatible: same signature, returns error on failure.
 func (s *ContainerService) StartEmbed() error {
-	cmd := exec.Command("docker", "start", "llm-embed")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start embed container: %s (%w)", string(output), err)
+	models, err := s.db.ListModelsByTypeSubType("rag", "embedding")
+	if err != nil {
+		return fmt.Errorf("failed to list embedding models: %w", err)
 	}
-	fmt.Println("Embed container up on port 8020")
-	return nil
+	if len(models) == 0 {
+		return fmt.Errorf("no embedding models found")
+	}
+	return s.StartModelBySlug(models[0].Slug)
 }
 
-// StopEmbed stops the embed container if running.
+// StopEmbed stops the first available embed model container.
+// It delegates to StopModelBySlug after resolving the model from the database.
+// Backward-compatible: same signature, returns error on failure.
 func (s *ContainerService) StopEmbed() error {
-	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", "llm-embed")
-	output, err := cmd.Output()
+	models, err := s.db.ListModelsByTypeSubType("rag", "embedding")
 	if err != nil {
-		// Container doesn't exist or can't be inspected
+		return fmt.Errorf("failed to list embedding models: %w", err)
+	}
+	if len(models) == 0 {
 		return nil
 	}
-
-	state := strings.TrimSpace(string(output))
-	if state == "running" {
-		stopCmd := exec.Command("docker", "stop", "llm-embed")
-		if err := stopCmd.Run(); err != nil {
-			return fmt.Errorf("failed to stop embed container: %w", err)
-		}
-	}
-
-	return nil
+	return s.StopModelBySlug(models[0].Slug)
 }
 
-// StartRerank starts the rerank container via docker start.
+// StartRerank starts the first available rerank model container.
+// It delegates to StartModelBySlug after resolving the model from the database.
+// Backward-compatible: same signature, returns error on failure.
 func (s *ContainerService) StartRerank() error {
-	cmd := exec.Command("docker", "start", "llm-rerank")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start rerank container: %s (%w)", string(output), err)
+	models, err := s.db.ListModelsByTypeSubType("rag", "reranker")
+	if err != nil {
+		return fmt.Errorf("failed to list reranker models: %w", err)
 	}
-	fmt.Println("Rerank container up on port 8021")
-	return nil
+	if len(models) == 0 {
+		return fmt.Errorf("no reranker models found")
+	}
+	return s.StartModelBySlug(models[0].Slug)
 }
 
-// StopRerank stops the rerank container if running.
+// StopRerank stops the first available rerank model container.
+// It delegates to StopModelBySlug after resolving the model from the database.
+// Backward-compatible: same signature, returns error on failure.
 func (s *ContainerService) StopRerank() error {
-	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", "llm-rerank")
-	output, err := cmd.Output()
+	models, err := s.db.ListModelsByTypeSubType("rag", "reranker")
 	if err != nil {
-		// Container doesn't exist or can't be inspected
+		return fmt.Errorf("failed to list reranker models: %w", err)
+	}
+	if len(models) == 0 {
 		return nil
 	}
-
-	state := strings.TrimSpace(string(output))
-	if state == "running" {
-		stopCmd := exec.Command("docker", "stop", "llm-rerank")
-		if err := stopCmd.Run(); err != nil {
-			return fmt.Errorf("failed to stop rerank container: %w", err)
-		}
-	}
-
-	return nil
+	return s.StopModelBySlug(models[0].Slug)
 }
 
 // StartSpeech starts whisper-stt and kokoro-tts via profile-based docker compose.
@@ -520,6 +760,236 @@ func (s *ContainerService) StopSpeech() error {
 	}
 
 	return nil
+}
+
+// StartModelBySlug reads a model from the database by slug and starts its
+// Docker container using the container name stored in model.Container.
+// If the container doesn't exist yet, it generates the compose file and
+// creates the container first (equivalent to a lightweight install).
+func (s *ContainerService) StartModelBySlug(slug string) error {
+	model, err := s.db.GetModel(slug)
+	if err != nil {
+		return fmt.Errorf("model not found: %w", err)
+	}
+
+	if model.Container == "" {
+		return fmt.Errorf("model %s has no container configured", slug)
+	}
+
+	// Check if the container already exists
+	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Status}}", model.Container)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		// Container doesn't exist — generate compose file and create it
+		fmt.Fprintf(os.Stderr, "  Container %s does not exist — creating via compose...\n", model.Container)
+
+		composeGen, genErr := NewComposeGenerator(s.db)
+		if genErr != nil {
+			return fmt.Errorf("failed to create compose generator: %w", genErr)
+		}
+
+		composeYAML, genErr := composeGen.Generate(model)
+		if genErr != nil {
+			return fmt.Errorf("failed to generate docker-compose YAML: %w", genErr)
+		}
+
+		ymlPath := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
+		if writeErr := os.WriteFile(ymlPath, []byte(composeYAML), 0o644); writeErr != nil {
+			return fmt.Errorf("failed to write compose file %s: %w", ymlPath, writeErr)
+		}
+
+		// Run docker compose up -d with a unique project name per model
+		// to prevent Docker Compose from reconciling services across
+		// different compose files in the same directory.
+		composeDir := filepath.Dir(ymlPath)
+		projectName := "rag-" + strings.ReplaceAll(model.Slug, ".", "-")
+		composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
+		composeUp.Dir = composeDir
+		if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
+			return fmt.Errorf("failed to create container %s: %s (%w)", model.Container, string(composeOut), composeErr)
+		}
+		fmt.Printf("Container %s created\n", model.Container)
+	}
+
+	// Now start the container
+	startCmd := exec.Command("docker", "start", model.Container)
+	if output, err := startCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to start container %s: %s (%w)", slug, string(output), err)
+	}
+
+	fmt.Printf("Container %s started\n", model.Container)
+	return nil
+}
+
+// StopModelBySlug reads a model from the database by slug, checks the Docker
+// container status, and stops it if running.
+func (s *ContainerService) StopModelBySlug(slug string) error {
+	model, err := s.db.GetModel(slug)
+	if err != nil {
+		return fmt.Errorf("model not found: %w", err)
+	}
+
+	if model.Container == "" {
+		return fmt.Errorf("model %s has no container configured", slug)
+	}
+
+	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", model.Container)
+	output, err := cmd.Output()
+	if err != nil {
+		// Container doesn't exist or can't be inspected — nothing to stop
+		return nil
+	}
+
+	state := strings.TrimSpace(string(output))
+	if state == "running" {
+		stopCmd := exec.Command("docker", "stop", model.Container)
+		if err := stopCmd.Run(); err != nil {
+			return fmt.Errorf("failed to stop container %s: %w", slug, err)
+		}
+		fmt.Printf("Container %s stopped\n", model.Container)
+	} else {
+		fmt.Printf("Container %s is not running (state: %s)\n", model.Container, state)
+	}
+
+	return nil
+}
+
+// StopAllBySubType stops all running containers whose model type and subtype
+// match the given values. It is a per-subtype replacement for StopAllLLMs,
+// ensuring that starting a new embedding model only stops the old one — it
+// never touches LLM chat containers or other subtypes.
+func (s *ContainerService) StopAllBySubType(modelType string, subType string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cmd := exec.Command("docker", "ps", "--format", "{{.Names}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to list running containers: %w", err)
+	}
+
+	runningNames := make(map[string]bool)
+	for _, name := range strings.Fields(string(output)) {
+		runningNames[name] = true
+	}
+
+	models, err := s.db.ListModels()
+	if err != nil {
+		return fmt.Errorf("failed to list models: %w", err)
+	}
+
+	var stopped int
+	for _, m := range models {
+		if m.Container == "" {
+			continue
+		}
+		if m.Type != modelType || m.SubType != subType {
+			continue
+		}
+		if !runningNames[m.Container] {
+			continue
+		}
+		stopCmd := exec.Command("docker", "stop", m.Container)
+		if err := stopCmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: failed to stop %s: %v\n", m.Container, err)
+		} else {
+			stopped++
+		}
+	}
+
+	fmt.Printf("  Stopped %d %s/%s container(s)\n", stopped, modelType, subType)
+	return nil
+}
+
+// StartModelBySlugWithAllow reads a model from the database by slug and starts its
+// Docker container. When allowMultiple is false, it first stops any other
+// running container of the same type+subtype so only one instance of each
+// subtype runs at a time. When allowMultiple is true, it starts without
+// stopping peers.
+func (s *ContainerService) StartModelBySlugWithAllow(slug string, allowMultiple bool) error {
+	model, err := s.db.GetModel(slug)
+	if err != nil {
+		return fmt.Errorf("model not found: %w", err)
+	}
+
+	if model.Container == "" {
+		return fmt.Errorf("model %s has no container configured", slug)
+	}
+
+	if !allowMultiple {
+		fmt.Printf("Stopping other %s/%s containers...\n", model.Type, model.SubType)
+		if err := s.StopAllBySubType(model.Type, model.SubType); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: failed to stop other containers: %v\n", err)
+		}
+	} else {
+		fmt.Printf("Starting without stopping other %s/%s containers (--allow-multiple)\n", model.Type, model.SubType)
+	}
+
+	// Check if the container already exists
+	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Status}}", model.Container)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		// Container doesn't exist — generate compose file and create it
+		fmt.Fprintf(os.Stderr, "  Container %s does not exist — creating via compose...\n", model.Container)
+
+		composeGen, genErr := NewComposeGenerator(s.db)
+		if genErr != nil {
+			return fmt.Errorf("failed to create compose generator: %w", genErr)
+		}
+
+		composeYAML, genErr := composeGen.Generate(model)
+		if genErr != nil {
+			return fmt.Errorf("failed to generate docker-compose YAML: %w", genErr)
+		}
+
+		ymlPath := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
+		if writeErr := os.WriteFile(ymlPath, []byte(composeYAML), 0o644); writeErr != nil {
+			return fmt.Errorf("failed to write compose file %s: %w", ymlPath, writeErr)
+		}
+
+		// Run docker compose up -d from the compose file directory
+		composeDir := filepath.Dir(ymlPath)
+		composeUp := exec.Command("docker", "compose", "-f", ymlPath, "up", "-d")
+		composeUp.Dir = composeDir
+		if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
+			return fmt.Errorf("failed to create container %s: %s (%w)", model.Container, string(composeOut), composeErr)
+		}
+		fmt.Printf("Container %s created\n", model.Container)
+	}
+
+	// Now start the container
+	startCmd := exec.Command("docker", "start", model.Container)
+	if output, err := startCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to start container %s: %s (%w)", slug, string(output), err)
+	}
+
+	fmt.Printf("Container %s started\n", model.Container)
+	return nil
+}
+
+// GetModelStatus returns model metadata along with the Docker container
+// running/stopped status for a given slug. Returns "running", "stopped", or
+// "unknown" as the status string.
+func (s *ContainerService) GetModelStatus(slug string) (ModelStatus, error) {
+	model, err := s.db.GetModel(slug)
+	if err != nil {
+		return ModelStatus{}, fmt.Errorf("model not found: %w", err)
+	}
+
+	status := "unknown"
+	if model.Container != "" {
+		cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", model.Container)
+		output, inspectErr := cmd.Output()
+		if inspectErr == nil {
+			status = strings.TrimSpace(string(output))
+		}
+	}
+
+	return ModelStatus{
+		Name:      model.Name,
+		Slug:      model.Slug,
+		Container: model.Container,
+		Port:      model.Port,
+		Status:    status,
+	}, nil
 }
 
 // HotspotService handles hotspot (most recent model) operations.
@@ -574,12 +1044,9 @@ func (s *HotspotService) StopHotspot() error {
 		return fmt.Errorf("hotspot model not found: %w", err)
 	}
 
-	ymlPath := model.YML
-	if !strings.HasPrefix(ymlPath, "/") {
-		ymlPath = s.cfg.LLMDir + "/" + ymlPath
-	}
+	composeFile := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
 
-	cmd := exec.Command("docker", "compose", "-f", ymlPath, "down")
+	cmd := exec.Command("docker", "compose", "-f", composeFile, "down")
 	cmd.Dir = s.cfg.LLMDir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// Non-fatal: container may already be stopped
@@ -608,20 +1075,17 @@ func (s *HotspotService) RestartHotspot() error {
 		return fmt.Errorf("hotspot model not found: %w", err)
 	}
 
-	ymlPath := model.YML
-	if !strings.HasPrefix(ymlPath, "/") {
-		ymlPath = s.cfg.LLMDir + "/" + ymlPath
-	}
+	composeFile := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
 
 	// Stop the container
-	stopCmd := exec.Command("docker", "compose", "-f", ymlPath, "down")
+	stopCmd := exec.Command("docker", "compose", "-f", composeFile, "down")
 	stopCmd.Dir = s.cfg.LLMDir
 	if output, err := stopCmd.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "  Warning: failed to stop hotspot container: %s\n", strings.TrimSpace(string(output)))
 	}
 
 	// Start the container
-	startCmd := exec.Command("docker", "compose", "-f", ymlPath, "up", "-d")
+	startCmd := exec.Command("docker", "compose", "-f", composeFile, "up", "-d")
 	startCmd.Dir = s.cfg.LLMDir
 	if output, err := startCmd.CombinedOutput(); err != nil {
 		// Start failed — keep the hotspot but warn
@@ -679,8 +1143,8 @@ func (s *ServiceService) ListServices() ([]ServiceStatus, error) {
 }
 
 // StartService starts a model's container.
-func (s *ServiceService) StartService(slug string) error {
-	return s.container.StartContainer(slug)
+func (s *ServiceService) StartService(slug string, allowMultiple bool) error {
+	return s.container.StartContainer(slug, allowMultiple)
 }
 
 // StopService stops a model's container.
@@ -700,6 +1164,15 @@ type ServiceStatus struct {
 	Type      string `json:"type"`
 	Port      int    `json:"port"`
 	Container string `json:"container"`
+	Status    string `json:"status"`
+}
+
+// ModelStatus holds model metadata and Docker container status.
+type ModelStatus struct {
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	Container string `json:"container"`
+	Port      int    `json:"port"`
 	Status    string `json:"status"`
 }
 

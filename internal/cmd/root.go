@@ -41,6 +41,14 @@ func (c *RootCommand) Run(args []string) int {
 	c.db = db
 	defer db.Close()
 
+	// Auto-apply pending migrations on every command (except version/help which don't need DB data)
+	if len(args) > 0 && args[0] != "-h" && args[0] != "--help" && args[0] != "help" && args[0] != "-v" && args[0] != "--version" && args[0] != "version" && args[0] != "migrate" {
+		if err := c.db.ApplyPendingMigrations(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error applying pending migrations: %v\n", err)
+			return 1
+		}
+	}
+
 	// Merge database config into the config struct (env/file take priority)
 	c.cfg.MergeFromDB(c.db)
 
@@ -80,23 +88,18 @@ func (c *RootCommand) runConfig() int {
 	return 0
 }
 
-// runMigrate imports models from models.json into the database.
+// runMigrate updates the database schema to match the current code.
 func (c *RootCommand) runMigrate() int {
-	if err := c.db.AutoMigrate(); err != nil {
+	if err := c.db.ApplyPendingMigrations(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running migrations: %v\n", err)
 		return 1
 	}
-
-	modelsPath := "models.json"
-	count, err := c.db.MigrateFromJSON(modelsPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error migrating models: %v\n", err)
-		return 1
-	}
-	if count == 0 {
-		fmt.Println("Database already populated, skipping migration")
+	version, _ := c.db.SchemaVersion()
+	latest, _ := c.db.LatestVersion()
+	if version >= latest {
+		fmt.Println("Database schema is up to date.")
 	} else {
-		fmt.Printf("Migrated %d models from models.json\n", count)
+		fmt.Printf("Applied migrations. Current schema version: %d/%d\n", version, latest)
 	}
 	return 0
 }
@@ -112,7 +115,7 @@ COMMANDS:
   help        Show this help message
   version     Show version information
   config      Show or manage persistent configuration (list, get, set, unset, edit)
-  migrate     Import models from models.json
+  migrate     Update database schema to match latest code
   model       Manage LLM models (list, get, create, update, delete, import, export, compose)
   container   Manage Docker containers (list, start, stop, restart, swap, logs)
   service     Manage LLM services (high-level orchestration)
@@ -120,6 +123,7 @@ COMMANDS:
   logs        View container logs for a model
   update      Check for and install updates
   mem         Show system memory and disk usage
+  uninstall   Uninstall a model (stop container, delete YAML, clear cache, remove from LiteLLM and DB)
   comfyui     Manage ComfyUI (start, stop)
   embed       Manage embed container (start, stop)
   rerank      Manage rerank container (start, stop)
@@ -184,7 +188,9 @@ var ServiceAliases = map[string]string{
 	"comfyui":    "comfyui-flux",
 	"flux":       "comfyui-flux",
 	"embed":      "llm-embed",
+	"embedding":  "llm-embed",
 	"rerank":     "llm-rerank",
+	"reranker":   "llm-rerank",
 	"whisper":    "whisper-stt",
 	"kokoro":     "kokoro-tts",
 	"litellm":    "litellm",

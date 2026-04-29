@@ -10,20 +10,59 @@ import (
 )
 
 // ValidEngineTypes lists the allowed engine types.
-var ValidEngineTypes = []string{"vllm", "sglang"}
+var ValidEngineTypes = []string{"vllm", "sglang", "llama.cpp"}
+
+// ValidTypes is the enum of valid model types.
+var ValidTypes = []string{"llm", "rag", "speech", "comfyui", "auto-complete"}
+
+// ValidSubTypes maps a type to its valid subtypes.
+var ValidSubTypes = map[string][]string{
+	"llm":           {"chat"},
+	"rag":           {"embedding", "reranker"},
+	"speech":        {"stt", "tts", "omni"},
+	"comfyui":       {"image", "3d"},
+	"auto-complete": {"chat"},
+}
 
 // ValidCapabilities is the enum of known capabilities that map to LiteLLM model_info fields.
-var ValidCapabilities = []string{"vision", "tool-use", "reasoning", "multi-turn"}
+var ValidCapabilities = []string{
+	"tool-use", "reasoning", "multi-turn", "image", "video", "document",
+	"embedding", "reranker", "stt", "tts", "omni",
+}
+
+// TypeSubtypeCapability maps a type/subtype pair to its auto-injected capability.
+var TypeSubtypeCapability = map[string]string{
+	"rag/embedding": "embedding",
+	"rag/reranker":  "reranker",
+	"speech/stt":    "stt",
+	"speech/tts":    "tts",
+	"speech/omni":   "omni",
+}
 
 // CapabilitiesToModelInfo maps capability names to their corresponding model_info boolean fields.
-// vision -> supports_vision, supports_embedding_image_input
 // tool-use -> supports_function_calling, supports_tool_choice
 // reasoning -> supports_reasoning
+// multi-turn -> supports_multi_turn
+// image -> supports_vision, supports_embedding_image_input (vision encoder for image understanding)
+// video -> supports_video
+// document -> supports_document (PDF/document understanding via vision encoder)
+// embedding -> supports_embedding
+// reranker -> supports_reranking
+// stt -> supports_stt (speech-to-text)
+// tts -> supports_tts (text-to-speech)
+// omni -> supports_stt, supports_tts, supports_vision, supports_multimodal
 var CapabilitiesToModelInfo = map[string][]string{
-	"vision":     {"supports_vision", "supports_embedding_image_input"},
 	"tool-use":   {"supports_function_calling", "supports_tool_choice"},
 	"reasoning":  {"supports_reasoning"},
 	"multi-turn": {"supports_multi_turn"},
+	"image":      {"supports_vision", "supports_embedding_image_input"},
+	"video":      {"supports_video"},
+	"document":   {"supports_document"},
+	"embedding":  {"supports_embedding"},
+	"reranker":   {"supports_reranking"},
+	"stt":        {"supports_stt"},
+	"tts":        {"supports_tts"},
+	"omni":       {"supports_stt", "supports_tts", "supports_vision", "supports_multimodal"},
 }
 
 // slugRegex validates that a slug is alphanumeric (with hyphens/underscores/dots), starting with alphanumeric.
@@ -33,12 +72,14 @@ var slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 type ModelYAML struct {
 	Slug            string      `yaml:"slug"`
 	Name            string      `yaml:"name"`
+	Type            string      `yaml:"type"`
+	SubType         string      `yaml:"subtype"`
 	Engine          string      `yaml:"engine"`
 	HFRepo          string      `yaml:"hf_repo"`
 	Container       string      `yaml:"container"`
 	Port            int         `yaml:"port"`
 	EnvVars         map[string]string `yaml:"environment"`
-	CommandArgs     []interface{} `yaml:"command"`
+	CommandArgs     []string `yaml:"command"`
 	InputTokenCost  *float64    `yaml:"input_token_cost"`
 	OutputTokenCost *float64    `yaml:"output_token_cost"`
 	Capabilities    []string    `yaml:"capabilities"`
@@ -77,6 +118,37 @@ func Validate(y *ModelYAML) []error {
 
 	if y.Name == "" {
 		errs = append(errs, fmt.Errorf("name is required"))
+	}
+
+	if y.Type != "" {
+		valid := false
+		for _, t := range ValidTypes {
+			if y.Type == t {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			errs = append(errs, fmt.Errorf("type must be one of %v (got %q)", ValidTypes, y.Type))
+		}
+	}
+
+	if y.SubType != "" {
+		validSubTypes, ok := ValidSubTypes[y.Type]
+		if !ok {
+			errs = append(errs, fmt.Errorf("unknown type %q for subtype validation", y.Type))
+		} else {
+			valid := false
+			for _, s := range validSubTypes {
+				if y.SubType == s {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				errs = append(errs, fmt.Errorf("subtype %q is not valid for type %q (must be one of %v)", y.SubType, y.Type, validSubTypes))
+			}
+		}
 	}
 
 	if y.Engine == "" {
@@ -123,6 +195,22 @@ func Validate(y *ModelYAML) []error {
 	}
 
 	return errs
+}
+
+// InjectCapabilitiesFromTypeSubtype auto-adds capability entries based on a model's
+// type and subtype. For example, a rag/embedding model gets "embedding" injected
+// into its capabilities slice. Only adds capabilities that are not already present.
+func InjectCapabilitiesFromTypeSubtype(y *ModelYAML) {
+	key := y.Type + "/" + y.SubType
+	if cap, ok := TypeSubtypeCapability[key]; ok {
+		// Check if already present
+		for _, existing := range y.Capabilities {
+			if existing == cap {
+				return
+			}
+		}
+		y.Capabilities = append(y.Capabilities, cap)
+	}
 }
 
 // ValidateNonCapabilities checks the ModelYAML for required fields and valid values,

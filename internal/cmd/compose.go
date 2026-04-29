@@ -81,7 +81,7 @@ func (c *ComposeCommand) Run(args []string) int {
 	}
 
 	// Generate compose YAML
-	generator, err := service.NewComposeGenerator()
+	generator, err := service.NewComposeGenerator(c.cfg.db)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing compose generator: %v\n", err)
 		return 1

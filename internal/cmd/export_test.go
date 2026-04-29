@@ -87,7 +87,7 @@ func TestExportCommand_ExistingModel(t *testing.T) {
 
 	// Create a test model with new fields
 	envVarsJSON := `{"HUGGING_FACE_HUB_TOKEN":"${HF_TOKEN}","VLLM_HOST":"0.0.0.0"}`
-	cmdArgsJSON := `{"model":"test/model","max-model-len":"8192","kv-cache-dtype":"fp8"}`
+	cmdArgsJSON := `["--model","test/model","-max-model-len","8192","-kv-cache-dtype","fp8"]`
 	capsJSON := `["reasoning","tool-use"]`
 
 	model := &models.Model{
@@ -103,6 +103,7 @@ func TestExportCommand_ExistingModel(t *testing.T) {
 		InputTokenCost:  0.0000003,
 		OutputTokenCost: 0.0000004,
 		Capabilities:    capsJSON,
+		Default:         false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
@@ -167,10 +168,11 @@ func TestExportCommand_DefaultOutputPath(t *testing.T) {
 	}
 
 	model := &models.Model{
-		Slug: "default-output-test",
-		Type: "llm",
-		Name: "Default Output",
-		Port: 8000,
+		Slug:    "default-output-test",
+		Type:    "llm",
+		Name:    "Default Output",
+		Port:    8000,
+		Default: false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
@@ -213,10 +215,11 @@ func TestExportCommand_CustomOutputPath(t *testing.T) {
 	}
 
 	model := &models.Model{
-		Slug: "custom-path-test",
-		Type: "llm",
-		Name: "Custom Path",
-		Port: 8000,
+		Slug:    "custom-path-test",
+		Type:    "llm",
+		Name:    "Custom Path",
+		Port:    8000,
+		Default: false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)

@@ -62,11 +62,7 @@ func (c *ModelCommand) Run(args []string) int {
 		}
 		return c.runUpdate(args[1:])
 	case "delete", "del":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Error: 'delete' requires a model slug\n")
-			return 1
-		}
-		return c.runDelete(args[1])
+		return c.runDelete(args[1:])
 	case "info":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "Error: 'info' requires a model slug\n")
@@ -109,15 +105,15 @@ func (c *ModelCommand) runList() int {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "SLUG\tTYPE\tNAME\tPORT\tSTATUS\tCACHED\tENGINE")
-	fmt.Fprintln(w, "----\t----\t----\t----\t------\t------\t------")
+	fmt.Fprintln(w, "SLUG\tTYPE\tSUBTYPE\tNAME\tPORT\tSTATUS\tCACHED\tENGINE")
+	fmt.Fprintln(w, "----\t----\t-------\t----\t----\t------\t------\t------")
 
 	containerSvc := service.NewContainerService(c.cfg.db, c.cfg.cfg)
 
 	for _, m := range models {
 		container := m.Container
 		status := "unknown"
-		cached := "no"
+		cached := "—"
 		engine := m.EngineType
 		if engine == "" {
 			engine = "vllm"
@@ -134,16 +130,16 @@ func (c *ModelCommand) runList() int {
 
 		// Check HF cache
 		if m.HFRepo != "" {
-			cached = "yes"
-			if containerSvc.IsHFCached(m.HFRepo) {
-				cached = "yes"
+			cacheInfo := containerSvc.HFCacheSize(m.HFRepo)
+			if cacheInfo.Cached {
+				cached = service.FormatVRAM(uint64(cacheInfo.Size))
 			} else {
 				cached = "no"
 			}
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
-			m.Slug, m.Type, m.Name, m.Port, status, cached, engine)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+			m.Slug, m.Type, m.SubType, m.Name, m.Port, status, cached, engine)
 	}
 	w.Flush()
 
@@ -161,6 +157,7 @@ func (c *ModelCommand) runGet(slug string) int {
 
 	tmpl := `Slug:          {{.Slug}}
 Type:          {{.Type}}
+Sub-Type:      {{.SubType}}
 Name:          {{.Name}}
 Engine:        {{.EngineType}}
 HF Repo:       {{.HFRepo}}
@@ -199,9 +196,10 @@ func (c *ModelCommand) runCreate(args []string) int {
 
 	slug := args[0]
 	model := &models.Model{
-		Slug: slug,
-		Type: "llm",
-		Port: 0,
+		Slug:    slug,
+		Type:    "llm",
+		Port:    0,
+		Default: false,
 	}
 
 	if len(args) > 1 {
@@ -260,18 +258,68 @@ func (c *ModelCommand) runUpdate(args []string) int {
 	return 0
 }
 
-// runDelete removes a model from the database.
-func (c *ModelCommand) runDelete(slug string) int {
-	if err := c.svc.DeleteModel(slug); err != nil {
+// runDelete removes a model from the database or all models with --all.
+func (c *ModelCommand) runDelete(args []string) int {
+	all := false
+	var slugArgs []string
+	for _, arg := range args {
+		if arg == "--all" {
+			all = true
+		} else {
+			slugArgs = append(slugArgs, arg)
+		}
+	}
+
+	if all && len(slugArgs) > 0 {
+		fmt.Fprintln(os.Stderr, "Error: cannot specify --all with a slug")
+		return 1
+	}
+
+	if all {
+		models, err := c.svc.ListModels()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error listing models for deletion: %v\n", err)
+			return 1
+		}
+		if len(models) == 0 {
+			fmt.Println("No models to delete.")
+			return 0
+		}
+		successCount := 0
+		failCount := 0
+		for i, m := range models {
+			fmt.Printf("[%d/%d] Deleting model: %s\n", i+1, len(models), m.Slug)
+			if err := c.svc.DeleteModel(m.Slug); err != nil {
+				fmt.Fprintf(os.Stderr, "  Error deleting model %s: %v\n", m.Slug, err)
+				failCount++
+				continue
+			}
+			fmt.Printf("  Deleted model: %s\n", m.Slug)
+			successCount++
+		}
+		fmt.Printf("\nTotal: %d/%d models deleted (%d failed)\n", successCount, len(models), failCount)
+		if failCount > 0 {
+			return 1
+		}
+		return 0
+	}
+
+	if len(slugArgs) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: llm-manager model delete <slug>")
+		fmt.Fprintln(os.Stderr, "       llm-manager model delete --all")
+		return 1
+	}
+
+	if err := c.svc.DeleteModel(slugArgs[0]); err != nil {
 		fmt.Fprintf(os.Stderr, "Error deleting model: %v\n", err)
 		return 1
 	}
 
-	fmt.Printf("Deleted model: %s\n", slug)
+	fmt.Printf("Deleted model: %s\n", slugArgs[0])
 	return 0
 }
 
-// runInfo displays the LiteLLM model information (litellm_params and model_info).
+// runInfo displays model information organized into grouped sections.
 func (c *ModelCommand) runInfo(slug string) int {
 	model, err := c.svc.GetModel(slug)
 	if err != nil {
@@ -279,34 +327,109 @@ func (c *ModelCommand) runInfo(slug string) int {
 		return 1
 	}
 
+	pad := strings.Repeat("-", 60)
+	slab := func(indent int) string { return strings.Repeat("  ", indent) }
+
 	fmt.Printf("Model: %s (%s)\n", model.Slug, model.Name)
-	fmt.Println(strings.Repeat("-", 60))
+	fmt.Println(pad)
 
-	// Display litellm_params
-	if model.LiteLLMParams != "" {
-		var litellmParams map[string]interface{}
-		if err := json.Unmarshal([]byte(model.LiteLLMParams), &litellmParams); err == nil {
-			fmt.Println("\nlitellm_params:")
-			printNestedMap(litellmParams, "  ")
-		} else {
-			fmt.Fprintf(os.Stderr, "Warning: failed to parse litellm_params: %v\n", err)
+	// ---- base properties ----
+	hasBase := model.Slug != "" || model.HFRepo != "" || model.Port > 0
+	if hasBase {
+		fmt.Println("\nbase properties:")
+		fmt.Printf("%-24s%s\n", "slug:", model.Slug)
+		fmt.Printf("%-24s%s\n", "name:", model.Name)
+		fmt.Printf("%-24s%s\n", "type:", model.Type)
+		if model.SubType != "" {
+			fmt.Printf("%-24s%s\n", "subtype:", model.SubType)
+		}
+		if model.EngineType != "" {
+			fmt.Printf("%-24s%s\n", "engine:", model.EngineType)
+		}
+		if model.HFRepo != "" {
+			fmt.Printf("%-24s%s\n", "hf_repo:", model.HFRepo)
+		}
+		fmt.Printf("%-24s%d\n", "port:", model.Port)
+		if model.InputTokenCost > 0 && model.OutputTokenCost > 0 {
+			fmt.Printf("%-24s%.8f / %.8f\n", "cost:", model.InputTokenCost, model.OutputTokenCost)
+		} else if model.InputTokenCost > 0 {
+			fmt.Printf("%-24sinput:   %.8f\n", "", model.InputTokenCost)
+		} else if model.OutputTokenCost > 0 {
+			fmt.Printf("%-24soutput:  %.8f\n", "", model.OutputTokenCost)
+		}
+
+		caps := []string{}
+		json.Unmarshal([]byte(model.Capabilities), &caps)
+		if len(caps) > 0 {
+			fmt.Printf("%-24s%+v\n", "capabilities:", strings.Join(caps, ", "))
 		}
 	}
 
-	// Display model_info
-	if model.ModelInfo != "" {
-		var modelInfo map[string]interface{}
-		if err := json.Unmarshal([]byte(model.ModelInfo), &modelInfo); err == nil {
-			fmt.Println("\nmodel_info:")
-			printNestedMap(modelInfo, "  ")
-		} else {
-			fmt.Fprintf(os.Stderr, "Warning: failed to parse model_info: %v\n", err)
+	// ---- docker ----
+	hasDocker := model.Container != "" || len(map[string]string{}) > 0 || model.EnvVars != "" || model.CommandArgs != ""
+	{
+		if model.Container == "" && len(map[string]string{}) == 0 {
+			var ev map[string]string
+			json.Unmarshal([]byte(model.EnvVars), &ev)
+			var ca []string
+			json.Unmarshal([]byte(model.CommandArgs), &ca)
+			hasDocker = model.Container != "" || len(ev) > 0 || len(ca) > 0
+		}
+	}
+	if model.Container != "" || model.EnvVars != "" || model.CommandArgs != "" {
+		fmt.Println("\ndocker:")
+		if model.Container != "" {
+			fmt.Printf("%s%-20s%s\n", "  ", "container:", model.Container)
+		}
+
+		if model.EnvVars != "" {
+			var envVars map[string]string
+			if json.Unmarshal([]byte(model.EnvVars), &envVars) == nil && len(envVars) > 0 {
+				fmt.Printf("%senvironment:\n", slab(1))
+				for k, v := range envVars {
+					fmt.Printf("  %s%s=%s\n", slab(2), k, v)
+				}
+			}
+		}
+
+		if model.CommandArgs != "" {
+			var cmdArgs []string
+			if json.Unmarshal([]byte(model.CommandArgs), &cmdArgs) == nil && len(cmdArgs) > 0 {
+				fmt.Printf("%scommand:\n", slab(1))
+				for _, arg := range cmdArgs {
+					fmt.Printf("    - %s\n", arg)
+				}
+			}
 		}
 	}
 
-	// Display basic model info if no LiteLLM data
-	if model.LiteLLMParams == "" && model.ModelInfo == "" {
-		fmt.Println("\nNo LiteLLM model information available.")
+	// ---- litellm ----
+	hasLiteLLM := model.LiteLLMParams != "" || model.ModelInfo != ""
+	if hasLiteLLM {
+		fmt.Println("\nlitellm:")
+		if model.LiteLLMParams != "" {
+			var litellmParams map[string]interface{}
+			if err := json.Unmarshal([]byte(model.LiteLLMParams), &litellmParams); err == nil {
+				fmt.Println("  litellm_params:")
+				printNestedMap(litellmParams, "    ")
+			} else {
+				fmt.Fprintf(os.Stderr, "Warning: failed to parse litellm_params: %v\n", err)
+			}
+		}
+		if model.ModelInfo != "" {
+			var modelInfo map[string]interface{}
+			if err := json.Unmarshal([]byte(model.ModelInfo), &modelInfo); err == nil {
+				fmt.Println("  model_info:")
+				printNestedMap(modelInfo, "    ")
+			} else {
+				fmt.Fprintf(os.Stderr, "Warning: failed to parse model_info: %v\n", err)
+			}
+		}
+	}
+
+	// No data at all
+	if !hasBase && !hasDocker && !hasLiteLLM {
+		fmt.Println("\nno model information available.")
 	}
 
 	fmt.Println()
@@ -384,7 +507,7 @@ func countDirFiles(root string) (int64, int64) {
 // formatSize formats a byte count as human-readable.
 func formatSize(n int64) string {
 	const (
-		_ = iota
+		_  = iota
 		KB = 1 << (10 * iota)
 		MB
 		GB
@@ -443,7 +566,7 @@ SUBCOMMANDS:
   info <slug>   Show LiteLLM model information
   create <slug> [type] [name] [port]  Create a new model
   update <slug> [key=value ...]       Update model fields
-  delete, del <slug>                  Delete a model
+  delete, del [--all] <slug>                  Delete a model
   import <file.yaml> [options]        Import a model from a YAML file
   export <slug> [options]             Export a model to a YAML file
   compose <slug> [options]            Generate a docker-compose.yml file
@@ -462,6 +585,7 @@ EXAMPLES:
   llm-manager model create my-model llm "My Model" 8080
   llm-manager model update qwen3_6 name="Updated Name"
   llm-manager model delete old-model
+  llm-manager model delete --all
   llm-manager model import model.yaml
   llm-manager model import model.yaml --input-cost 0.000001
   llm-manager model export qwen3_6
