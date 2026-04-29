@@ -610,10 +610,6 @@ func (s *LiteLLMService) replicateOne(spec DeploymentSpec, existing map[string][
 		ModelInfo:     spec.ModelInfo,
 	}
 
-	// Debug: log the body being sent to LiteLLM
-	deployJSON, _ := json.MarshalIndent(deployBody, "", "  ")
-	fmt.Printf("  [DEBUG] Sending to LiteLLM for %s:\n%s\n", spec.Name, string(deployJSON))
-
 	resp, err := s.doRequest("POST", "/model/new", deployBody)
 	if err != nil {
 		action := "fresh-create"

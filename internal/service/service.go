@@ -451,7 +451,6 @@ func (s *ContainerService) StartContainer(slug string, allowMultiple bool) error
 
 // StopContainer stops a Docker container by name.
 func (s *ContainerService) StopContainer(slug string) error {
-	fmt.Printf("[TRACE] StopContainer called: slug=%s\n", slug)
 	model, err := s.db.GetModel(slug)
 	if err != nil {
 		return fmt.Errorf("model not found: %w", err)
