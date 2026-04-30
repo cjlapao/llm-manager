@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/user/llm-manager/internal/config"
@@ -418,5 +419,106 @@ func TestContainerService_StopSpeech_NoDocker(t *testing.T) {
 	err := svc.StopSpeech()
 	if err != nil {
 		t.Errorf("StopSpeech() without Docker should not error, got: %v", err)
+	}
+}
+
+// --- ContainerService.ensureCompose tests ---
+
+func TestEnsureCompose(t *testing.T) {
+	db := newTestDB(t)
+
+	// Create engine type and version
+	db.CreateEngineType(&models.EngineType{Slug: "vllm", Name: "vLLM", Description: "x"})
+	db.CreateEngineVersion(&models.EngineVersion{
+		Slug:           "test-v1",
+		EngineTypeSlug: "vllm",
+		Version:        "001",
+		Image:          "cjlapao/pgx-vllm:latest",
+		ContainerName:  "vllm-node",
+		Entrypoint:     "python3 -m vllm.entrypoints.openai.api_server",
+		IsDefault:      true,
+		IsLatest:       true,
+		EnvironmentJSON: `{"HF_HUB_OFFLINE":"0"}`,
+		VolumesJSON:    `{}`,
+		CommandArgs:    `[]`,
+	})
+
+	// Create model
+	model := &models.Model{
+		Slug:              "compose-test",
+		Type:              "llm",
+		Name:              "Compose Test",
+		HFRepo:            "test/model",
+		Container:         "llm-compose-test",
+		Port:              8010,
+		EngineType:        "vllm",
+		EngineVersionSlug: "test-v1",
+		EnvVars:           `{}`,
+		CommandArgs:       `[]`,
+	}
+	if err := db.CreateModel(model); err != nil {
+		t.Fatalf("CreateModel() error: %v", err)
+	}
+
+	svc := NewContainerService(db, config.DefaultConfig())
+	tmpDir := t.TempDir()
+	svc.cfg.LLMDir = tmpDir
+
+	// First call — should create the file
+	err := svc.ensureCompose(model)
+	if err != nil {
+		t.Fatalf("ensureCompose() error: %v", err)
+	}
+
+	composePath := filepath.Join(tmpDir, "compose-test.yml")
+	if _, err := os.Stat(composePath); os.IsNotExist(err) {
+		t.Fatal("compose file was not created")
+	}
+
+	data, err := os.ReadFile(composePath)
+	if err != nil {
+		t.Fatalf("failed to read compose file: %v", err)
+	}
+	content := string(data)
+
+	// Verify service name uses the type-slug pattern
+	if !strings.Contains(content, "llm-compose-test:") {
+		t.Error("compose YAML missing service name 'llm-compose-test:'")
+	}
+	if !strings.Contains(content, "cjlapao/pgx-vllm:latest") {
+		t.Error("compose YAML missing image")
+	}
+	if !strings.Contains(content, "llm-compose-test") {
+		t.Error("compose YAML missing container name")
+	}
+
+	// Second call — should overwrite (idempotent)
+	err = svc.ensureCompose(model)
+	if err != nil {
+		t.Fatalf("ensureCompose() second call error: %v", err)
+	}
+
+	data2, err := os.ReadFile(composePath)
+	if err != nil {
+		t.Fatalf("failed to read compose file after second call: %v", err)
+	}
+	if string(data) != string(data2) {
+		t.Error("ensureCompose() should produce identical output on repeated calls")
+	}
+}
+
+func TestEnsureCompose_ModelNotFound(t *testing.T) {
+	db := newTestDB(t)
+	svc := NewContainerService(db, config.DefaultConfig())
+
+	// Model with no engine config — ensureCompose will fail during engine resolution
+	model := &models.Model{Slug: "no-engine", Type: "llm", EngineType: ""}
+	err := svc.ensureCompose(model)
+	if err == nil {
+		t.Error("ensureCompose() with missing engine config should error")
+	}
+
+	if !strings.Contains(err.Error(), "resolve engine config") {
+		t.Errorf("expected 'resolve engine config' error, got: %v", err)
 	}
 }
