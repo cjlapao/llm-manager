@@ -118,7 +118,8 @@ COMMANDS:
   migrate     Update database schema to match latest code
   model       Manage LLM models (list, get, create, update, delete, import, export, compose)
   import      Import a model or engine from a YAML file (auto-detects type)
-  container   Manage Docker containers (list, start, stop, restart, swap, logs)
+  llm         Manage LLM model containers (start, stop, restart, swap, status, logs)
+  container   Low-level Docker container operations (list, logs, status refresh)
   service     Manage LLM services (high-level orchestration)
   hotspot     Manage the most recently used model
   logs        View container logs for a model
@@ -148,8 +149,8 @@ EXAMPLES:
   llm-manager migrate
   llm-manager model list
   llm-manager model compose qwen3_6
-  llm-manager service start qwen3_6
-  llm-manager container swap qwen3_6
+  llm-manager llm start qwen3_6
+  llm-manager llm swap qwen3_6
   llm-manager hotspot restart
   llm-manager comfyui start
   llm-manager rag start

@@ -13,7 +13,7 @@ func init() {
 	RegisterCommand("service", func(root *RootCommand) Command { return NewServiceCommand(root) })
 }
 
-// ServiceCommand handles high-level service operations.
+// ServiceCommand provides high-level service orchestration.
 type ServiceCommand struct {
 	cfg *RootCommand
 	svc *service.ServiceService
@@ -95,51 +95,36 @@ func (c *ServiceCommand) runList() int {
 	return 0
 }
 
-// runStart starts a service.
+// runStart starts a service by delegating to the llm command.
 func (c *ServiceCommand) runStart(slug string) int {
-	if err := c.svc.StartService(slug, false); err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting service: %v\n", err)
-		return 1
-	}
-
-	fmt.Printf("Started service: %s\n", slug)
-	return 0
+	llm := NewLlmCommand(c.cfg)
+	return llm.Run([]string{"start", slug})
 }
 
-// runStop stops a service.
+// runStop stops a service by delegating to the llm command.
 func (c *ServiceCommand) runStop(slug string) int {
-	if err := c.svc.StopService(slug); err != nil {
-		fmt.Fprintf(os.Stderr, "Error stopping service: %v\n", err)
-		return 1
-	}
-
-	fmt.Printf("Stopped service: %s\n", slug)
-	return 0
+	llm := NewLlmCommand(c.cfg)
+	return llm.Run([]string{"stop", slug})
 }
 
-// runRestart restarts a service.
+// runRestart restarts a service by delegating to the llm command.
 func (c *ServiceCommand) runRestart(slug string) int {
-	if err := c.svc.RestartService(slug); err != nil {
-		fmt.Fprintf(os.Stderr, "Error restarting service: %v\n", err)
-		return 1
-	}
-
-	fmt.Printf("Restarted service: %s\n", slug)
-	return 0
+	llm := NewLlmCommand(c.cfg)
+	return llm.Run([]string{"restart", slug})
 }
 
 // PrintHelp prints the service command help.
 func (c *ServiceCommand) PrintHelp() {
-	fmt.Println(`service - Manage LLM services (high-level container orchestration).
+	fmt.Println(`service - High-level service orchestration (delegates to llm command).
 
 USAGE:
   llm-manager service [SUBCOMMAND] [ARGS]
 
 SUBCOMMANDS:
   list, ls, status    List all services and their status
-  start <slug>        Start a service
-  stop <slug>         Stop a service
-  restart <slug>      Restart a service
+  start <slug>        Start a service (delegates to llm start)
+  stop <slug>         Stop a service (delegates to llm stop)
+  restart <slug>      Restart a service (delegates to llm restart)
 
 EXAMPLES:
   llm-manager service list
@@ -148,6 +133,6 @@ EXAMPLES:
   llm-manager service restart qwen3_6
 
 NOTES:
-  This command provides a simplified interface to container operations.
-  For more detailed container management, use 'llm-manager container'.`)
+  This command provides a simplified interface that delegates to llm-manager llm.
+  For full control (swap, status, logs), use 'llm-manager llm' directly.`)
 }
