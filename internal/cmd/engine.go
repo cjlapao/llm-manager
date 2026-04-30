@@ -380,6 +380,10 @@ func (c *EngineCommand) cmdVersionShowComposition(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
 	}
+	if v == nil {
+		fmt.Fprintln(os.Stderr, "Error: engine version not found")
+		return 1
+	}
 	composeYAML, err := c.svc.ShowComposition(nil, v)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating composition: %v\n", err)

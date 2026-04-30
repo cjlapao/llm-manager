@@ -381,14 +381,7 @@ func (s *ModelService) GenerateCompose(slug string, generator *ComposeGenerator,
 	}
 
 	// Apply caller-provided overrides
-	if cfg.Image != "" {
-		// already set
-	}
-	if len(cfg.EnvVars) > 0 {
-		for k, v := range cfg.EnvVars {
-			cfg.EnvVars[k] = v
-		}
-	}
+	// cfg.Image and cfg.EnvVars are already set from resolved config
 
 	composeYAML, err := generator.Generate(model, cfg)
 	if err != nil {

@@ -166,13 +166,13 @@ func TestBuildLoggingSection(t *testing.T) {
 	svc := &EngineService{}
 
 	// Disabled → empty
-	section := svc.BuildLoggingSection(false, "addr", "local3")
+	section := svc.BuildLoggingSection(false, "addr", "local3", "test-model")
 	if section != "" {
 		t.Errorf("expected empty string for disabled logging, got %q", section)
 	}
 
 	// Enabled → non-empty
-	section = svc.BuildLoggingSection(true, "udp://127.0.0.1:514", "local3")
+	section = svc.BuildLoggingSection(true, "udp://127.0.0.1:514", "local3", "test-model")
 	if section == "" {
 		t.Error("expected non-empty section for enabled logging")
 	}

@@ -86,6 +86,9 @@ func NewComposeGenerator() (*ComposeGenerator, error) {
 
 // Generate produces a complete docker-compose YAML string.
 func (g *ComposeGenerator) Generate(model *models.Model, cfg EngineComposeConfig) (string, error) {
+	if model == nil {
+		return "", fmt.Errorf("model is required for composition generation")
+	}
 	data := ComposeTemplateData{
 		ServiceName: fmt.Sprintf("%s-%s", model.Type, model.Slug),
 		Container:      model.Container,

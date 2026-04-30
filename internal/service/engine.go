@@ -197,7 +197,7 @@ func (s *EngineService) ShowComposition(model *models.Model, ev *models.EngineVe
 	}
 
 	// Build logging section
-	cfg.LoggingSection = s.BuildLoggingSection(ev.EnableLogging, ev.SyslogAddress, ev.SyslogFacility)
+	cfg.LoggingSection = s.BuildLoggingSection(ev.EnableLogging, ev.SyslogAddress, ev.SyslogFacility, model.Name)
 
 	// Build deploy section
 	cfg.DeploySection = s.BuildDeploySection(ev.DeployEnableNvidia, ev.DeployGPUCount)
@@ -245,7 +245,7 @@ func (s *EngineService) BuildComposeConfig(model *models.Model) (*EngineComposeC
 	}
 
 	// Build logging section
-	cfg.LoggingSection = s.BuildLoggingSection(ev.EnableLogging, ev.SyslogAddress, ev.SyslogFacility)
+	cfg.LoggingSection = s.BuildLoggingSection(ev.EnableLogging, ev.SyslogAddress, ev.SyslogFacility, model.Name)
 
 	// Build deploy section
 	cfg.DeploySection = s.BuildDeploySection(ev.DeployEnableNvidia, ev.DeployGPUCount)
@@ -491,8 +491,8 @@ func (s *EngineService) SetAsDefault(engineTypeSlug, versionSlug string) error {
 //		  options:
 //		    syslog-address: "{{.Address}}"
 //		    syslog-facility: "{{.Facility}}"
-//		    tag: "ai-server/{{.Name}}"
-func (s *EngineService) BuildLoggingSection(enableLogging bool, address, facility string) string {
+//		    tag: "ai-server/model"
+func (s *EngineService) BuildLoggingSection(enableLogging bool, address, facility, modelName string) string {
 	if !enableLogging {
 		return ""
 	}
@@ -501,7 +501,7 @@ func (s *EngineService) BuildLoggingSection(enableLogging bool, address, facilit
       options:
         syslog-address: "%s"
         syslog-facility: "%s"
-        tag: "ai-server/{{.Name}}"`, address, facility)
+        tag: "ai-server/%s"`, address, facility, modelName)
 }
 
 // =============================================================================

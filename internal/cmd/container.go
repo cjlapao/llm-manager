@@ -49,7 +49,6 @@ func (c *ContainerCommand) Run(args []string) int {
 		// status of a specific model now lives in llm command
 		fmt.Fprintf(os.Stderr, "Error: 'container status <slug>' has been moved — use 'llm-manager llm status <slug>' instead\n")
 		return 1
-		return c.runStatus(args[1])
 	case "logs":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "Error: 'logs' requires a slug\n")

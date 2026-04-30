@@ -160,9 +160,6 @@ func (c *ImportCommand) runImportFolder(folderPath string, override bool) int {
 	fmt.Println()
 	fmt.Println(strings.Repeat("-", 60))
 	fmt.Printf("Import complete: %d imported, %d skipped\n", imported, skipped)
-	if skipped > 0 {
-		return 1
-	}
 	return 0
 }
 
