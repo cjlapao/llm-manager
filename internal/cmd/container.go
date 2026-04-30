@@ -46,8 +46,9 @@ func (c *ContainerCommand) Run(args []string) int {
 		if args[1] == "refresh" {
 			return c.runRefreshAll()
 		}
-		// Deprecated: status of a specific model now lives in llm command
-		fmt.Fprintf(os.Stderr, "Note: 'container status <slug>' is deprecated — use 'llm-manager llm status <slug>' instead\n")
+		// status of a specific model now lives in llm command
+		fmt.Fprintf(os.Stderr, "Error: 'container status <slug>' has been moved — use 'llm-manager llm status <slug>' instead\n")
+		return 1
 		return c.runStatus(args[1])
 	case "logs":
 		if len(args) < 2 {
@@ -95,10 +96,8 @@ EXAMPLES:
 		}
 		return c.runLogs(args[1], lines, follow)
 	case "start", "stop", "restart", "swap":
-		fmt.Fprintf(os.Stderr, "Note: 'container %s' is deprecated — use 'llm-manager llm %s' instead\n", args[0], args[0])
-		llm := NewLlmCommand(c.cfg)
-		subArgs := append([]string{args[0]}, args[1:]...)
-		return llm.Run(subArgs)
+		fmt.Fprintf(os.Stderr, "Error: 'container %s' has been moved — use 'llm-manager llm %s' instead\n", args[0], args[0])
+		return 1
 	case "help", "-h", "--help":
 		c.PrintHelp()
 		return 0
