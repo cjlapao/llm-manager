@@ -496,12 +496,12 @@ func (s *EngineService) BuildLoggingSection(enableLogging bool, address, facilit
 	if !enableLogging {
 		return ""
 	}
-	return fmt.Sprintf(`  logging:
-    driver: "syslog"
-    options:
-      syslog-address: "%s"
-      syslog-facility: "%s"
-      tag: "ai-server/{{.Name}}"`, address, facility)
+	return fmt.Sprintf(`    logging:
+      driver: "syslog"
+      options:
+        syslog-address: "%s"
+        syslog-facility: "%s"
+        tag: "ai-server/{{.Name}}"`, address, facility)
 }
 
 // =============================================================================
@@ -531,13 +531,13 @@ func (s *EngineService) BuildDeploySection(enableNvidia bool, gpuCount string) s
 		count = "all"
 	}
 
-	return fmt.Sprintf(`  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: "%s"
-            capabilities: [gpu]`, count)
+	return fmt.Sprintf(`    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "%s"
+              capabilities: [gpu]`, count)
 }
 
 // =============================================================================
