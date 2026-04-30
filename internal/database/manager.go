@@ -26,6 +26,7 @@ type DatabaseManager interface {
 	CreateModel(model *models.Model) error
 	UpdateModel(slug string, updates map[string]interface{}) error
 	DeleteModel(slug string) error
+	ListModelsByEngineVersion(engineVersionSlug string) ([]models.Model, error)
 
 	// Container operations
 	ListContainers() ([]models.Container, error)
@@ -50,4 +51,26 @@ type DatabaseManager interface {
 	CreateBaseImage(image *models.BaseImage) error
 	UpdateBaseImage(slug string, updates map[string]interface{}) error
 	DeleteBaseImage(slug string) error
+
+	// EngineType CRUD
+	ListEngineTypes() ([]models.EngineType, error)
+	GetEngineTypeBySlug(slug string) (*models.EngineType, error)
+	CreateEngineType(engineType *models.EngineType) error
+	UpdateEngineType(slug string, updates map[string]interface{}) error
+	DeleteEngineType(slug string) error
+	EngineTypeExists(slug string) (bool, error)
+
+	// EngineVersion CRUD
+	ListEngineVersions() ([]models.EngineVersion, error)
+	GetEngineVersionBySlugAndType(typeSlug, slug string) (*models.EngineVersion, error)
+	GetEngineVersionByID(id string) (*models.EngineVersion, error)
+	GetEngineVersionByTypeAndVersion(typeSlug, version string) (*models.EngineVersion, error)
+	CreateEngineVersion(engineVersion *models.EngineVersion) error
+	UpdateEngineVersion(slug string, updates map[string]interface{}) error
+	DeleteEngineVersion(slug string) error
+	FindDefaultVersionByType(typeSlug string) (*models.EngineVersion, error)
+	FindLatestVersionByType(typeSlug string) (*models.EngineVersion, error)
+	ClearIsDefaultForType(typeSlug string) error
+	UpdateIsDefaultClearOthers(typeSlug, slug string) error
+	EngineVersionExistsByTypeAndSlug(typeSlug, slug string) (bool, error)
 }

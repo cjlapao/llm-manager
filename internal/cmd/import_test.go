@@ -24,7 +24,7 @@ func TestImportCommand_Help(t *testing.T) {
 	root := &RootCommand{cfg: cfg, db: db}
 	cmd := NewImportCommand(root)
 
-	exitCode := cmd.Run([]string{"--help"})
+	exitCode := cmd.Run([]string{"-h"})
 	if exitCode != 0 {
 		t.Errorf("import help returned non-zero exit code: %d", exitCode)
 	}
@@ -231,6 +231,7 @@ func TestImportCommand_WithOverrides(t *testing.T) {
 		t.Fatalf("AutoMigrate() error: %v", err)
 	}
 
+	// Create existing model so --override has something to work on
 	cfg := config.DefaultConfig()
 	cfg.OpenAIAPIURL = "http://localhost:8000"
 	root := &RootCommand{cfg: cfg, db: db}
@@ -239,39 +240,66 @@ func TestImportCommand_WithOverrides(t *testing.T) {
 	tmpDir := t.TempDir()
 	yamlContent := `slug: override-model
 name: "Override Model"
+type: llm
 engine: vllm
+container: override-container
 port: 8080
+hf_repo: "test/override-model"
 
 input_token_cost: 0.0000001
 output_token_cost: 0.0000001
 
 capabilities:
-  - from-yaml
+  - tool-use
 `
 	yamlPath := filepath.Join(tmpDir, "override.yaml")
 	if err := os.WriteFile(yamlPath, []byte(yamlContent), 0o644); err != nil {
 		t.Fatalf("failed to write test YAML: %v", err)
 	}
 
-	exitCode := cmd.Run([]string{
-		yamlPath,
-		"--input-cost=0.0000099",
-		"--output-token-cost=0.00000088",
-		"--capabilities=override1,override2",
-	})
+	// First import without override to create the model
+	exitCode := cmd.Run([]string{yamlPath})
 	if exitCode != 0 {
-		t.Errorf("import with overrides returned non-zero: %d", exitCode)
+		t.Fatalf("first import failed: %d", exitCode)
+	}
+
+	// Then re-import with --override to replace it
+	yamlContent2 := `slug: override-model
+name: "Override Model Updated"
+type: llm
+engine: vllm
+container: override-container-v2
+port: 8081
+hf_repo: "test/override-model-v2"
+
+input_token_cost: 0.0000002
+output_token_cost: 0.0000003
+
+capabilities:
+  - tool-use
+`
+	yamlPath2 := filepath.Join(tmpDir, "override2.yaml")
+	if err := os.WriteFile(yamlPath2, []byte(yamlContent2), 0o644); err != nil {
+		t.Fatalf("failed to write test YAML: %v", err)
+	}
+
+	exitCode = cmd.Run([]string{yamlPath2, "--override"})
+	if exitCode != 0 {
+		t.Errorf("import with override returned non-zero: %d", exitCode)
 	}
 
 	model, err := db.GetModel("override-model")
 	if err != nil {
 		t.Fatalf("GetModel() error: %v", err)
 	}
-	if model.InputTokenCost != 0.0000099 {
-		t.Errorf("InputTokenCost = %v, want 0.0000099 (overridden)", model.InputTokenCost)
+	if model.Name != "Override Model Updated" {
+		t.Errorf("Name = %q, want %q", model.Name, "Override Model Updated")
 	}
-	if model.OutputTokenCost != 0.00000088 {
-		t.Errorf("OutputTokenCost = %v, want 0.00000088 (overridden)", model.OutputTokenCost)
+	if model.Port != 8081 {
+		t.Errorf("Port = %d, want %d", model.Port, 8081)
+	}
+	if model.InputTokenCost != 0.0000002 {
+		t.Errorf("InputTokenCost = %v, want %v", model.InputTokenCost, 0.0000002)
 	}
 }
 
@@ -300,8 +328,8 @@ port: 8080
 		t.Fatalf("failed to write test YAML: %v", err)
 	}
 
-	exitCode := cmd.Run([]string{yamlPath, "--input-cost=not-a-number"})
+	exitCode := cmd.Run([]string{yamlPath, "--unknown-flag"})
 	if exitCode == 0 {
-		t.Error("import with invalid cost should return non-zero")
+		t.Error("import with unknown flag should return non-zero")
 	}
 }

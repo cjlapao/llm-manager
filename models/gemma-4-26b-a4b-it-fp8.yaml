@@ -8,6 +8,7 @@
 slug: gemma-4-26b-a4b-it-fp8
 name: "Gemma 4 26B-A4B IT FP8"
 engine: vllm
+engine_version: pgx-llm-v1
 hf_repo: "RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic"
 container: llm-gemma-4-26b-a4b-it-fp8
 port: 8019

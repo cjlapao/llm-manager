@@ -8,6 +8,7 @@
 slug: gemma-4-26b-a4b-it-nvfp4
 name: "Gemma 4 26B-A4B IT NVFP4"
 engine: vllm
+engine_version: pgx-llm-v1
 hf_repo: "RedHatAI/gemma-4-26B-A4B-it-NVFP4"
 container: llm-gemma-4-26b-a4b-it-nvfp4
 port: 8020

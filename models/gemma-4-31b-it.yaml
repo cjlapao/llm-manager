@@ -8,6 +8,7 @@
 slug: gemma-4-31b-it
 name: "Gemma 4 31B IT"
 engine: vllm
+engine_version: pgx-llm-v1
 hf_repo: "google/gemma-4-31B-it"
 container: llm-gemma-4-31b-it
 port: 8021

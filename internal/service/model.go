@@ -52,12 +52,13 @@ func (s *ModelService) resolvePortCollision(requestedPort int) (int, bool) {
 
 // ImportOverrides holds CLI argument overrides for model import.
 type ImportOverrides struct {
-	InputCost    *float64
-	OutputCost   *float64
-	Capabilities []string
-	Type         string // llm, rag, speech, comfyui (defaults to "llm")
-	Engine       string // vllm, sglang, llama.cpp (defaults to "vllm")
-	Override     bool // if true, delete existing DB record + LiteLLM deployments, then re-import from YAML
+	InputCost     *float64
+	OutputCost    *float64
+	Capabilities  []string
+	Type          string // llm, rag, speech, comfyui (defaults to "llm")
+	Engine        string // vllm, sglang, llama.cpp (defaults to "vllm")
+	EngineVersion string // engine version slug (optional)
+	Override      bool   // if true, delete existing DB record + LiteLLM deployments, then re-import from YAML
 }
 
 // configValues builds a flat map of uppercase ENV keys -> values, used to resolve
@@ -174,6 +175,7 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		Container:       y.Container,
 		Port:            y.Port,
 		EngineType:      "vllm", // default engine
+		EngineVersionSlug: "",   // resolved by engine service
 		InputTokenCost:  0.0,
 		OutputTokenCost: 0.0,
 		Capabilities:    "",
@@ -185,6 +187,9 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	// Apply YAML-level optional fields
 	if y.Engine != "" {
 		model.EngineType = y.Engine
+	}
+	if y.EngineVersion != "" {
+		overrides.EngineVersion = y.EngineVersion
 	}
 
 	// Convert maps to JSON strings
@@ -254,6 +259,19 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	}
 	if overrides.Engine != "" {
 		model.EngineType = overrides.Engine
+	}
+	// Set engine version slug
+	if overrides.EngineVersion != "" {
+		model.EngineVersionSlug = overrides.EngineVersion
+	} else if model.EngineVersionSlug == "" && s.eng != nil {
+		// Resolve to default version for the engine type
+		defVer, err := s.eng.ResolveDefaultVersion(model.EngineType)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve default engine version for '%s': %w", model.EngineType, err)
+		}
+		if defVer != nil {
+			model.EngineVersionSlug = defVer.Slug
+		}
 	}
 
 	// 8. Create in database

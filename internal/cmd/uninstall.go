@@ -34,7 +34,7 @@ type UninstallCommand struct {
 // NewUninstallCommand creates a new UninstallCommand wired to the given root context.
 func NewUninstallCommand(root *RootCommand) *UninstallCommand {
 	configSvc := service.NewConfigService(root.db)
-	gen, err := service.NewComposeGenerator(root.db)
+	gen, err := service.NewComposeGenerator()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to create compose generator: %v\n", err)
 	}

@@ -49,11 +49,17 @@ type ModelService struct {
 	db       database.DatabaseManager
 	cfg      *config.Config
 	litellm  DeleteModeler
+	eng      *EngineService
 }
 
 // NewModelService creates a new ModelService.
 func NewModelService(db database.DatabaseManager, cfg *config.Config) *ModelService {
 	return &ModelService{db: db, cfg: cfg}
+}
+
+// SetEngineService sets the optional EngineService for engine version resolution.
+func (s *ModelService) SetEngineService(svc *EngineService) {
+	s.eng = svc
 }
 
 // SetLiteLLMService sets the optional LiteLLM deleter for delete+reimport mode.
@@ -357,13 +363,34 @@ func (s *ModelService) extractVariants(m models.Model) []variantEntry {
 }
 
 // GenerateCompose generates a docker-compose YAML for the model using the given generator.
-func (s *ModelService) GenerateCompose(slug string, generator *ComposeGenerator) (string, error) {
+// It resolves the engine version from the model's DB record to build the full compose config.
+func (s *ModelService) GenerateCompose(slug string, generator *ComposeGenerator, cfg EngineComposeConfig) (string, error) {
 	model, err := s.db.GetModel(slug)
 	if err != nil {
 		return "", fmt.Errorf("model %s not found: %w", slug, err)
 	}
 
-	composeYAML, err := generator.Generate(model)
+	// If caller provided a config, merge it on top of the engine-resolved config.
+	// Engine-resolved takes priority; caller overrides are layered on top.
+	if cfg.Image == "" {
+		resolved, err := s.resolveComposeConfig(model)
+		if err != nil {
+			return "", err
+		}
+		cfg = *resolved
+	}
+
+	// Apply caller-provided overrides
+	if cfg.Image != "" {
+		// already set
+	}
+	if len(cfg.EnvVars) > 0 {
+		for k, v := range cfg.EnvVars {
+			cfg.EnvVars[k] = v
+		}
+	}
+
+	composeYAML, err := generator.Generate(model, cfg)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate compose file for %s: %w", slug, err)
 	}
@@ -371,16 +398,26 @@ func (s *ModelService) GenerateCompose(slug string, generator *ComposeGenerator)
 	return composeYAML, nil
 }
 
+// resolveComposeConfig resolves the engine version for a model and returns the
+// full EngineComposeConfig with image, entrypoint, env vars, volumes, logging, deploy.
+func (s *ModelService) resolveComposeConfig(model *models.Model) (*EngineComposeConfig, error) {
+	if s.eng == nil {
+		return &EngineComposeConfig{}, nil
+	}
+	return s.eng.BuildComposeConfig(model)
+}
+
 // ContainerService handles Docker container operations.
 type ContainerService struct {
 	db  database.DatabaseManager
 	cfg *config.Config
+	svc *EngineService
 	mu  sync.Mutex
 }
 
 // NewContainerService creates a new ContainerService.
 func NewContainerService(db database.DatabaseManager, cfg *config.Config) *ContainerService {
-	return &ContainerService{db: db, cfg: cfg}
+	return &ContainerService{db: db, cfg: cfg, svc: NewEngineService(db)}
 }
 
 // ListContainers returns all containers from the database.
@@ -787,12 +824,16 @@ func (s *ContainerService) StartModelBySlug(slug string) error {
 		// Container doesn't exist — generate compose file and create it
 		fmt.Fprintf(os.Stderr, "  Container %s does not exist — creating via compose...\n", model.Container)
 
-		composeGen, genErr := NewComposeGenerator(s.db)
+		composeGen, genErr := NewComposeGenerator()
 		if genErr != nil {
 			return fmt.Errorf("failed to create compose generator: %w", genErr)
 		}
 
-		composeYAML, genErr := composeGen.Generate(model)
+		cfg, err := s.svc.BuildComposeConfig(model)
+		if err != nil {
+			return fmt.Errorf("failed to resolve engine config: %w", err)
+		}
+		composeYAML, genErr := composeGen.Generate(model, *cfg)
 		if genErr != nil {
 			return fmt.Errorf("failed to generate docker-compose YAML: %w", genErr)
 		}
@@ -935,12 +976,16 @@ func (s *ContainerService) StartModelBySlugWithAllow(slug string, allowMultiple 
 		// Container doesn't exist — generate compose file and create it
 		fmt.Fprintf(os.Stderr, "  Container %s does not exist — creating via compose...\n", model.Container)
 
-		composeGen, genErr := NewComposeGenerator(s.db)
+		composeGen, genErr := NewComposeGenerator()
 		if genErr != nil {
 			return fmt.Errorf("failed to create compose generator: %w", genErr)
 		}
 
-		composeYAML, genErr := composeGen.Generate(model)
+		cfg, err := s.svc.BuildComposeConfig(model)
+		if err != nil {
+			return fmt.Errorf("failed to resolve engine config: %w", err)
+		}
+		composeYAML, genErr := composeGen.Generate(model, *cfg)
 		if genErr != nil {
 			return fmt.Errorf("failed to generate docker-compose YAML: %w", genErr)
 		}
@@ -1267,4 +1312,30 @@ func getDiskUsage(path string) (DiskUsageInfo, error) {
 		Total:   0, // Would need statfs for bytes
 		UsedPct: pct,
 	}, nil
+}
+
+// parseJSONToMap deserializes a JSON-encoded map from a string field.
+// Returns nil when the input is empty or invalid JSON.
+func parseJSONToMap(jsonStr string) map[string]string {
+	if jsonStr == "" {
+		return nil
+	}
+	m := make(map[string]string)
+	if err := json.Unmarshal([]byte(jsonStr), &m); err != nil {
+		return nil
+	}
+	return m
+}
+
+// parseJSONToArray deserializes a JSON-encoded string array from a field.
+// Returns nil when the input is empty or invalid JSON.
+func parseJSONToArray(jsonStr string) []string {
+	if jsonStr == "" {
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal([]byte(jsonStr), &arr); err != nil {
+		return nil
+	}
+	return arr
 }

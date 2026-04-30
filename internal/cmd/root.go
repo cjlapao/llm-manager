@@ -117,6 +117,7 @@ COMMANDS:
   config      Show or manage persistent configuration (list, get, set, unset, edit)
   migrate     Update database schema to match latest code
   model       Manage LLM models (list, get, create, update, delete, import, export, compose)
+  import      Import a model or engine from a YAML file (auto-detects type)
   container   Manage Docker containers (list, start, stop, restart, swap, logs)
   service     Manage LLM services (high-level orchestration)
   hotspot     Manage the most recently used model

@@ -8,6 +8,7 @@
 slug: qwen3.6-35b-a3b
 name: "Qwen3.6 35B-A3B"
 engine: vllm
+engine_version: pgx-llm-v1
 hf_repo: "Qwen/Qwen3.6-35B-A3B"
 container: llm-qwen3.6-35b-a3b
 port: 8012

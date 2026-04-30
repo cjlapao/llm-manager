@@ -22,9 +22,11 @@ type ComposeCommand struct {
 
 // NewComposeCommand creates a new ComposeCommand.
 func NewComposeCommand(root *RootCommand) *ComposeCommand {
+	svc := service.NewModelService(root.db, root.cfg)
+	svc.SetEngineService(service.NewEngineService(root.db))
 	return &ComposeCommand{
 		cfg: root,
-		svc: service.NewModelService(root.db, root.cfg),
+		svc: svc,
 	}
 }
 
@@ -81,13 +83,14 @@ func (c *ComposeCommand) Run(args []string) int {
 	}
 
 	// Generate compose YAML
-	generator, err := service.NewComposeGenerator(c.cfg.db)
+	generator, err := service.NewComposeGenerator()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing compose generator: %v\n", err)
 		return 1
 	}
 
-	composeYAML, err := c.svc.GenerateCompose(slug, generator)
+	cfg := service.EngineComposeConfig{}
+	composeYAML, err := c.svc.GenerateCompose(slug, generator, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating compose file: %v\n", err)
 		return 1

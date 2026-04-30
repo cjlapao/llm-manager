@@ -55,6 +55,7 @@ type InstallCommand struct {
 	container  *service.ContainerService
 	litellm    *service.LiteLLMService
 	composeGen *service.ComposeGenerator
+	svc        *service.EngineService
 	start      bool
 	clean      bool
 	all        bool
@@ -63,7 +64,7 @@ type InstallCommand struct {
 // NewInstallCommand creates a new InstallCommand wired to the given root context.
 func NewInstallCommand(root *RootCommand) *InstallCommand {
 	configSvc := service.NewConfigService(root.db)
-	gen, err := service.NewComposeGenerator(root.db)
+	gen, err := service.NewComposeGenerator()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to create compose generator: %v\n", err)
 	}
@@ -74,6 +75,7 @@ func NewInstallCommand(root *RootCommand) *InstallCommand {
 		container:  service.NewContainerService(root.db, root.cfg),
 		litellm:    service.NewLiteLLMService(root.db, root.cfg, configSvc),
 		composeGen: gen,
+		svc:        service.NewEngineService(root.db),
 	}
 }
 
@@ -240,7 +242,12 @@ func (c *InstallCommand) runSingle(slug string) int {
 		fmt.Printf("  ℹ No existing %s — clean install\n", baseName)
 	}
 
-	composeYAML, err := c.composeGen.Generate(model)
+	cfg, err := c.svc.BuildComposeConfig(model)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ✗ Failed to resolve engine config: %v\n", err)
+		return 1
+	}
+	composeYAML, err := c.composeGen.Generate(model, *cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  ✗ Failed to generate docker-compose YAML: %v\n", err)
 		return 1
@@ -406,6 +413,7 @@ ENVIRONMENT VARIABLES:
   HF_TOKEN                 HuggingFace API token (required)
   OPENAI_API_URL           OpenAI-compatible API endpoint (required)
   LLM_MANAGER_LLM_DIR      Directory containing compose files (required)
+
 
 EXAMPLES:
   llm-manager install qwen3_6          # Install without starting container

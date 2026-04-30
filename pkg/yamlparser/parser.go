@@ -75,6 +75,7 @@ type ModelYAML struct {
 	Type            string      `yaml:"type"`
 	SubType         string      `yaml:"subtype"`
 	Engine          string      `yaml:"engine"`
+	EngineVersion   string      `yaml:"engine_version"`
 	HFRepo          string      `yaml:"hf_repo"`
 	Container       string      `yaml:"container"`
 	Port            int         `yaml:"port"`

@@ -8,6 +8,7 @@
 slug: gemma-4-31b-it-nvfp4
 name: "Gemma 4 31B IT NVFP4"
 engine: vllm
+engine_version: pgx-llm-v1
 hf_repo: "nvidia/Gemma-4-31B-IT-NVFP4"
 container: llm-gemma-4-31b-it-nvfp4
 port: 8022
