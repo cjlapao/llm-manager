@@ -335,7 +335,7 @@ func TestIntegration_ComposeGeneration(t *testing.T) {
 
 	// Verify compose content
 	assertContains(t, composeYAML, "services:")
-	assertContains(t, composeYAML, "llm:")
+	assertContains(t, composeYAML, "llm-test-model:")
 	assertContains(t, composeYAML, "cjlapao/pgx-vllm:latest")
 	assertContains(t, composeYAML, "llm-test-model")
 	assertContains(t, composeYAML, "9000:8000")

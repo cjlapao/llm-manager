@@ -177,8 +177,8 @@ func TestComposeCommand_VLLMModel(t *testing.T) {
 	}
 
 	content := string(data)
-	if !strings.Contains(content, "llm:") {
-		t.Error("compose YAML missing 'llm:' service")
+	if !strings.Contains(content, "llm-compose-vllm-test:") {
+		t.Error("compose YAML missing service name")
 	}
 	if !strings.Contains(content, "llm-compose-vllm-test") {
 		t.Error("compose YAML missing container name")
@@ -285,8 +285,8 @@ func TestComposeCommand_SGLangModel(t *testing.T) {
 	}
 
 	content := string(data)
-	if !strings.Contains(content, "llm:") {
-		t.Error("compose YAML missing 'llm:' service")
+	if !strings.Contains(content, "llm-compose-sglang-test:") {
+		t.Error("compose YAML missing service name")
 	}
 	if strings.Contains(content, "vllm-node") {
 		t.Error("compose YAML should not contain vllm-node for sglang model")

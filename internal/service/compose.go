@@ -35,7 +35,7 @@ type ComposeTemplateData struct {
 }
 
 const composeTemplate = `services:
-  llm:
+  {{.ServiceName}}:
     image: {{.Image}}
     container_name: {{.Container}}
     ipc: host
@@ -87,7 +87,7 @@ func NewComposeGenerator() (*ComposeGenerator, error) {
 // Generate produces a complete docker-compose YAML string.
 func (g *ComposeGenerator) Generate(model *models.Model, cfg EngineComposeConfig) (string, error) {
 	data := ComposeTemplateData{
-		ServiceName:    "llm",
+		ServiceName: fmt.Sprintf("%s-%s", model.Type, model.Slug),
 		Container:      model.Container,
 		Port:           model.Port,
 		Image:          cfg.Image,
