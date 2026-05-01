@@ -106,6 +106,30 @@ func TestComposeCommand_VLLMModel(t *testing.T) {
 		t.Fatalf("AutoMigrate() error: %v", err)
 	}
 
+	// Create engine type and version so compose resolution works
+	vllmType := &models.EngineType{Slug: "vllm", Name: "vLLM", Description: "vLLM inference engine"}
+	if err := db.CreateEngineType(vllmType); err != nil {
+		t.Fatalf("CreateEngineType() error: %v", err)
+	}
+	vllmVer := &models.EngineVersion{
+		Slug:            "test-vllm-v1",
+		EngineTypeSlug:  "vllm",
+		Version:         "001",
+		Image:           "cjlapao/pgx-vllm:latest",
+		ContainerName:   "vllm-node",
+		Entrypoint:      "python3 -m vllm.entrypoints.openai.api_server",
+		IsDefault:       true,
+		IsLatest:        true,
+		EnvironmentJSON: `{"HF_HUB_OFFLINE":"0"}`,
+		VolumesJSON:     `{"../models":"/root/.cache/huggingface"}`,
+		CommandArgs:     `[]`,
+		EnableLogging:   false,
+		DeployEnableNvidia: false,
+	}
+	if err := db.CreateEngineVersion(vllmVer); err != nil {
+		t.Fatalf("CreateEngineVersion() error: %v", err)
+	}
+
 	// Create a test model with vLLM engine
 	envVarsJSON := `{"HUGGING_FACE_HUB_TOKEN":"${HF_TOKEN}","VLLM_HOST":"0.0.0.0"}`
 	commandArgsJSON := `["--model","Qwen/Qwen3-Next-80B-A3B-Instruct","--max-model-len","131072","--kv-cache-dtype","fp8"]`
@@ -118,6 +142,7 @@ func TestComposeCommand_VLLMModel(t *testing.T) {
 		Container:       "llm-compose-vllm-test",
 		Port:            8017,
 		EngineType:      "vllm",
+		EngineVersionSlug: "test-vllm-v1",
 		EnvVars:         envVarsJSON,
 		CommandArgs:     commandArgsJSON,
 		InputTokenCost:  0.0000003,
@@ -152,14 +177,8 @@ func TestComposeCommand_VLLMModel(t *testing.T) {
 	}
 
 	content := string(data)
-	if !strings.Contains(content, "llm:") {
-		t.Error("compose YAML missing 'llm:' service")
-	}
-	if !strings.Contains(content, "base-pgx-llm.yml") {
-		t.Error("compose YAML missing extends file")
-	}
-	if !strings.Contains(content, "vllm-node") {
-		t.Error("compose YAML missing vllm-node service")
+	if !strings.Contains(content, "llm-compose-vllm-test:") {
+		t.Error("compose YAML missing service name")
 	}
 	if !strings.Contains(content, "llm-compose-vllm-test") {
 		t.Error("compose YAML missing container name")
@@ -195,23 +214,48 @@ func TestComposeCommand_SGLangModel(t *testing.T) {
 		t.Fatalf("AutoMigrate() error: %v", err)
 	}
 
+	// Create engine type and version so compose resolution works
+	sglangType := &models.EngineType{Slug: "sglang", Name: "SGLang", Description: "SGLang inference engine"}
+	if err := db.CreateEngineType(sglangType); err != nil {
+		t.Fatalf("CreateEngineType() error: %v", err)
+	}
+	sglangVer := &models.EngineVersion{
+		Slug:               "test-sglang-v1",
+		EngineTypeSlug:     "sglang",
+		Version:            "001",
+		Image:              "lmsys/sglang:latest",
+		ContainerName:      "sglang-node",
+		Entrypoint:         "python3 -m sglang.launcher",
+		IsDefault:          true,
+		IsLatest:           true,
+		EnvironmentJSON:    `{}`,
+		VolumesJSON:        `{}`,
+		CommandArgs:        `["--model","test/model"]`,
+		EnableLogging:      false,
+		DeployEnableNvidia: false,
+	}
+	if err := db.CreateEngineVersion(sglangVer); err != nil {
+		t.Fatalf("CreateEngineVersion() error: %v", err)
+	}
+
 	// Create a test model with SGLang engine
 	envVarsJSON := `{"HF_TOKEN":"${HF_TOKEN}"}`
 	commandArgsJSON := `["--model","test/model","--port","8000"]`
 
 	model := &models.Model{
-		Slug:            "compose-sglang-test",
-		Type:            "llm",
-		Name:            "Compose SGLang Test",
-		HFRepo:          "test/model",
-		Container:       "llm-compose-sglang-test",
-		Port:            8000,
-		EngineType:      "sglang",
-		EnvVars:         envVarsJSON,
-		CommandArgs:     commandArgsJSON,
-		InputTokenCost:  0,
-		OutputTokenCost: 0,
-		Default:         false,
+		Slug:              "compose-sglang-test",
+		Type:              "llm",
+		Name:              "Compose SGLang Test",
+		HFRepo:            "test/model",
+		Container:         "llm-compose-sglang-test",
+		Port:              8000,
+		EngineType:        "sglang",
+		EngineVersionSlug: "test-sglang-v1",
+		EnvVars:           envVarsJSON,
+		CommandArgs:       commandArgsJSON,
+		InputTokenCost:    0,
+		OutputTokenCost:   0,
+		Default:           false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)
@@ -241,8 +285,8 @@ func TestComposeCommand_SGLangModel(t *testing.T) {
 	}
 
 	content := string(data)
-	if !strings.Contains(content, "sglang-node") {
-		t.Error("compose YAML missing sglang-node service")
+	if !strings.Contains(content, "llm-compose-sglang-test:") {
+		t.Error("compose YAML missing service name")
 	}
 	if strings.Contains(content, "vllm-node") {
 		t.Error("compose YAML should not contain vllm-node for sglang model")
@@ -261,6 +305,30 @@ func TestComposeCommand_DefaultOutputPath(t *testing.T) {
 
 	if err := db.AutoMigrate(); err != nil {
 		t.Fatalf("AutoMigrate() error: %v", err)
+	}
+
+	// Create engine type and version for compose resolution
+	vllmType := &models.EngineType{Slug: "vllm", Name: "vLLM", Description: "vLLM inference engine"}
+	if err := db.CreateEngineType(vllmType); err != nil {
+		t.Fatalf("CreateEngineType() error: %v", err)
+	}
+	vllmVer := &models.EngineVersion{
+		Slug:               "test-vllm-v1",
+		EngineTypeSlug:     "vllm",
+		Version:            "001",
+		Image:              "cjlapao/pgx-vllm:latest",
+		ContainerName:      "vllm-node",
+		Entrypoint:         "python3 -m vllm.entrypoints.openai.api_server",
+		IsDefault:          true,
+		IsLatest:           true,
+		EnvironmentJSON:    `{}`,
+		VolumesJSON:        `{}`,
+		CommandArgs:        `[]`,
+		EnableLogging:      false,
+		DeployEnableNvidia: false,
+	}
+	if err := db.CreateEngineVersion(vllmVer); err != nil {
+		t.Fatalf("CreateEngineVersion() error: %v", err)
 	}
 
 	model := &models.Model{
@@ -312,6 +380,30 @@ func TestComposeCommand_CustomOutputPath(t *testing.T) {
 
 	if err := db.AutoMigrate(); err != nil {
 		t.Fatalf("AutoMigrate() error: %v", err)
+	}
+
+	// Create engine type and version for compose resolution
+	vllmType := &models.EngineType{Slug: "vllm", Name: "vLLM", Description: "vLLM inference engine"}
+	if err := db.CreateEngineType(vllmType); err != nil {
+		t.Fatalf("CreateEngineType() error: %v", err)
+	}
+	vllmVer := &models.EngineVersion{
+		Slug:               "test-vllm-v1",
+		EngineTypeSlug:     "vllm",
+		Version:            "001",
+		Image:              "cjlapao/pgx-vllm:latest",
+		ContainerName:      "vllm-node",
+		Entrypoint:         "python3 -m vllm.entrypoints.openai.api_server",
+		IsDefault:          true,
+		IsLatest:           true,
+		EnvironmentJSON:    `{}`,
+		VolumesJSON:        `{}`,
+		CommandArgs:        `[]`,
+		EnableLogging:      false,
+		DeployEnableNvidia: false,
+	}
+	if err := db.CreateEngineVersion(vllmVer); err != nil {
+		t.Fatalf("CreateEngineVersion() error: %v", err)
 	}
 
 	model := &models.Model{
@@ -387,6 +479,30 @@ func TestComposeCommand_ModelWithoutContainer(t *testing.T) {
 		t.Fatalf("AutoMigrate() error: %v", err)
 	}
 
+	// Create engine type and version for compose resolution
+	vllmType := &models.EngineType{Slug: "vllm", Name: "vLLM", Description: "vLLM inference engine"}
+	if err := db.CreateEngineType(vllmType); err != nil {
+		t.Fatalf("CreateEngineType() error: %v", err)
+	}
+	vllmVer := &models.EngineVersion{
+		Slug:               "test-vllm-v1",
+		EngineTypeSlug:     "vllm",
+		Version:            "001",
+		Image:              "cjlapao/pgx-vllm:latest",
+		ContainerName:      "vllm-node",
+		Entrypoint:         "python3 -m vllm.entrypoints.openai.api_server",
+		IsDefault:          true,
+		IsLatest:           true,
+		EnvironmentJSON:    `{}`,
+		VolumesJSON:        `{}`,
+		CommandArgs:        `[]`,
+		EnableLogging:      false,
+		DeployEnableNvidia: false,
+	}
+	if err := db.CreateEngineVersion(vllmVer); err != nil {
+		t.Fatalf("CreateEngineVersion() error: %v", err)
+	}
+
 	// Create a model without container name (should still work)
 	model := &models.Model{
 		Slug:        "no-container-test",
@@ -422,7 +538,7 @@ func TestComposeCommand_ModelWithoutContainer(t *testing.T) {
 }
 
 func TestComposeGenerator_Generate(t *testing.T) {
-	generator, err := service.NewComposeGenerator(nil)
+	generator, err := service.NewComposeGenerator()
 	if err != nil {
 		t.Fatalf("NewComposeGenerator() error: %v", err)
 	}
@@ -442,41 +558,46 @@ func TestComposeGenerator_Generate(t *testing.T) {
 		Default:         false,
 	}
 
-	// Test vLLM generation
-	vllmYAML, err := generator.GenerateVLLM(model)
-	if err != nil {
-		t.Fatalf("GenerateVLLM() error: %v", err)
+	cfg := service.EngineComposeConfig{
+		EnvVars:     map[string]string{"KEY": "value"},
+		CommandArgs: []string{"arg1", "val1"},
 	}
-	if !strings.Contains(vllmYAML, "vllm-node") {
-		t.Error("vLLM compose missing vllm-node")
+
+	// Test vLLM generation
+	vllmYAML, err := generator.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate() error: %v", err)
+	}
+	if !strings.Contains(vllmYAML, "llm") {
+		t.Error("vLLM compose missing llm service")
 	}
 
 	// Test SGLang generation
 	model.EngineType = "sglang"
-	sglangYAML, err := generator.GenerateSGLang(model)
-	if err != nil {
-		t.Fatalf("GenerateSGLang() error: %v", err)
-	}
-	if !strings.Contains(sglangYAML, "sglang-node") {
-		t.Error("SGLang compose missing sglang-node")
-	}
-
-	// Test Generate dispatch
-	model.EngineType = "vllm"
-	generatedYAML, err := generator.Generate(model)
+	sglangYAML, err := generator.Generate(model, cfg)
 	if err != nil {
 		t.Fatalf("Generate() error: %v", err)
 	}
-	if !strings.Contains(generatedYAML, "vllm-node") {
-		t.Error("Generate() with vllm missing vllm-node")
+	if !strings.Contains(sglangYAML, "llm") {
+		t.Error("SGLang compose missing llm service")
+	}
+
+	// Test Generate dispatch (generic, no longer dispatches by engine type)
+	model.EngineType = "vllm"
+	generatedYAML, err := generator.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate() error: %v", err)
+	}
+	if !strings.Contains(generatedYAML, "llm") {
+		t.Error("Generate() with vllm missing llm service")
 	}
 
 	model.EngineType = "sglang"
-	generatedYAML, err = generator.Generate(model)
+	generatedYAML, err = generator.Generate(model, cfg)
 	if err != nil {
 		t.Fatalf("Generate() error: %v", err)
 	}
-	if !strings.Contains(generatedYAML, "sglang-node") {
-		t.Error("Generate() with sglang missing sglang-node")
+	if !strings.Contains(generatedYAML, "llm") {
+		t.Error("Generate() with sglang missing llm service")
 	}
 }

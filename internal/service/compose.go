@@ -1,189 +1,110 @@
-// Package service provides a Docker Compose file generator for LLM models.
 package service
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
+	"strings"
 	"text/template"
 
 	"github.com/user/llm-manager/internal/database/models"
 )
 
-// composeTemplateData holds the data passed to the docker-compose template.
-type composeTemplateData struct {
-	ServiceName string            // "vllm-node" or "sglang-node"
-	Container   string            // e.g. "llm-qwen3-next"
-	Port        int               // e.g. 8017
-	EnvVars     map[string]string // from model.EnvVars JSON
-	CommandArgs []string          // from model.CommandArgs JSON as ["--flag", "val", ...]
-	BaseImage   string            // base image slug for extends
+// EngineComposeConfig carries pre-merged compose data from the caller.
+type EngineComposeConfig struct {
+	Image          string
+	Entrypoint     []string
+	EnvVars        map[string]string
+	Volumes        []string
+	CommandArgs    []string
+	LoggingSection string
+	DeploySection  string
 }
 
-// composeTemplate is the docker-compose YAML template.
+// ComposeTemplateData is what gets passed to the Go template.
+type ComposeTemplateData struct {
+	ServiceName    string
+	Container      string
+	Port           int
+	Image          string
+	Entrypoint     []string
+	EnvVars        map[string]string
+	Volumes        []string
+	CommandArgs    []string
+	LoggingSection string
+	DeploySection  string
+}
+
 const composeTemplate = `services:
-  llm:
-    extends:
-      file: {{.BaseImage}}
-      service: {{.ServiceName}}
+  {{.ServiceName}}:
+    image: {{.Image}}
     container_name: {{.Container}}
+    ipc: host
+    entrypoint: [{{range $i, $e := .Entrypoint}}{{if $i}}, {{end}}"{{$e}}"{{end}}]
     ports:
       - "{{.Port}}:8000"
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
       - HF_TOKEN=${HF_TOKEN}
 {{- range $k, $v := .EnvVars}}
-      - {{ $k }}={{ $v }}
+      - {{$k}}={{$v}}
 {{- end}}
+{{- if .Volumes}}
+    volumes:
+{{- range .Volumes}}
+      - {{.}}
+{{- end}}
+{{- end}}
+{{- if .CommandArgs}}
     command: >
-{{- range $arg := .CommandArgs}}
-      {{ $arg }}{{ end }}
+{{- range .CommandArgs}}
+      {{.}} {{end}}
+{{- end}}
+{{- if .LoggingSection}}
+{{.LoggingSection}}
+{{- end}}
+{{- if .DeploySection}}
+{{.DeploySection}}
+{{- end}}
 `
 
-// ComposeGenerator generates docker-compose YAML from a model record.
+// ComposeGenerator generates docker-compose YAML from model + engine config.
 type ComposeGenerator struct {
-	vllmTemplate   *template.Template
-	sglangTemplate *template.Template
-	db             DatabaseManager
+	tmpl *template.Template
 }
 
-// DatabaseManager interface for base image lookups.
-type DatabaseManager interface {
-	GetBaseImageBySlug(slug string) (*models.BaseImage, error)
-}
-
-// NewComposeGenerator creates a new ComposeGenerator with pre-parsed templates.
-func NewComposeGenerator(db DatabaseManager) (*ComposeGenerator, error) {
-	vllmTmpl, err := template.New("compose").Parse(composeTemplate)
+// NewComposeGenerator creates a new ComposeGenerator.
+func NewComposeGenerator() (*ComposeGenerator, error) {
+	funcs := template.FuncMap{
+		"join": strings.Join,
+	}
+	tmpl, err := template.New("compose").Funcs(funcs).Parse(composeTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse compose template: %w", err)
 	}
-
-	sglangTmpl, err := template.New("compose-sglang").Parse(composeTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse compose template: %w", err)
-	}
-
-	return &ComposeGenerator{
-		vllmTemplate:   vllmTmpl,
-		sglangTemplate: sglangTmpl,
-		db:             db,
-	}, nil
+	return &ComposeGenerator{tmpl: tmpl}, nil
 }
 
-// parseJSONField parses a JSON-encoded field from the model.
-func parseJSONField(s string, target interface{}) error {
-	if s == "" {
-		return nil
+// Generate produces a complete docker-compose YAML string.
+func (g *ComposeGenerator) Generate(model *models.Model, cfg EngineComposeConfig) (string, error) {
+	if model == nil {
+		return "", fmt.Errorf("model is required for composition generation")
 	}
-	return json.Unmarshal([]byte(s), target)
-}
-
-// commandArgsToArray converts a JSON array of strings from CommandArgs.
-// Returns nil/empty slice if the data is in the old map format or empty.
-func commandArgsToArray(commandArgsJSON string) ([]string, error) {
-	if commandArgsJSON == "" {
-		return nil, nil
-	}
-
-	// Try array format first
-	var arr []string
-	if err := json.Unmarshal([]byte(commandArgsJSON), &arr); err == nil {
-		return arr, nil
-	}
-
-	// Fall back to old map format — convert to [key, val, key, val, ...]
-	m := map[string]string{}
-	if err := json.Unmarshal([]byte(commandArgsJSON), &m); err != nil {
-		return nil, fmt.Errorf("command_args is neither array nor map: %w", err)
-	}
-	result := make([]string, 0, len(m)*2)
-	for k, v := range m {
-		result = append(result, k, v)
-	}
-	return result, nil
-}
-
-// GenerateVLLM generates a docker-compose YAML for a vLLM model.
-func (g *ComposeGenerator) GenerateVLLM(model *models.Model) (string, error) {
-	envVars := map[string]string{}
-	if err := parseJSONField(model.EnvVars, &envVars); err != nil {
-		return "", fmt.Errorf("failed to parse env_vars: %w", err)
-	}
-
-	args, err := commandArgsToArray(model.CommandArgs)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse command_args: %w", err)
-	}
-
-	// Look up base image
-	baseImageFile := "base-pgx-llm.yml" // default fallback
-	if model.BaseImageID != "" {
-		if baseImage, err := g.db.GetBaseImageBySlug(model.BaseImageID); err == nil && baseImage.ComposedYmlFile != "" {
-			baseImageFile = baseImage.ComposedYmlFile
-		}
-	}
-
-	data := composeTemplateData{
-		ServiceName: "vllm-node",
-		Container:   model.Container,
-		Port:        model.Port,
-		EnvVars:     envVars,
-		CommandArgs: args,
-		BaseImage:   baseImageFile,
+	data := ComposeTemplateData{
+		ServiceName: fmt.Sprintf("%s-%s", model.Type, model.Slug),
+		Container:      model.Container,
+		Port:           model.Port,
+		Image:          cfg.Image,
+		Entrypoint:     cfg.Entrypoint,
+		EnvVars:        cfg.EnvVars,
+		Volumes:        cfg.Volumes,
+		CommandArgs:    cfg.CommandArgs,
+		LoggingSection: cfg.LoggingSection,
+		DeploySection:  cfg.DeploySection,
 	}
 
 	var buf bytes.Buffer
-	if err := g.vllmTemplate.Execute(&buf, data); err != nil {
+	if err := g.tmpl.Execute(&buf, data); err != nil {
 		return "", fmt.Errorf("failed to render compose template: %w", err)
 	}
-
 	return buf.String(), nil
-}
-
-// GenerateSGLang generates a docker-compose YAML for an SGLang model.
-func (g *ComposeGenerator) GenerateSGLang(model *models.Model) (string, error) {
-	envVars := map[string]string{}
-	if err := parseJSONField(model.EnvVars, &envVars); err != nil {
-		return "", fmt.Errorf("failed to parse env_vars: %w", err)
-	}
-
-	args, err := commandArgsToArray(model.CommandArgs)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse command_args: %w", err)
-	}
-
-	// Look up base image
-	baseImageFile := "base-pgx-llm.yml" // default fallback
-	if model.BaseImageID != "" {
-		if baseImage, err := g.db.GetBaseImageBySlug(model.BaseImageID); err == nil && baseImage.ComposedYmlFile != "" {
-			baseImageFile = baseImage.ComposedYmlFile
-		}
-	}
-
-	data := composeTemplateData{
-		ServiceName: "sglang-node",
-		Container:   model.Container,
-		Port:        model.Port,
-		EnvVars:     envVars,
-		CommandArgs: args,
-		BaseImage:   baseImageFile,
-	}
-
-	var buf bytes.Buffer
-	if err := g.sglangTemplate.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to render compose template: %w", err)
-	}
-
-	return buf.String(), nil
-}
-
-// Generate generates a docker-compose YAML based on the model's engine_type.
-func (g *ComposeGenerator) Generate(model *models.Model) (string, error) {
-	switch model.EngineType {
-	case "sglang":
-		return g.GenerateSGLang(model)
-	default:
-		return g.GenerateVLLM(model)
-	}
 }

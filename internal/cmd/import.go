@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/user/llm-manager/internal/service"
@@ -15,17 +14,21 @@ func init() {
 	RegisterCommand("import", func(root *RootCommand) Command { return NewImportCommand(root) })
 }
 
-// ImportCommand handles model import from YAML files.
+// ImportCommand handles import of models or engines from YAML files.
 type ImportCommand struct {
 	cfg *RootCommand
 	svc *service.ModelService
+	eng *service.EngineService
 }
 
 // NewImportCommand creates a new ImportCommand.
 func NewImportCommand(root *RootCommand) *ImportCommand {
+	svc := service.NewModelService(root.db, root.cfg)
+	svc.SetEngineService(service.NewEngineService(root.db))
 	return &ImportCommand{
 		cfg: root,
-		svc: service.NewModelService(root.db, root.cfg),
+		svc: svc,
+		eng: service.NewEngineService(root.db),
 	}
 }
 
@@ -36,168 +39,66 @@ func (c *ImportCommand) Run(args []string) int {
 		return 0
 	}
 
-	// Flags that take a value from the next argument (no =)
-	valueFlags := map[string]bool{
-		"folder": true,
-		"type":   true,
-		"engine": true,
-	}
-
-	var yamlPath string
-	var folderPath string
-	overrides := service.ImportOverrides{}
-
-	i := 0
-	for i < len(args) {
-		arg := args[i]
-		if strings.HasPrefix(arg, "--") {
-			// Parse flag
-			eqIdx := strings.Index(arg, "=")
-			if eqIdx >= 0 {
-				// Flag with = (e.g., --folder=/path or --input-cost=0.001)
-				key := arg[2:eqIdx]
-				val := arg[eqIdx+1:]
-				if !c.handleFlag(key, val, &yamlPath, &folderPath, &overrides) {
-					return 1
-				}
-	} else {
-			key := arg[2:]
-			switch key {
-			case "help":
-				c.PrintHelp()
-				return 0
-			case "override":
-				overrides.Override = true
-			default:
-				if valueFlags[key] {
-					i++
-					if i >= len(args) {
-						fmt.Fprintf(os.Stderr, "Error: --%s requires a value\n", key)
-						return 1
-					}
-					switch key {
-					case "folder":
-						folderPath = args[i]
-					case "type":
-						if !c.handleFlag("type", args[i], &yamlPath, &folderPath, &overrides) {
-							return 1
-						}
-					case "engine":
-						if !c.handleFlag("engine", args[i], &yamlPath, &folderPath, &overrides) {
-							return 1
-						}
-					}
-				} else {
-					fmt.Fprintf(os.Stderr, "Error: unknown flag --%s\n", key)
-					return 1
-				}
-			}
-		}
-	} else if arg == "-h" || arg == "--help" || arg == "help" {
+	// Handle help before flag parsing
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" || arg == "help" {
 			c.PrintHelp()
 			return 0
-		} else {
-			// Non-flag argument = YAML file path
-			if yamlPath == "" {
-				yamlPath = arg
-			} else {
-				fmt.Fprintf(os.Stderr, "Error: unexpected argument %q\n", arg)
-				return 1
-			}
 		}
-		i++
 	}
 
-	if folderPath != "" && yamlPath != "" {
-		fmt.Fprintf(os.Stderr, "Error: cannot specify both --folder and a file path\n")
+	// Parse flags: --override and --folder supported
+	var override bool
+	var folderPath string
+	filePaths := []string{}
+
+	for _, arg := range args {
+		if arg == "--override" {
+			override = true
+		} else if strings.HasPrefix(arg, "--folder") {
+			// --folder=<path> or --folder <path>
+			eqIdx := strings.Index(arg, "=")
+			if eqIdx >= 0 {
+				folderPath = arg[eqIdx+1:]
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: --folder requires a path\n")
+				return 1
+			}
+		} else if strings.HasPrefix(arg, "--") {
+			fmt.Fprintf(os.Stderr, "Error: unknown flag %s (supported: --override, --folder)\n", arg)
+			return 1
+		} else {
+			filePaths = append(filePaths, arg)
+		}
+	}
+
+	if folderPath != "" && len(filePaths) > 0 {
+		fmt.Fprintf(os.Stderr, "Error: cannot specify both --folder and file paths\n")
 		return 1
 	}
 
 	if folderPath != "" {
-		return c.runImportFolder(folderPath, overrides)
+		return c.runImportFolder(folderPath, override)
 	}
 
-	if yamlPath == "" {
-		fmt.Fprintf(os.Stderr, "Error: YAML file path is required\n\n")
-		c.PrintHelp()
-		return 1
+	if len(filePaths) > 0 {
+		// Import each file individually
+		for _, path := range filePaths {
+			if exitCode := c.runImportFile(path, override); exitCode != 0 {
+				return exitCode
+			}
+		}
+		return 0
 	}
 
-	model, err := c.svc.ImportModel(yamlPath, overrides)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error importing model: %v\n", err)
-		return 1
-	}
-
-	fmt.Printf("Imported model: %s (%s)\n", model.Slug, model.Name)
-	return 0
+	fmt.Fprintln(os.Stderr, "Error: YAML file path or --folder is required")
+	c.PrintHelp()
+	return 1
 }
 
-// handleFlag processes a flag=value pair. Returns false on error.
-func (c *ImportCommand) handleFlag(key, val string, yamlPath, folderPath *string, overrides *service.ImportOverrides) bool {
-	switch key {
-	case "input-cost", "input-token-cost":
-		v, err := strconv.ParseFloat(val, 64)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid input-cost value: %s\n", val)
-			return false
-		}
-		overrides.InputCost = &v
-	case "output-cost", "output-token-cost":
-		v, err := strconv.ParseFloat(val, 64)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid output-cost value: %s\n", val)
-			return false
-		}
-		overrides.OutputCost = &v
-	case "capabilities":
-		var caps []string
-		for _, cap := range strings.Split(val, ",") {
-			t := strings.TrimSpace(cap)
-			if t != "" {
-				caps = append(caps, t)
-			}
-		}
-		overrides.Capabilities = caps
-	case "type":
-		validTypes := []string{"llm", "rag", "speech", "comfyui"}
-		valid := false
-		for _, t := range validTypes {
-			if val == t {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			fmt.Fprintf(os.Stderr, "Error: invalid --type value: %s (must be one of: llm, rag, speech, comfyui)\n", val)
-			return false
-		}
-		overrides.Type = val
-	case "engine":
-		validEngines := []string{"vllm", "sglang", "llama.cpp"}
-		valid := false
-		for _, e := range validEngines {
-			if val == e {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			fmt.Fprintf(os.Stderr, "Error: invalid --engine value: %s (must be one of: vllm, sglang, llama.cpp)\n", val)
-			return false
-		}
-		overrides.Engine = val
-	case "folder":
-		*folderPath = val
-	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown flag --%s\n", key)
-		return false
-	}
-	return true
-}
-
-// runImportFolder imports all valid YAML files from a directory.
-func (c *ImportCommand) runImportFolder(folderPath string, overrides service.ImportOverrides) int {
+// runImportFolder imports all YAML files from a directory.
+// Recognized engine and model files are imported; unrecognized files are skipped with a warning.
+func (c *ImportCommand) runImportFolder(folderPath string, override bool) int {
 	entries, err := os.ReadDir(folderPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading directory %s: %v\n", folderPath, err)
@@ -223,57 +124,157 @@ func (c *ImportCommand) runImportFolder(folderPath string, overrides service.Imp
 	fmt.Printf("Found %d YAML file(s) in %s\n", len(yamlFiles), folderPath)
 	fmt.Println(strings.Repeat("-", 60))
 
-	successCount := 0
-	failCount := 0
+	imported := 0
+	skipped := 0
 
 	for _, path := range yamlFiles {
-		fmt.Printf("\nImporting: %s\n", filepath.Base(path))
-		model, err := c.svc.ImportModel(path, overrides)
+		data, err := os.ReadFile(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  ✗ Failed: %v\n", err)
-			failCount++
+			fmt.Fprintf(os.Stderr, "  ✗ %s — read error: %v\n", filepath.Base(path), err)
+			skipped++
 			continue
 		}
-		fmt.Printf("  ✓ Imported: %s (%s)\n", model.Slug, model.Name)
-		successCount++
+
+		if service.IsEngineYAML(data) {
+			fmt.Printf("  %s — engine config\n", filepath.Base(path))
+			created, skippedCount, err := c.eng.ImportEngineFile(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "    ✗ Error importing engine: %v\n", err)
+				skipped++
+				continue
+			}
+			fmt.Printf("    ✓ Engine imported: %d created, %d skipped\n", created, skippedCount)
+			imported++
+		} else {
+			// Try model import — if it fails validation, skip silently
+			err = c.tryImportModel(path, override)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  ✗ %s — skipped: %v\n", filepath.Base(path), err)
+				skipped++
+				continue
+			}
+			imported++
+		}
 	}
 
 	fmt.Println()
 	fmt.Println(strings.Repeat("-", 60))
-	fmt.Printf("Import complete: %d succeeded, %d failed\n", successCount, failCount)
-	if failCount > 0 {
+	fmt.Printf("Import complete: %d imported, %d skipped\n", imported, skipped)
+	return 0
+}
+
+// tryImportModel attempts to import a model YAML file.
+// Returns nil on success, or an error describing why it was skipped.
+func (c *ImportCommand) tryImportModel(yamlPath string, override bool) error {
+	// Quick check: does this look like a model YAML?
+	// We peek at the raw bytes to avoid full parse cost.
+	data, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return fmt.Errorf("read error: %w", err)
+	}
+
+	// Must have a "slug" field at the top level (model indicator)
+	var raw map[string]interface{}
+	if err := c.parseQuick(data, &raw); err != nil {
+		return fmt.Errorf("parse error: %w", err)
+	}
+	if _, hasSlug := raw["slug"]; !hasSlug {
+		return fmt.Errorf("not a recognized model or engine config")
+	}
+
+	overrides := service.ImportOverrides{
+		Override: override,
+	}
+	_, err = c.svc.ImportModel(yamlPath, overrides)
+	if err != nil {
+		return fmt.Errorf("import failed: %w", err)
+	}
+
+	fmt.Printf("  ✓ %s — model imported\n", filepath.Base(yamlPath))
+	return nil
+}
+
+// runImportFile imports a single YAML file (auto-detects engine vs model).
+func (c *ImportCommand) runImportFile(yamlPath string, override bool) int {
+	data, err := os.ReadFile(yamlPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", yamlPath, err)
 		return 1
 	}
+
+	if service.IsEngineYAML(data) {
+		return c.runEngineImport(yamlPath)
+	}
+
+	return c.runModelImport(yamlPath, override)
+}
+
+// runEngineImport imports an engine configuration from a YAML file.
+func (c *ImportCommand) runEngineImport(yamlPath string) int {
+	fmt.Printf("Importing engine from %s...\n", yamlPath)
+
+	created, skipped, err := c.eng.ImportEngineFile(yamlPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error importing engine: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("Imported engine: %d version(s) created, %d skipped\n", created, skipped)
 	return 0
+}
+
+// runModelImport imports a model from a YAML file.
+func (c *ImportCommand) runModelImport(yamlPath string, override bool) int {
+	overrides := service.ImportOverrides{
+		Override: override,
+	}
+
+	model, err := c.svc.ImportModel(yamlPath, overrides)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error importing model: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("Imported model: %s (%s)\n", model.Slug, model.Name)
+	return 0
+}
+
+// parseQuick is a minimal YAML-aware quick parser for top-level key detection.
+// Uses the same yaml.v3 import as the rest of the codebase.
+func (c *ImportCommand) parseQuick(data []byte, target interface{}) error {
+	// Reuse the yaml parser from the service layer
+	return service.ParseQuickYAML(data, target)
 }
 
 // PrintHelp prints the import command help.
 func (c *ImportCommand) PrintHelp() {
-	fmt.Print(`import - Import a model from a YAML file.
+	fmt.Print(`import - Import a model or engine from a YAML file.
 
 USAGE:
-  llm-manager model import <file.yaml> [OPTIONS]
-  llm-manager model import --folder <directory> [OPTIONS]
+  llm-manager import <file.yml> [--override]
+  llm-manager import --folder <directory> [--override]
+
+DESCRIPTION:
+  Auto-detects whether the YAML file contains an engine configuration or a
+  model configuration based on its structure.
+
+  Engine config: has a top-level "engine:" key with "slug" sub-key.
+  Model config: has model fields like "slug:", "name:", "type:", etc.
 
 ARGUMENTS:
-  <file.yaml>    Path to the YAML file to import
-  --folder       Import all .yml/.yaml files from a directory
+  <file.yml>    Path to a single YAML file to import
+  --folder      Import all .yml/.yaml files from a directory
 
 OPTIONS:
-  --input-cost <float>        Override input token cost from YAML
-  --output-cost <float>       Override output token cost from YAML
-  --capabilities <comma,list> Override capabilities list from YAML
-  --type <llm|rag|speech|comfyui> Override model type (default: llm)
-  --engine <vllm|sglang|llama.cpp> Override engine type (default: vllm)
-  --override                  Delete existing DB + LiteLLM records before re-importing
+  --override    Delete existing DB + LiteLLM records before re-importing
+                (model import only; silently ignored for engine import)
 
 EXAMPLES:
-  llm-manager model import model.yaml
-  llm-manager model import qwen3.yaml --input-cost 0.000001 --output-cost 0.000002
-  llm-manager model import model.yaml --capabilities reasoning,tool-use,multi-turn
-  llm-manager model import qwen3.yaml --override
-  llm-manager model import --folder models/
-  llm-manager model import --folder models/ --override
-  llm-manager model import model.yaml --type rag --engine sglang
+  llm-manager import model.yaml
+  llm-manager import model.yaml --override
+  llm-manager import ./engines/vllm.yml
+  llm-manager import --folder ./models/
+  llm-manager import --folder ./models/ --override
+  llm-manager engine import ./engines/vllm.yml    (pre-validates engine type)
 `)
 }

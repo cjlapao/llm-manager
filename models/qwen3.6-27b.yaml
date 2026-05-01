@@ -8,6 +8,7 @@
 slug: qwen3.6-27b
 name: "Qwen3.6 27B"
 engine: vllm
+engine_version: pgx-llm-v1
 hf_repo: "Qwen/Qwen3.6-27B"
 container: llm-qwen3.6-27b
 port: 8015

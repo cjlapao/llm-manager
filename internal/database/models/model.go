@@ -34,6 +34,7 @@ type Model struct {
 	LitellmVariantIDs    string    `gorm:"type:text;column:litellm_variant_ids"`
 	Default              bool      `gorm:"type:boolean;default:false;column:default"`
 	BaseImageID          string    `gorm:"size:128;column:base_image_id"`
+	EngineVersionSlug    string    `gorm:"size:128;default:'';column:engine_version_slug"`
 	CreatedAt            time.Time `gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt            time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }

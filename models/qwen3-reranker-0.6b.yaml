@@ -8,6 +8,7 @@
 slug: qwen3-reranker-0.6b
 name: "Qwen3 Reranker 0.6B"
 engine: vllm
+engine_version: pgx-llm-v1
 hf_repo: "Qwen/Qwen3-Reranker-0.6B"
 container: rag-qwen3-reranker-0.6b
 port: 8110

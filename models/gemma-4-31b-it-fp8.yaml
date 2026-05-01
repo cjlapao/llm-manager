@@ -8,6 +8,7 @@
 slug: gemma-4-31b-it-fp8
 name: "Gemma 4 31B IT FP8"
 engine: vllm
+engine_version: pgx-llm-v1
 hf_repo: "RedHatAI/gemma-4-31B-it-FP8-Dynamic"
 container: llm-gemma-4-31b-it-fp8
 port: 8023
@@ -41,6 +42,8 @@ command:
   - "--mm-processor-cache-type shm"
   - "--disable-custom-all-reduce"
   - "--load-format instanttensor"
+  - "--attention-backend flashinfer"
+  - "--moe-backend marlin"
   - "--chat-template /app/templates/gemma4-tool-chat-template.jinja"
 
 capabilities:

@@ -49,11 +49,17 @@ type ModelService struct {
 	db       database.DatabaseManager
 	cfg      *config.Config
 	litellm  DeleteModeler
+	eng      *EngineService
 }
 
 // NewModelService creates a new ModelService.
 func NewModelService(db database.DatabaseManager, cfg *config.Config) *ModelService {
 	return &ModelService{db: db, cfg: cfg}
+}
+
+// SetEngineService sets the optional EngineService for engine version resolution.
+func (s *ModelService) SetEngineService(svc *EngineService) {
+	s.eng = svc
 }
 
 // SetLiteLLMService sets the optional LiteLLM deleter for delete+reimport mode.
@@ -357,13 +363,27 @@ func (s *ModelService) extractVariants(m models.Model) []variantEntry {
 }
 
 // GenerateCompose generates a docker-compose YAML for the model using the given generator.
-func (s *ModelService) GenerateCompose(slug string, generator *ComposeGenerator) (string, error) {
+// It resolves the engine version from the model's DB record to build the full compose config.
+func (s *ModelService) GenerateCompose(slug string, generator *ComposeGenerator, cfg EngineComposeConfig) (string, error) {
 	model, err := s.db.GetModel(slug)
 	if err != nil {
 		return "", fmt.Errorf("model %s not found: %w", slug, err)
 	}
 
-	composeYAML, err := generator.Generate(model)
+	// If caller provided a config, merge it on top of the engine-resolved config.
+	// Engine-resolved takes priority; caller overrides are layered on top.
+	if cfg.Image == "" {
+		resolved, err := s.resolveComposeConfig(model)
+		if err != nil {
+			return "", err
+		}
+		cfg = *resolved
+	}
+
+	// Apply caller-provided overrides
+	// cfg.Image and cfg.EnvVars are already set from resolved config
+
+	composeYAML, err := generator.Generate(model, cfg)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate compose file for %s: %w", slug, err)
 	}
@@ -371,16 +391,26 @@ func (s *ModelService) GenerateCompose(slug string, generator *ComposeGenerator)
 	return composeYAML, nil
 }
 
+// resolveComposeConfig resolves the engine version for a model and returns the
+// full EngineComposeConfig with image, entrypoint, env vars, volumes, logging, deploy.
+func (s *ModelService) resolveComposeConfig(model *models.Model) (*EngineComposeConfig, error) {
+	if s.eng == nil {
+		return &EngineComposeConfig{}, nil
+	}
+	return s.eng.BuildComposeConfig(model)
+}
+
 // ContainerService handles Docker container operations.
 type ContainerService struct {
 	db  database.DatabaseManager
 	cfg *config.Config
+	svc *EngineService
 	mu  sync.Mutex
 }
 
 // NewContainerService creates a new ContainerService.
 func NewContainerService(db database.DatabaseManager, cfg *config.Config) *ContainerService {
-	return &ContainerService{db: db, cfg: cfg}
+	return &ContainerService{db: db, cfg: cfg, svc: NewEngineService(db)}
 }
 
 // ListContainers returns all containers from the database.
@@ -415,7 +445,32 @@ func (s *ContainerService) RefreshContainerStatus(slug string) error {
 	return nil
 }
 
+// ensureCompose regenerates the docker-compose YAML file for a model from the
+// current database state. It always overwrites the file to keep it in sync
+// with engine config changes (new versions, env vars, volumes, etc.).
+func (s *ContainerService) ensureCompose(model *models.Model) error {
+	composeGen, err := NewComposeGenerator()
+	if err != nil {
+		return fmt.Errorf("failed to create compose generator: %w", err)
+	}
+	cfg, err := s.svc.BuildComposeConfig(model)
+	if err != nil {
+		return fmt.Errorf("failed to resolve engine config: %w", err)
+	}
+	composeYAML, err := composeGen.Generate(model, *cfg)
+	if err != nil {
+		return fmt.Errorf("failed to generate compose YAML: %w", err)
+	}
+	ymlPath := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
+	if err := os.WriteFile(ymlPath, []byte(composeYAML), 0o644); err != nil {
+		return fmt.Errorf("failed to write compose file %s: %w", ymlPath, err)
+	}
+	return nil
+}
+
 // StartContainer starts a Docker container via docker compose.
+// It always regenerates the compose YAML from DB state before starting,
+// ensuring engine config changes are picked up.
 func (s *ContainerService) StartContainer(slug string, allowMultiple bool) error {
 	model, err := s.db.GetModel(slug)
 	if err != nil {
@@ -433,6 +488,11 @@ func (s *ContainerService) StartContainer(slug string, allowMultiple bool) error
 		}
 	} else {
 		fmt.Println("Starting without stopping other LLM containers (--allow-multiple)")
+	}
+
+	// Always regenerate compose YAML to stay in sync with engine config changes.
+	if err := s.ensureCompose(model); err != nil {
+		return fmt.Errorf("failed to regenerate compose: %w", err)
 	}
 
 	composeFile := filepath.Join(s.cfg.LLMDir, slug+".yml")
@@ -769,8 +829,8 @@ func (s *ContainerService) StopSpeech() error {
 
 // StartModelBySlug reads a model from the database by slug and starts its
 // Docker container using the container name stored in model.Container.
-// If the container doesn't exist yet, it generates the compose file and
-// creates the container first (equivalent to a lightweight install).
+// It always regenerates the compose YAML from DB state before starting,
+// ensuring engine config changes are picked up.
 func (s *ContainerService) StartModelBySlug(slug string) error {
 	model, err := s.db.GetModel(slug)
 	if err != nil {
@@ -781,47 +841,38 @@ func (s *ContainerService) StartModelBySlug(slug string) error {
 		return fmt.Errorf("model %s has no container configured", slug)
 	}
 
+	// Always regenerate compose YAML to stay in sync with engine config changes.
+	if err := s.ensureCompose(model); err != nil {
+		return fmt.Errorf("failed to regenerate compose: %w", err)
+	}
+
+	ymlPath := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
+	projectName := "rag-" + strings.ReplaceAll(model.Slug, ".", "-")
+	composeDir := filepath.Dir(ymlPath)
+
 	// Check if the container already exists
 	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Status}}", model.Container)
 	if _, err := cmd.CombinedOutput(); err != nil {
-		// Container doesn't exist — generate compose file and create it
+		// Container doesn't exist — create it
 		fmt.Fprintf(os.Stderr, "  Container %s does not exist — creating via compose...\n", model.Container)
 
-		composeGen, genErr := NewComposeGenerator(s.db)
-		if genErr != nil {
-			return fmt.Errorf("failed to create compose generator: %w", genErr)
-		}
-
-		composeYAML, genErr := composeGen.Generate(model)
-		if genErr != nil {
-			return fmt.Errorf("failed to generate docker-compose YAML: %w", genErr)
-		}
-
-		ymlPath := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
-		if writeErr := os.WriteFile(ymlPath, []byte(composeYAML), 0o644); writeErr != nil {
-			return fmt.Errorf("failed to write compose file %s: %w", ymlPath, writeErr)
-		}
-
-		// Run docker compose up -d with a unique project name per model
-		// to prevent Docker Compose from reconciling services across
-		// different compose files in the same directory.
-		composeDir := filepath.Dir(ymlPath)
-		projectName := "rag-" + strings.ReplaceAll(model.Slug, ".", "-")
 		composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
 		composeUp.Dir = composeDir
 		if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
 			return fmt.Errorf("failed to create container %s: %s (%w)", model.Container, string(composeOut), composeErr)
 		}
 		fmt.Printf("Container %s created\n", model.Container)
+	} else {
+		// Container exists — bring it up with the regenerated compose YAML
+		// so engine config changes are picked up.
+		composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
+		composeUp.Dir = composeDir
+		if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
+			return fmt.Errorf("failed to start container %s: %s (%w)", model.Container, string(composeOut), composeErr)
+		}
+		fmt.Printf("Container %s started\n", model.Container)
 	}
 
-	// Now start the container
-	startCmd := exec.Command("docker", "start", model.Container)
-	if output, err := startCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start container %s: %s (%w)", slug, string(output), err)
-	}
-
-	fmt.Printf("Container %s started\n", model.Container)
 	return nil
 }
 
@@ -929,47 +980,38 @@ func (s *ContainerService) StartModelBySlugWithAllow(slug string, allowMultiple 
 		fmt.Printf("Starting without stopping other %s/%s containers (--allow-multiple)\n", model.Type, model.SubType)
 	}
 
+	// Always regenerate compose YAML to stay in sync with engine config changes.
+	if err := s.ensureCompose(model); err != nil {
+		return fmt.Errorf("failed to regenerate compose: %w", err)
+	}
+
+	ymlPath := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
+	projectName := "rag-" + strings.ReplaceAll(model.Slug, ".", "-")
+	composeDir := filepath.Dir(ymlPath)
+
 	// Check if the container already exists
 	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Status}}", model.Container)
 	if _, err := cmd.CombinedOutput(); err != nil {
-		// Container doesn't exist — generate compose file and create it
+		// Container doesn't exist — create it
 		fmt.Fprintf(os.Stderr, "  Container %s does not exist — creating via compose...\n", model.Container)
 
-		composeGen, genErr := NewComposeGenerator(s.db)
-		if genErr != nil {
-			return fmt.Errorf("failed to create compose generator: %w", genErr)
-		}
-
-		composeYAML, genErr := composeGen.Generate(model)
-		if genErr != nil {
-			return fmt.Errorf("failed to generate docker-compose YAML: %w", genErr)
-		}
-
-		ymlPath := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
-		if writeErr := os.WriteFile(ymlPath, []byte(composeYAML), 0o644); writeErr != nil {
-			return fmt.Errorf("failed to write compose file %s: %w", ymlPath, writeErr)
-		}
-
-		// Run docker compose up -d with a unique project name per model
-		// to prevent Docker Compose from reconciling services across
-		// different compose files in the same directory.
-		composeDir := filepath.Dir(ymlPath)
-		projectName := "rag-" + strings.ReplaceAll(model.Slug, ".", "-")
 		composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
 		composeUp.Dir = composeDir
 		if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
 			return fmt.Errorf("failed to create container %s: %s (%w)", model.Container, string(composeOut), composeErr)
 		}
 		fmt.Printf("Container %s created\n", model.Container)
+	} else {
+		// Container exists — bring it up with the regenerated compose YAML
+		// so engine config changes are picked up.
+		composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
+		composeUp.Dir = composeDir
+		if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
+			return fmt.Errorf("failed to start container %s: %s (%w)", model.Container, string(composeOut), composeErr)
+		}
+		fmt.Printf("Container %s started\n", model.Container)
 	}
 
-	// Now start the container
-	startCmd := exec.Command("docker", "start", model.Container)
-	if output, err := startCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start container %s: %s (%w)", slug, string(output), err)
-	}
-
-	fmt.Printf("Container %s started\n", model.Container)
 	return nil
 }
 
@@ -1267,4 +1309,30 @@ func getDiskUsage(path string) (DiskUsageInfo, error) {
 		Total:   0, // Would need statfs for bytes
 		UsedPct: pct,
 	}, nil
+}
+
+// parseJSONToMap deserializes a JSON-encoded map from a string field.
+// Returns nil when the input is empty or invalid JSON.
+func parseJSONToMap(jsonStr string) map[string]string {
+	if jsonStr == "" {
+		return nil
+	}
+	m := make(map[string]string)
+	if err := json.Unmarshal([]byte(jsonStr), &m); err != nil {
+		return nil
+	}
+	return m
+}
+
+// parseJSONToArray deserializes a JSON-encoded string array from a field.
+// Returns nil when the input is empty or invalid JSON.
+func parseJSONToArray(jsonStr string) []string {
+	if jsonStr == "" {
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal([]byte(jsonStr), &arr); err != nil {
+		return nil
+	}
+	return arr
 }

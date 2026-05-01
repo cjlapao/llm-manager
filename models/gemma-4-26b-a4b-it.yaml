@@ -8,6 +8,7 @@
 slug: gemma-4-26b-a4b-it
 name: "Gemma 4 26B-A4B IT"
 engine: vllm
+engine_version: pgx-llm-v1
 hf_repo: "google/gemma-4-26B-A4B-it"
 container: llm-gemma-4-26b-a4b-it
 port: 8018

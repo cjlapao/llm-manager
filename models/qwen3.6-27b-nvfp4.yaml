@@ -8,6 +8,7 @@
 slug: qwen3.6-27b-nvfp4
 name: "Qwen3.6 27B NVFP4"
 engine: vllm
+engine_version: pgx-llm-v1
 hf_repo: "Abiray/Qwen3.6-27B-NVFP4"
 container: llm-qwen3.6-27b-nvfp4
 port: 8017

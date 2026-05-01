@@ -8,6 +8,7 @@
 slug: qwen3.6-35b-a3b-fp8
 name: "Qwen3.6 35B-A3B FP8"
 engine: vllm
+engine_version: pgx-llm-v1
 hf_repo: "Qwen/Qwen3.6-35B-A3B-FP8"
 container: llm-qwen3.6-35b-a3b-fp8
 port: 8013
@@ -28,10 +29,10 @@ command:
   - "--max-model-len 262144"
   - "--kv-cache-dtype fp8_e4m3"
   - "--dtype auto"
-  - "--gpu-memory-utilization 0.45"
+  - "--gpu-memory-utilization 0.42"
   - "--enable-chunked-prefill"
   - "--max-num-batched-tokens 32768"
-  - "--max-num-seqs 2"
+  - "--max-num-seqs 4"
   - "--reasoning-parser qwen3"
   - "--tool-call-parser qwen3_coder"
   - "--enable-auto-tool-choice"
@@ -43,11 +44,11 @@ command:
   - "--disable-custom-all-reduce"
   - "--enable-expert-parallel"
   - "--mm-encoder-tp-mode data"
+  - "--attention-backend flashinfer"
+  - "--moe-backend marlin"
   - "--load-format instanttensor"
   - "--chat-template /app/templates/qwen3.5-chat-template.jinja"
-  - "--default-chat-template-kwargs '{\"preserve_thinking\": true}'"
-  - "--speculative-config '{\"method\":\"mtp\",\"num_speculative_tokens\":2}'"
-
+  - 
 capabilities:
   - reasoning
   - tool-use
