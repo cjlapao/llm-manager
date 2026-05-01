@@ -68,27 +68,44 @@ var CapabilitiesToModelInfo = map[string][]string{
 // slugRegex validates that a slug is alphanumeric (with hyphens/underscores/dots), starting with alphanumeric.
 var slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
+// ModelProfile holds architecture-specific constants for GPU memory calculation.
+type ModelProfile struct {
+	TotalParamsB       *float64 `yaml:"total_params_b"`
+	ActiveParamsB      *float64 `yaml:"active_params_b"`
+	IsMoe              *bool    `yaml:"is_moe"`
+	AttentionLayers    *int     `yaml:"attention_layers"`
+	GdnLayers          *int     `yaml:"gdn_layers"`
+	NumKvHeads         *int     `yaml:"num_kv_heads"`
+	HeadDim            *int     `yaml:"head_dim"`
+	SupportsMtp        *bool    `yaml:"supports_mtp"`
+	DefaultContext     *int     `yaml:"default_context"`
+	MaxContext         *int     `yaml:"max_context"`
+	QuantBytesPerParam *float64 `yaml:"quant_bytes_per_param"`
+}
+
 // ModelYAML represents the YAML schema for model import.
 type ModelYAML struct {
-	Slug            string      `yaml:"slug"`
-	Name            string      `yaml:"name"`
-	Type            string      `yaml:"type"`
-	SubType         string      `yaml:"subtype"`
-	Engine          string      `yaml:"engine"`
-	EngineVersion   string      `yaml:"engine_version"`
-	HFRepo          string      `yaml:"hf_repo"`
-	Container       string      `yaml:"container"`
-	Port            int         `yaml:"port"`
+	Slug            string            `yaml:"slug"`
+	Name            string            `yaml:"name"`
+	Type            string            `yaml:"type"`
+	SubType         string            `yaml:"subtype"`
+	Engine          string            `yaml:"engine"`
+	EngineVersion   string            `yaml:"engine_version"`
+	HFRepo          string            `yaml:"hf_repo"`
+	Container       string            `yaml:"container"`
+	Port            int               `yaml:"port"`
 	EnvVars         map[string]string `yaml:"environment"`
-	CommandArgs     []string `yaml:"command"`
-	InputTokenCost  *float64    `yaml:"input_token_cost"`
-	OutputTokenCost *float64    `yaml:"output_token_cost"`
-	Capabilities    []string    `yaml:"capabilities"`
+	CommandArgs     []string          `yaml:"command"`
+	InputTokenCost  *float64          `yaml:"input_token_cost"`
+	OutputTokenCost *float64          `yaml:"output_token_cost"`
+	Capabilities    []string          `yaml:"capabilities"`
 	// LiteLLM parameters - optional, supports mixed types (float, int, string, bool, nested maps, arrays).
 	// The system will auto-construct api_base (from config URL + port) and model (from slug) during import.
 	LiteLLMParams map[string]interface{} `yaml:"litellm_params"`
 	// Model metadata from LiteLLM's model registry.
 	ModelInfo map[string]interface{} `yaml:"model_info"`
+	// Model architecture profile for GPU memory calculation — optional.
+	Profile *ModelProfile `yaml:"profile"`
 }
 
 // ParseYAML reads and parses a YAML file into a ModelYAML struct.
@@ -179,20 +196,9 @@ func Validate(y *ModelYAML) []error {
 		errs = append(errs, fmt.Errorf("output_token_cost must be >= 0 (got %s)", formatCost(*y.OutputTokenCost)))
 	}
 
-	// Validate capabilities against known enum
-	if len(y.Capabilities) > 0 {
-		for _, cap := range y.Capabilities {
-			valid := false
-			for _, known := range ValidCapabilities {
-				if cap == known {
-					valid = true
-					break
-				}
-			}
-			if !valid {
-				errs = append(errs, fmt.Errorf("invalid capability %q (must be one of %v)", cap, ValidCapabilities))
-			}
-		}
+	// Validate profile fields
+	if y.Profile != nil {
+		errs = append(errs, validateProfile(y.Profile)...)
 	}
 
 	return errs
@@ -256,6 +262,11 @@ func ValidateNonCapabilities(y *ModelYAML) []error {
 		errs = append(errs, fmt.Errorf("output_token_cost must be >= 0 (got %s)", formatCost(*y.OutputTokenCost)))
 	}
 
+	// Validate profile fields
+	if y.Profile != nil {
+		errs = append(errs, validateProfile(y.Profile)...)
+	}
+
 	return errs
 }
 
@@ -266,4 +277,52 @@ func formatCost(v float64) string {
 		s = "0"
 	}
 	return s
+}
+
+// validQuantBytesPerParam lists the allowed quantization bytes-per-parameter values.
+var validQuantBytesPerParam = map[float64]struct{}{
+	0.5: {},
+	1.0: {},
+	2.0: {},
+}
+
+// validateProfile validates all fields in a ModelProfile, returning a slice of
+// error strings (empty means valid). Each numeric field is checked for positive
+// values where applicable; quant_bytes_per_param must be one of 0.5, 1.0, 2.0.
+func validateProfile(p *ModelProfile) []error {
+	var errs []error
+
+	if p.TotalParamsB != nil && *p.TotalParamsB <= 0 {
+		errs = append(errs, fmt.Errorf("profile.total_params_b must be > 0 (got %s)", formatCost(*p.TotalParamsB)))
+	}
+	if p.ActiveParamsB != nil && *p.ActiveParamsB <= 0 {
+		errs = append(errs, fmt.Errorf("profile.active_params_b must be > 0 (got %s)", formatCost(*p.ActiveParamsB)))
+	}
+	if p.AttentionLayers != nil && *p.AttentionLayers < 0 {
+		errs = append(errs, fmt.Errorf("profile.attention_layers must be >= 0 (got %d)", *p.AttentionLayers))
+	}
+	if p.GdnLayers != nil && *p.GdnLayers < 0 {
+		errs = append(errs, fmt.Errorf("profile.gdn_layers must be >= 0 (got %d)", *p.GdnLayers))
+	}
+	if p.NumKvHeads != nil && *p.NumKvHeads <= 0 {
+		errs = append(errs, fmt.Errorf("profile.num_kv_heads must be > 0 (got %d)", *p.NumKvHeads))
+	}
+	if p.HeadDim != nil && *p.HeadDim <= 0 {
+		errs = append(errs, fmt.Errorf("profile.head_dim must be > 0 (got %d)", *p.HeadDim))
+	}
+	if p.DefaultContext != nil && *p.DefaultContext <= 0 {
+		errs = append(errs, fmt.Errorf("profile.default_context must be > 0 (got %d)", *p.DefaultContext))
+	}
+	if p.MaxContext != nil && *p.MaxContext <= 0 {
+		errs = append(errs, fmt.Errorf("profile.max_context must be > 0 (got %d)", *p.MaxContext))
+	}
+	if p.QuantBytesPerParam != nil {
+		if *p.QuantBytesPerParam <= 0 {
+			errs = append(errs, fmt.Errorf("profile.quant_bytes_per_param must be > 0 (got %s)", formatCost(*p.QuantBytesPerParam)))
+		} else if _, ok := validQuantBytesPerParam[*p.QuantBytesPerParam]; !ok {
+			errs = append(errs, fmt.Errorf("profile.quant_bytes_per_param must be one of 0.5, 1.0, 2.0 (got %s)", formatCost(*p.QuantBytesPerParam)))
+		}
+	}
+
+	return errs
 }

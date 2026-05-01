@@ -167,21 +167,21 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 
 	// Map ModelYAML → models.Model
 	model := &models.Model{
-		Slug:            y.Slug,
-		Type:            y.Type,    // from YAML (defaults to "llm" if empty)
-		SubType:         y.SubType, // from YAML
-		Name:            y.Name,
-		HFRepo:          y.HFRepo,
-		Container:       y.Container,
-		Port:            y.Port,
-		EngineType:      "vllm", // default engine
-		EngineVersionSlug: "",   // resolved by engine service
-		InputTokenCost:  0.0,
-		OutputTokenCost: 0.0,
-		Capabilities:    "",
-		EnvVars:         "",
-		CommandArgs:     "",
-		Default:         false,
+		Slug:              y.Slug,
+		Type:              y.Type,    // from YAML (defaults to "llm" if empty)
+		SubType:           y.SubType, // from YAML
+		Name:              y.Name,
+		HFRepo:            y.HFRepo,
+		Container:         y.Container,
+		Port:              y.Port,
+		EngineType:        "vllm", // default engine
+		EngineVersionSlug: "",     // resolved by engine service
+		InputTokenCost:    0.0,
+		OutputTokenCost:   0.0,
+		Capabilities:      "",
+		EnvVars:           "",
+		CommandArgs:       "",
+		Default:           false,
 	}
 
 	// Apply YAML-level optional fields
@@ -222,6 +222,21 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 			return nil, fmt.Errorf("failed to marshal capabilities: %w", err)
 		}
 		model.Capabilities = string(b)
+	}
+
+	// Map profile fields from YAML to model
+	if y.Profile != nil {
+		model.TotalParamsB = y.Profile.TotalParamsB
+		model.ActiveParamsB = y.Profile.ActiveParamsB
+		model.IsMoe = y.Profile.IsMoe
+		model.AttentionLayers = y.Profile.AttentionLayers
+		model.GdnLayers = y.Profile.GdnLayers
+		model.NumKvHeads = y.Profile.NumKvHeads
+		model.HeadDim = y.Profile.HeadDim
+		model.SupportsMtp = y.Profile.SupportsMtp
+		model.DefaultContext = y.Profile.DefaultContext
+		model.MaxContext = y.Profile.MaxContext
+		model.QuantBytesPerParam = y.Profile.QuantBytesPerParam
 	}
 
 	// Marshal litellm_params and model_info to JSON for DB storage
