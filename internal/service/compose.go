@@ -9,6 +9,62 @@ import (
 	"github.com/user/llm-manager/internal/database/models"
 )
 
+// mergeProfileFlags takes existing command args and, if the model has profile
+// data (total_params_b != nil), computes a MemoryResult, generates smart
+// command flags, and merges them into the existing args.
+// If no profile data exists the existing args are returned unchanged.
+// The generated command array is computed at runtime during compose
+// generation and is NOT persisted to the database.
+func mergeProfileFlags(model *models.Model, existingCmds []string) []string {
+	if model == nil || model.TotalParamsB == nil || model.QuantBytesPerParam == nil {
+		return existingCmds
+	}
+
+	// Build profile from DB fields
+	profile := ModelProfile{
+		TotalParamsB:       *model.TotalParamsB,
+		ActiveParamsB:      derefOrZero(model.ActiveParamsB),
+		IsMoe:              derefOrFalse(model.IsMoe),
+		AttentionLayers:    derefOrZero(model.AttentionLayers),
+		GdnLayers:          derefOrZero(model.GdnLayers),
+		NumKvHeads:         derefOrZero(model.NumKvHeads),
+		HeadDim:            derefOrZero(model.HeadDim),
+		SupportsMtp:        derefOrFalse(model.SupportsMtp),
+		DefaultContext:     derefOrZero(model.DefaultContext),
+		MaxContext:         derefOrZero(model.MaxContext),
+		QuantBytesPerParam: *model.QuantBytesPerParam,
+	}
+
+	// Compute memory result for the profile
+	memResult, err := CalculateMemory(profile, *model.QuantBytesPerParam, profile.DefaultContext, 1, 0)
+	if err != nil {
+		// If memory calculation fails, fall back to existing args
+		return existingCmds
+	}
+
+	// Generate smart command flags
+	genFlags := GenerateFlags(profile, memResult, profile.DefaultContext, 1)
+
+	// Merge generated flags with existing args
+	return MergeFlags(existingCmds, genFlags)
+}
+
+// derefOrZero returns the dereferenced value of a *T or zero for *int/*float64.
+func derefOrZero[T ~int | ~float64](p *T) T {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// derefOrFalse returns the dereferenced value of a *bool or false.
+func derefOrFalse(p *bool) bool {
+	if p == nil {
+		return false
+	}
+	return *p
+}
+
 // EngineComposeConfig carries pre-merged compose data from the caller.
 type EngineComposeConfig struct {
 	Image          string
@@ -89,6 +145,10 @@ func (g *ComposeGenerator) Generate(model *models.Model, cfg EngineComposeConfig
 	if model == nil {
 		return "", fmt.Errorf("model is required for composition generation")
 	}
+
+	// Merge profile-derived flags into command args
+	commandArgs := mergeProfileFlags(model, cfg.CommandArgs)
+
 	data := ComposeTemplateData{
 		ServiceName: fmt.Sprintf("%s-%s", model.Type, model.Slug),
 		Container:      model.Container,
@@ -97,7 +157,7 @@ func (g *ComposeGenerator) Generate(model *models.Model, cfg EngineComposeConfig
 		Entrypoint:     cfg.Entrypoint,
 		EnvVars:        cfg.EnvVars,
 		Volumes:        cfg.Volumes,
-		CommandArgs:    cfg.CommandArgs,
+		CommandArgs:    commandArgs,
 		LoggingSection: cfg.LoggingSection,
 		DeploySection:  cfg.DeploySection,
 	}
