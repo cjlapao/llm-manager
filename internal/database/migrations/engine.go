@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-//go:embed 001_create_schema/*.sql 002_add_default_column/*.sql 003_create_engine_tables/*.sql
+//go:embed 001_create_schema/*.sql 002_add_default_column/*.sql 003_create_engine_tables/*.sql 004_add_model_profile_columns/*.sql
 var migrationFS embed.FS
 
 // Direction indicates which way a migration runs.
@@ -60,6 +60,7 @@ func (e *Engine) loadMigrations() error {
 		{1, "create_schema", "001_create_schema/up.sql", "001_create_schema/down.sql"},
 		{2, "add_default_column", "002_add_default_column/up.sql", "002_add_default_column/down.sql"},
 		{3, "create_engine_tables", "003_create_engine_tables/up.sql", "003_create_engine_tables/down.sql"},
+		{4, "add_model_profile_columns", "004_add_model_profile_columns/up.sql", "004_add_model_profile_columns/down.sql"},
 	}
 
 	for _, f := range files {

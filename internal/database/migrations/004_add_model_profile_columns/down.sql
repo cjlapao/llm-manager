@@ -1,0 +1,11 @@
+ALTER TABLE models DROP COLUMN total_params_b;
+ALTER TABLE models DROP COLUMN active_params_b;
+ALTER TABLE models DROP COLUMN is_moe;
+ALTER TABLE models DROP COLUMN attention_layers;
+ALTER TABLE models DROP COLUMN gdn_layers;
+ALTER TABLE models DROP COLUMN num_kv_heads;
+ALTER TABLE models DROP COLUMN head_dim;
+ALTER TABLE models DROP COLUMN supports_mtp;
+ALTER TABLE models DROP COLUMN default_context;
+ALTER TABLE models DROP COLUMN max_context;
+ALTER TABLE models DROP COLUMN quant_bytes_per_param;
