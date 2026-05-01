@@ -484,6 +484,23 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 		y.OutputTokenCost = &model.OutputTokenCost
 	}
 
+	// Export profile fields
+	if model.TotalParamsB != nil {
+		y.Profile = &yamlparser.ModelProfile{
+			TotalParamsB:       model.TotalParamsB,
+			ActiveParamsB:      model.ActiveParamsB,
+			IsMoe:              model.IsMoe,
+			AttentionLayers:    model.AttentionLayers,
+			GdnLayers:          model.GdnLayers,
+			NumKvHeads:         model.NumKvHeads,
+			HeadDim:            model.HeadDim,
+			SupportsMtp:        model.SupportsMtp,
+			DefaultContext:     model.DefaultContext,
+			MaxContext:         model.MaxContext,
+			QuantBytesPerParam: model.QuantBytesPerParam,
+		}
+	}
+
 	return y, nil
 }
 
