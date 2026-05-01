@@ -1,0 +1,11 @@
+ALTER TABLE models ADD COLUMN total_params_b REAL;
+ALTER TABLE models ADD COLUMN active_params_b REAL;
+ALTER TABLE models ADD COLUMN is_moe BOOLEAN;
+ALTER TABLE models ADD COLUMN attention_layers INTEGER;
+ALTER TABLE models ADD COLUMN gdn_layers INTEGER;
+ALTER TABLE models ADD COLUMN num_kv_heads INTEGER;
+ALTER TABLE models ADD COLUMN head_dim INTEGER;
+ALTER TABLE models ADD COLUMN supports_mtp BOOLEAN;
+ALTER TABLE models ADD COLUMN default_context INTEGER;
+ALTER TABLE models ADD COLUMN max_context INTEGER;
+ALTER TABLE models ADD COLUMN quant_bytes_per_param REAL;

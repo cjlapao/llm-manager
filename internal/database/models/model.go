@@ -35,6 +35,17 @@ type Model struct {
 	Default              bool      `gorm:"type:boolean;default:false;column:default"`
 	BaseImageID          string    `gorm:"size:128;column:base_image_id"`
 	EngineVersionSlug    string    `gorm:"size:128;default:'';column:engine_version_slug"`
+	TotalParamsB         *float64  `gorm:"column:total_params_b"`
+	ActiveParamsB        *float64  `gorm:"column:active_params_b"`
+	IsMoe                *bool     `gorm:"column:is_moe"`
+	AttentionLayers      *int      `gorm:"column:attention_layers"`
+	GdnLayers            *int      `gorm:"column:gdn_layers"`
+	NumKvHeads           *int      `gorm:"column:num_kv_heads"`
+	HeadDim              *int      `gorm:"column:head_dim"`
+	SupportsMtp          *bool     `gorm:"column:supports_mtp"`
+	DefaultContext       *int      `gorm:"column:default_context"`
+	MaxContext           *int      `gorm:"column:max_context"`
+	QuantBytesPerParam   *float64  `gorm:"column:quant_bytes_per_param"`
 	CreatedAt            time.Time `gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt            time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }
