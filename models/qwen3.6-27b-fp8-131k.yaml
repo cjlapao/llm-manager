@@ -1,22 +1,23 @@
 # ═══════════════════════════════════════════════════════════════
-# Qwen3.6 35B-A3B — BF16 (unquantized)
+# Qwen3.6 27B FP8 — FP8
 # Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x)
 # vLLM >= 0.19.0 | SM121 (Blackwell)
-# gpu_memory_utilization: 0.65 (~83GB of 128GB)
+# gpu_memory_utilization: 0.4 (~51GB of 128GB)
 # ═══════════════════════════════════════════════════════════════
 
-slug: qwen3.6-35b-a3b
-name: "Qwen3.6 35B-A3B"
+slug: qwen3.6-27b-fp8-131k
+name: "Qwen3.6 27B FP8 (131K context)"
 engine: vllm
 engine_version: pgx-llm-v1
-hf_repo: "Qwen/Qwen3.6-35B-A3B"
-container: llm-qwen3.6-35b-a3b
-port: 8012
+hf_repo: "Qwen/Qwen3.6-27B-FP8"
+container: llm-qwen3.6-27b-fp8
+port: 8016
 type: llm
 subtype: chat
 
 environment:
   VLLM_LOAD_FORMAT_DEVICE: cuda
+  VLLM_TEST_FORCE_FP8_MARLIN: 1
 
 input_token_cost: 0.00000228
 output_token_cost: 0.00000456
@@ -25,10 +26,10 @@ command:
   - ${{ .hf_repo }}
   - "--model ${{ .hf_repo }}"
   - "--served-model-name ${{ .slug }}"
-  - "--max-model-len 262144"
+  - "--max-model-len 131072"
   - "--kv-cache-dtype fp8_e4m3"
   - "--dtype auto"
-  - "--gpu-memory-utilization 0.65"
+  - "--gpu-memory-utilization 0.39"
   - "--enable-chunked-prefill"
   - "--max-num-batched-tokens 16384"
   - "--max-num-seqs 2"
@@ -41,11 +42,9 @@ command:
   - "--generation-config auto"
   - "--mm-processor-cache-type shm"
   - "--disable-custom-all-reduce"
-  - "--enable-expert-parallel"
-  - "--mm-encoder-tp-mode data"
   - "--load-format instanttensor"
   - "--chat-template /app/templates/qwen3.5-chat-template.jinja"
-  - "--speculative-config '{\"method\":\"mtp\",\"num_speculative_tokens\":2}'"
+  - "--speculative-config '{\"method\":\"mtp\",\"num_speculative_tokens\":3}'"
 
 capabilities:
   - reasoning
@@ -57,7 +56,7 @@ capabilities:
 
 litellm_params:
   custom_llm_provider: hosted_vllm
-  temperature: 0.6
+  temperature: 1.0
   top_p: 0.95
   top_k: 20
   min_p: 0
@@ -70,7 +69,7 @@ litellm_params:
   variants:
     thinking:
       suffix: -thinking
-      temperature: 0.6
+      temperature: 1.0
       top_p: 0.95
       top_k: 20
       min_p: 0
@@ -98,8 +97,8 @@ litellm_params:
       top_p: 0.95
       top_k: 20
       min_p: 0
-      presence_penalty: 0.0
-      repetition_penalty: 1.05
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
       extra_body:
         chat_template_kwargs:
           enable_thinking: false
@@ -110,7 +109,7 @@ litellm_params:
       top_p: 0.8
       top_k: 20
       min_p: 0
-      presence_penalty: 0.0
+      presence_penalty: 1.5
       repetition_penalty: 1.0
       extra_body:
         chat_template_kwargs:
@@ -118,7 +117,7 @@ litellm_params:
           preserve_thinking: false
     instruct-reasoning:
       suffix: -instruct-reasoning
-      temperature: 0.6
+      temperature: 1.0
       top_p: 0.95
       top_k: 20
       min_p: 0

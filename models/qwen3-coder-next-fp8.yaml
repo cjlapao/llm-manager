@@ -43,6 +43,8 @@ command:
   - "--disable-custom-all-reduce"
   - "--enable-expert-parallel"
   - "--load-format instanttensor"
+  - "--attention-backend flashinfer"
+  - "--moe-backend marlin"
 
 capabilities:
   - tool-use

@@ -437,7 +437,9 @@ func (c *LlmCommand) runLogs(args []string) int {
 		if args[i] == "-f" || args[i] == "--follow" {
 			follow = true
 		} else {
-			fmt.Sscanf(args[i], "%d", &lines)
+			if n, _ := fmt.Sscanf(args[i], "%d", &lines); n == 0 {
+			fmt.Fprintf(os.Stderr, "Warning: invalid log line count %q, using default 50\n", args[i])
+		}
 		}
 	}
 

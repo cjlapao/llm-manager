@@ -42,6 +42,8 @@ command:
   - "--mm-processor-cache-type shm"
   - "--disable-custom-all-reduce"
   - "--load-format instanttensor"
+  - "--attention-backend flashinfer"
+  - "--moe-backend marlin"
   - "--chat-template /app/templates/gemma4-tool-chat-template.jinja"
 
 capabilities:

@@ -178,6 +178,9 @@ func (s *EngineService) CreateOrSkipEngineVersion(ev *models.EngineVersion) (boo
 
 // ShowComposition generates a docker-compose YAML for a model+engine version.
 func (s *EngineService) ShowComposition(model *models.Model, ev *models.EngineVersion) (string, error) {
+	if ev == nil {
+		return "", fmt.Errorf("engine version is required for composition generation")
+	}
 	generator, err := NewComposeGenerator()
 	if err != nil {
 		return "", fmt.Errorf("failed to create compose generator: %w", err)
@@ -197,7 +200,11 @@ func (s *EngineService) ShowComposition(model *models.Model, ev *models.EngineVe
 	}
 
 	// Build logging section
-	cfg.LoggingSection = s.BuildLoggingSection(ev.EnableLogging, ev.SyslogAddress, ev.SyslogFacility, model.Name)
+	modelName := ""
+	if model != nil {
+		modelName = model.Name
+	}
+	cfg.LoggingSection = s.BuildLoggingSection(ev.EnableLogging, ev.SyslogAddress, ev.SyslogFacility, modelName)
 
 	// Build deploy section
 	cfg.DeploySection = s.BuildDeploySection(ev.DeployEnableNvidia, ev.DeployGPUCount)
