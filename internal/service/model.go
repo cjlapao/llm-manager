@@ -109,6 +109,18 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	// 1c. Auto-inject capabilities from type/subtype (e.g., rag/embedding → "embedding")
 	yamlparser.InjectCapabilitiesFromTypeSubtype(y)
 
+	// 1d. Auto-discover profile from HF config if profile block is empty
+	if y.Profile == nil {
+		if dp, err := DiscoverProfile(y.HFRepo); err == nil {
+			y.Profile = MergeProfile(nil, dp)
+			for field, src := range dp.Sources {
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", field, src)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: profile discovery failed for %s: %v\n", y.HFRepo, err)
+		}
+	}
+
 	// Handle override — delete existing DB record + LiteLLM deployments before reimport from YAML
 	if overrides.Override {
 		if existing, dbErr := s.db.GetModel(y.Slug); dbErr == nil && existing != nil {
