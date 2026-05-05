@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════
-# Qwen3.6 35B-A3B — BF16 (unquantized)
+# Qwen3 Reranker 0.6B — FP16
 # Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x)
 # vLLM >= 0.19.0 | SM121 (Blackwell)
-# gpu_memory_utilization: 0.65 (~83GB of 128GB)
+# gpu_memory_utilization: 0.05
 # ═══════════════════════════════════════════════════════════════
 
 slug: qwen3-reranker-0.6b
@@ -21,15 +21,25 @@ environment:
 input_token_cost: 0.00000228
 output_token_cost: 0.00000456
 
+profile:
+  total_params_b: 0.6
+  active_params_b: 0.6
+  is_moe: false
+  attention_layers: 0
+  gdn_layers: 0
+  num_kv_heads: 0
+  head_dim: 0
+  supports_mtp: false
+  default_context: 8192
+  max_context: 8192
+  quant_bytes_per_param: 2.0
+
 command:
   - ${{ .hf_repo }}
   - "--model ${{ .hf_repo }}"
   - "--served-model-name ${{ .slug }}"
-  - "--gpu-memory-utilization 0.05"
-  - "--max-model-len 4096"
   - "--enforce-eager"
   - "--trust-remote-code"
-
 
 capabilities:
   - reranker

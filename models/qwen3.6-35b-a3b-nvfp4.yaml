@@ -21,17 +21,26 @@ environment:
 input_token_cost: 0.00000228
 output_token_cost: 0.00000456
 
+profile:
+  total_params_b: 35
+  active_params_b: 3
+  is_moe: true
+  attention_layers: 10
+  gdn_layers: 30
+  num_kv_heads: 2
+  head_dim: 256
+  supports_mtp: true
+  default_context: 262144
+  max_context: 262144
+  quant_bytes_per_param: 0.5
+
 command:
   - ${{ .hf_repo }}
   - "--model ${{ .hf_repo }}"
   - "--served-model-name ${{ .slug }}"
-  - "--max-model-len 262144"
   - "--kv-cache-dtype fp8_e4m3"
   - "--dtype auto"
-  - "--gpu-memory-utilization 0.40"
   - "--enable-chunked-prefill"
-  - "--max-num-batched-tokens 32768"
-  - "--max-num-seqs 4"
   - "--reasoning-parser qwen3"
   - "--tool-call-parser qwen3_coder"
   - "--enable-auto-tool-choice"
