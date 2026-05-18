@@ -719,8 +719,8 @@ func (s *ContainerService) checkGPUMemory(slug string, overrides StartOverrides)
 	if err != nil {
 		return nil
 	}
-	if model.Type != "llm" && model.Type != "auto-complete" {
-		return nil // only check for LLM models
+	if model.Type != "llm" && model.Type != "auto-complete" && model.Type != "rag" {
+		return nil // only check for LLM and RAG models
 	}
 	if model.TotalParamsB == nil || model.QuantBytesPerParam == nil {
 		return nil // no profile data, skip
@@ -1440,6 +1440,16 @@ func (s *ContainerService) GetModelStatus(slug string) (ModelStatus, error) {
 	}, nil
 }
 
+
+// EstimateMemory returns a MemoryResult for a model based on its profile data.
+// Returns nil and no error if the model has no profile data.
+func (s *ContainerService) EstimateMemory(slug string) (*MemoryResult, error) {
+	model, err := s.db.GetModel(slug)
+	if err != nil {
+		return nil, fmt.Errorf("model not found: %w", err)
+	}
+	return EstimateMemory(model)
+}
 // HotspotService handles hotspot (most recent model) operations.
 type HotspotService struct {
 	db  database.DatabaseManager

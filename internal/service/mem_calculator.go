@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/user/llm-manager/internal/database/models"
 	"fmt"
 	"math"
 	"os/exec"
@@ -238,4 +239,54 @@ func ReadFreeGPUMemory() int {
 		return 0
 	}
 	return val
+}
+
+// EstimateMemory returns a MemoryResult for a model based on its profile data.
+// Returns nil and no error if the model has no profile data.
+func EstimateMemory(model *models.Model) (*MemoryResult, error) {
+	if model.TotalParamsB == nil || model.QuantBytesPerParam == nil {
+		return nil, nil // no profile data
+	}
+
+	attentionLayers := 0
+	if model.AttentionLayers != nil {
+		attentionLayers = *model.AttentionLayers
+	}
+	gdnLayers := 0
+	if model.GdnLayers != nil {
+		gdnLayers = *model.GdnLayers
+	}
+	numKvHeads := 0
+	if model.NumKvHeads != nil {
+		numKvHeads = *model.NumKvHeads
+	}
+	headDim := 0
+	if model.HeadDim != nil {
+		headDim = *model.HeadDim
+	}
+	maxContext := 262144
+	if model.MaxContext != nil && *model.MaxContext > 0 {
+		maxContext = *model.MaxContext
+	}
+	defaultContext := 262144
+	if model.DefaultContext != nil && *model.DefaultContext > 0 {
+		defaultContext = *model.DefaultContext
+	}
+
+	profile := ModelProfile{
+		TotalParamsB:       *model.TotalParamsB,
+		ActiveParamsB:      derefOrZero(model.ActiveParamsB),
+		IsMoe:              derefOrFalse(model.IsMoe),
+		AttentionLayers:    attentionLayers,
+		GdnLayers:          gdnLayers,
+		NumKvHeads:         numKvHeads,
+		HeadDim:            headDim,
+		SupportsMtp:        derefOrFalse(model.SupportsMtp),
+		SupportsVision:     false, // RAG models don't have vision capability
+		DefaultContext:     defaultContext,
+		MaxContext:         maxContext,
+		QuantBytesPerParam: *model.QuantBytesPerParam,
+	}
+
+	return CalculateMemory(profile, *model.QuantBytesPerParam, defaultContext, 1, 0, 0)
 }
