@@ -56,14 +56,29 @@ func deriveBatchedTokens(mem *MemoryResult) string {
 }
 
 // ParseExistingFlags extracts existing flag values from a command array.
-// Flags are stored as ["--flag-name", "value", ...] pairs.
+// Flags may be stored as ["--flag-name", "value", ...] pairs (separate elements)
+// or as ["--flag-name value", ...] (combined string). Both formats are supported
+// for backward compatibility with existing DB data.
 // Returns a map of flag name -> value.
 func ParseExistingFlags(cmds []string) map[string]string {
 	existing := make(map[string]string)
 	for i := 0; i < len(cmds); i++ {
-		if strings.HasPrefix(cmds[i], "--") && i+1 < len(cmds) {
-			name := strings.TrimPrefix(cmds[i], "--")
-			existing[name] = cmds[i+1]
+		arg := cmds[i]
+		if !strings.HasPrefix(arg, "--") {
+			continue
+		}
+		// Check if this is a combined format (e.g., "--flag value" as one string)
+		if strings.Contains(arg, " ") {
+			parts := strings.SplitN(arg, " ", 2)
+			name := strings.TrimPrefix(parts[0], "--")
+			existing[name] = parts[1]
+			continue
+		}
+		// Separate format: "--flag-name" followed by "value" in the next element
+		if next := i + 1; next < len(cmds) {
+			name := strings.TrimPrefix(arg, "--")
+			existing[name] = cmds[next]
+			i++ // skip the value element
 		}
 	}
 	return existing
@@ -86,12 +101,31 @@ func MergeFlags(existingCmds []string, flags *GeneratedFlags) []string {
 
 	for i := 0; i < len(existingCmds); i++ {
 		arg := existingCmds[i]
-		if strings.HasPrefix(arg, "--") && i+1 < len(existingCmds) {
-			name := strings.TrimPrefix(arg, "--")
-			if newVal, ok := replacements[name]; ok {
-				// Replace the value of this flag
-				result = append(result, fmt.Sprintf("--%s %s", name, newVal))
-				done[name] = true
+		if !strings.HasPrefix(arg, "--") {
+			result = append(result, arg)
+			continue
+		}
+		// Check if this is a combined format (e.g., "--max-model-len 4096" as one string)
+		if strings.Contains(arg, " ") {
+			parts := strings.SplitN(arg, " ", 2)
+			flagName := strings.TrimPrefix(parts[0], "--")
+			if newVal, ok := replacements[flagName]; ok {
+				// Replace the value of this flag with separate elements
+				result = append(result, fmt.Sprintf("--%s", flagName), newVal)
+				done[flagName] = true
+				continue
+			}
+			// Unknown flag in combined format — pass through unchanged
+			result = append(result, arg)
+			continue
+		}
+		// Separate format: "--flag-name" followed by "value" in the next element
+		flagName := strings.TrimPrefix(arg, "--")
+		if newVal, ok := replacements[flagName]; ok {
+			if i+1 < len(existingCmds) {
+				// Replace the value of this flag with separate elements
+				result = append(result, fmt.Sprintf("--%s", flagName), newVal)
+				done[flagName] = true
 				i++ // skip the old value element
 				continue
 			}
@@ -102,7 +136,7 @@ func MergeFlags(existingCmds []string, flags *GeneratedFlags) []string {
 	// Append missing flags
 	for name, val := range replacements {
 		if !done[name] {
-			result = append(result, fmt.Sprintf("--%s %s", name, val))
+			result = append(result, fmt.Sprintf("--%s", name), val)
 		}
 	}
 
