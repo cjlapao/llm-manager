@@ -218,6 +218,28 @@ For small models (embedding, reranker):
   off_budget_mb = 500
 ```
 
+### 8. Vision Encoder (Multimodal Models Only)
+
+Multimodal models (Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma 4 31B, Gemma 4 26B-A4B) load a vision encoder (e.g., SigLIP, CLIP) and a vision projector (connector) alongside the language model. These sit in the same reserved GPU memory pool and must be accounted for to avoid CUDA OOM during inference.
+
+The vision encoder is the dominant component; the projector adds a smaller but non-trivial overhead. Memory scales with the quantization format of the base model.
+
+```
+For FP8 models (1.0 bytes/param):
+  vision_encoder_mb = 500   (~400 MB encoder + ~100 MB projector)
+
+For BF16 models (2.0 bytes/param):
+  vision_encoder_mb = 1,000 (~800 MB encoder + ~200 MB projector)
+
+For other quantizations, scale linearly:
+  vision_encoder_mb = 500 × bytes_per_param
+
+For non-vision models:
+  vision_encoder_mb = 0
+```
+
+**Why this matters:** A missing 500 MB for FP8 vision models causes pre-flight checks to pass (model "fits") but crashes during inference after a few queries when the unaccounted vision encoder memory pushes total usage past the reserved pool. The crash manifests as a CUDA allocation failure (e.g., "Tried to allocate 958 MiB. GPU has only 650 MiB free").
+
 ---
 
 ## The Complete Formula
@@ -230,6 +252,7 @@ total_needed_mb = weights_mb
                 + mtp_total_mb          (0 if no MTP or NVFP4)
                 + cuda_total_mb
                 + off_budget_mb
+                + vision_encoder_mb     (multimodal models only, ~500-1,000 MB)
 ```
 
 ### Deriving gpu_memory_utilization
@@ -291,52 +314,55 @@ Use Method 1 (`/proc/meminfo MemAvailable`) as the source of truth. It correctly
 ### Example 1: Qwen3.6-35B-A3B FP8, 2 agents, 262K context, MTP=2
 
 ```
-weights_mb        = 35 × 1.0 × 1024              = 35,840 MB
-kv_cache_mb       = (10,240 × 262,144 × 2) / 1M  =  5,120 MB
-gdn_state_mb      = 50 × 2                        =    100 MB
-prefix_cache_mb   =                                =  1,024 MB
-mtp_total_mb      = (3B active, 2 tokens)          =  2,000 MB
-cuda_total_mb     =                                =  3,000 MB
-off_budget_mb     = (batched 32768)                =  4,000 MB
+weights_mb          = 35 × 1.0 × 1024              = 35,840 MB
+kv_cache_mb         = (10,240 × 262,144 × 2) / 1M  =  5,120 MB
+gdn_state_mb        = 50 × 2                        =    100 MB
+prefix_cache_mb     =                                =  1,024 MB
+mtp_total_mb        = (3B active, 2 tokens)          =  2,000 MB
+cuda_total_mb       =                                =  3,000 MB
+off_budget_mb       = (batched 32768)                =  4,000 MB
+vision_encoder_mb   = (FP8, vision=true)             =    500 MB
 ────────────────────────────────────────────────────────────────
-total_needed_mb   =                                = 51,084 MB
+total_needed_mb     =                                = 51,584 MB
 
-gpu_memory_utilization = 51,084 / 121,856 = 0.42
-docker_limit_mb        = 51,084 × 1.15   = 58,747 MB → 58g
+gpu_memory_utilization = 51,584 / 121,856 = 0.42
+docker_limit_mb        = 51,584 × 1.15   = 59,322 MB → 58g
 ```
 
 ### Example 2: Qwen3.6-27B FP8, 1 agent, 131K context, MTP=3
 
 ```
-weights_mb        = 27 × 1.0 × 1024              = 27,648 MB
-kv_cache_mb       = (16,384 × 131,072 × 1) / 1M  =  2,048 MB
-gdn_state_mb      = 50 × 1                        =     50 MB
-prefix_cache_mb   =                                =  1,024 MB
-mtp_total_mb      = (27B active, 3 tokens)         =  7,500 MB
-cuda_total_mb     =                                =  3,000 MB
-off_budget_mb     = (batched 16384)                =  3,000 MB
+weights_mb          = 27 × 1.0 × 1024              = 27,648 MB
+kv_cache_mb         = (16,384 × 131,072 × 1) / 1M  =  2,048 MB
+gdn_state_mb        = 50 × 1                        =     50 MB
+prefix_cache_mb     =                                =  1,024 MB
+mtp_total_mb        = (27B active, 3 tokens)         =  7,500 MB
+cuda_total_mb       =                                =  3,000 MB
+off_budget_mb       = (batched 16384)                =  3,000 MB
+vision_encoder_mb   = (FP8, vision=true)             =    500 MB
 ────────────────────────────────────────────────────────────────
-total_needed_mb   =                                = 44,270 MB
+total_needed_mb     =                                = 44,770 MB
 
-gpu_memory_utilization = 44,270 / 121,856 = 0.37
-docker_limit_mb        = 44,270 × 1.15   = 50,911 MB → 50g
+gpu_memory_utilization = 44,770 / 121,856 = 0.37
+docker_limit_mb        = 44,770 × 1.15   = 51,486 MB → 51g
 ```
 
 ### Example 3: Gemma 4 26B-A4B FP8, 1 agent, 131K context, no MTP
 
 ```
-weights_mb        = 26 × 1.0 × 1024                = 26,624 MB
-kv_cache_mb       = (106,496 × 131,072 × 1) / 1M   = 13,312 MB
-gdn_state_mb      = 0                               =      0 MB
-prefix_cache_mb   =                                  =  1,024 MB
-mtp_total_mb      = 0                                =      0 MB
-cuda_total_mb     =                                  =  3,000 MB
-off_budget_mb     =                                  =  3,000 MB
+weights_mb          = 26 × 1.0 × 1024                = 26,624 MB
+kv_cache_mb         = (106,496 × 131,072 × 1) / 1M   = 13,312 MB
+gdn_state_mb        = 0                               =      0 MB
+prefix_cache_mb     =                                  =  1,024 MB
+mtp_total_mb        = 0                                =      0 MB
+cuda_total_mb       =                                  =  3,000 MB
+off_budget_mb       =                                  =  3,000 MB
+vision_encoder_mb   = (FP8, vision=true)               =    500 MB
 ────────────────────────────────────────────────────────────────
-total_needed_mb   =                                  = 46,960 MB
+total_needed_mb     =                                  = 47,460 MB
 
-gpu_memory_utilization = 46,960 / 121,856 = 0.39
-docker_limit_mb        = 46,960 × 1.15   = 54,004 MB → 53g
+gpu_memory_utilization = 47,460 / 121,856 = 0.39
+docker_limit_mb        = 47,460 × 1.15   = 54,579 MB → 54g
 ```
 
 ### Example 4: Multi-model validation
@@ -344,14 +370,14 @@ docker_limit_mb        = 46,960 × 1.15   = 54,004 MB → 53g
 Running Example 1 + Example 2 + Embed + Rerank simultaneously:
 
 ```
-Model 1 (35B FP8):     51,084 MB
-Model 2 (27B FP8):     44,270 MB
-Embedding (0.6B):       3,200 MB
-Reranker (0.6B):        3,200 MB
+Model 1 (35B FP8):       51,584 MB
+Model 2 (27B FP8):       44,770 MB
+Embedding (0.6B):         3,200 MB
+Reranker (0.6B):          3,200 MB
 ─────────────────────────────────
-Total:                101,754 MB
-Safe usable:          105,912 MB
-Headroom:               4,158 MB  (3.9 GB)
+Total:                  102,754 MB
+Safe usable:            105,912 MB
+Headroom:                 3,158 MB  (3.1 GB)
 
 ⚠️ Tight but fits. earlyoom at 3% provides protection.
 ```
@@ -602,9 +628,15 @@ def calculate_memory(profile, quant, context_len, num_agents, mtp_tokens):
         off_budget_mb = 4000  # Large context = bigger activation tensors
     else:
         off_budget_mb = 3000
-    
-    total = weights_mb + kv_cache_mb + gdn_mb + prefix_mb + mtp_mb + cuda_mb + off_budget_mb
-    
+
+    # 8. Vision Encoder (multimodal models only)
+    if profile.supports_vision:
+        vision_mb = 500 * q.bytes_per_param  # FP8=500, BF16=1000, scaled
+    else:
+        vision_mb = 0
+
+    total = weights_mb + kv_cache_mb + gdn_mb + prefix_mb + mtp_mb + cuda_mb + off_budget_mb + vision_mb
+
     return {
         'total_mb': int(total),
         'gpu_memory_utilization': math.ceil(total / TOTAL_GPU_MB * 100) / 100,
@@ -617,6 +649,7 @@ def calculate_memory(profile, quant, context_len, num_agents, mtp_tokens):
             'mtp_mb': int(mtp_mb),
             'cuda_mb': int(cuda_mb),
             'off_budget_mb': int(off_budget_mb),
+            'vision_encoder_mb': int(vision_mb),
         }
     }
 

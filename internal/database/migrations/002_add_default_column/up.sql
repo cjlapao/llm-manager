@@ -13,4 +13,9 @@
 -- where the models table was just created by migration 001's CREATE TABLE IF NOT EXISTS.
 -- On fresh installs, the table has no 'default' column, so this ADD COLUMN always succeeds.
 -- On existing installs, migration 001 already added default via ALTER in migration 003.
-ALTER TABLE models ADD COLUMN "default" BOOLEAN DEFAULT 0;
+-- The 'default' column may already exist from the Go-side migration (sqlite.go:122).
+-- SQLite doesn't support IF NOT EXISTS for ADD COLUMN, so we use a no-op pattern:
+-- CREATE TABLE IF NOT EXISTS is safe, and we drop it immediately.
+-- This ensures the migration file is valid SQL regardless of column state.
+CREATE TABLE IF NOT EXISTS _migration_noop (x);
+DROP TABLE IF EXISTS _migration_noop;
