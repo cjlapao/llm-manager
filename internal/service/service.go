@@ -449,6 +449,12 @@ func (s *ContainerService) RefreshContainerStatus(slug string) error {
 // current database state. It always overwrites the file to keep it in sync
 // with engine config changes (new versions, env vars, volumes, etc.).
 func (s *ContainerService) ensureCompose(model *models.Model) error {
+	return s.ensureComposeWithOptions(model, StartOverrides{})
+}
+
+// ensureComposeWithOptions generates compose YAML with optional CLI overrides
+// applied to the auto-calculated flags.
+func (s *ContainerService) ensureComposeWithOptions(model *models.Model, overrides StartOverrides) error {
 	composeGen, err := NewComposeGenerator()
 	if err != nil {
 		return fmt.Errorf("failed to create compose generator: %w", err)
@@ -457,7 +463,7 @@ func (s *ContainerService) ensureCompose(model *models.Model) error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve engine config: %w", err)
 	}
-	composeYAML, err := composeGen.Generate(model, *cfg)
+	composeYAML, err := composeGen.GenerateWithOptions(model, *cfg, overrides)
 	if err != nil {
 		return fmt.Errorf("failed to generate compose YAML: %w", err)
 	}
@@ -468,10 +474,369 @@ func (s *ContainerService) ensureCompose(model *models.Model) error {
 	return nil
 }
 
+// ──────────────────────────────────────────────
+// Pre-flight checks
+// ──────────────────────────────────────────────
+
+// preFlightChecks runs a series of diagnostic checks before attempting to start
+// a container. It returns early on the first fatal issue. Checks that can be
+// auto-fixed (stale containers, orphaned networks) attempt the fix and return
+// nil so the caller retries the start.
+func (s *ContainerService) preFlightChecks(slug string, composeFile string, overrides StartOverrides) error {
+	// 1. Docker daemon reachable
+	if err := s.checkDockerDaemon(); err != nil {
+		return err
+	}
+
+	// 2. Stale container — handled by aggressive removal before compose up
+	// (see StartContainer where we docker stop + docker rm -f the container name)
+
+	// 3. Orphaned docker networks from crashed compose sessions
+	if err := s.checkOrphanedNetworks(slug); err != nil {
+		fmt.Fprintf(os.Stderr, "  Cleaning orphaned networks: %v\n", err)
+		if cleanErr := s.cleanOrphanedNetworks(); cleanErr != nil {
+			return fmt.Errorf("failed to clean orphaned networks: %v", cleanErr)
+		}
+		fmt.Fprintln(os.Stderr, "  ✓ Orphaned networks cleaned")
+	}
+
+	// 4. Port conflict
+	if err := s.checkPortConflict(slug); err != nil {
+		return err
+	}
+
+	// 5. NVIDIA runtime
+	if err := s.checkNVIDIARuntime(); err != nil {
+		return err
+	}
+
+	// 5b. GPU memory check (only for LLM-type models with profile data)
+	if err := s.checkGPUMemory(slug, overrides); err != nil {
+		return err
+	}
+
+	// 6. Compose file exists
+	if _, err := os.Stat(composeFile); os.IsNotExist(err) {
+		return fmt.Errorf("compose file not found: %s (ensureCompose may have failed)", composeFile)
+	}
+
+	return nil
+}
+
+// checkDockerDaemon verifies that the Docker daemon is reachable.
+func (s *ContainerService) checkDockerDaemon() error {
+	cmd := exec.Command("docker", "info")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("docker is not running or not accessible (cannot reach docker daemon)\n  Please start Docker Desktop / Docker service and try again.\n  Tip: run 'docker ps' to verify.")
+	}
+	return nil
+}
+
+// checkStaleContainer looks for a container with the exact name that is not
+// managed by docker compose. This catches containers started manually via
+// "docker run" that conflict with compose's expectations.
+func (s *ContainerService) checkStaleContainer(slug string) error {
+	model, err := s.db.GetModel(slug)
+	if err != nil {
+		return nil // unknown model, skip
+	}
+	if model.Container == "" {
+		return nil
+	}
+
+	cmd := exec.Command("docker", "inspect", model.Container)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil // container doesn't exist
+	}
+
+	// Container exists — check its state
+	var results []map[string]interface{}
+	if json.Unmarshal(output, &results) == nil && len(results) > 0 {
+		inspectResult := results[0]
+		state, _ := inspectResult["State"].(map[string]interface{})
+		status, _ := state["Status"].(string)
+
+		if status == "running" {
+			// A running container blocks compose from creating a new one.
+			// Check if it's compose-managed — if so, it's a leftover from a
+			// previous session that didn't shut down cleanly.
+			labels, _ := inspectResult["Config"].(map[string]interface{})
+			if labels != nil {
+				if _, hasComposeLabel := labels["com.docker.compose.project"]; hasComposeLabel {
+					return fmt.Errorf("running compose container %q from a previous session", model.Container)
+				}
+			}
+			return fmt.Errorf("container %q is running (not compose-managed)", model.Container)
+		}
+
+		// Stopped containers (exited, created, dead, etc.) — compose can't
+		// recreate them either.
+		if status == "exited" || status == "created" || status == "dead" || status == "removing" {
+			return fmt.Errorf("stopped compose container %q from a previous session", model.Container)
+		}
+	}
+
+	// Container exists but we couldn't determine state — assume stale.
+	return fmt.Errorf("container %q exists in unknown state", model.Container)
+}
+
+// removeContainer forcefully removes a container by name.
+// Stops it first if running, then removes.
+func (s *ContainerService) removeContainer(name string) error {
+	// Try to stop it first (if running) — ignore errors, rm -f handles it
+	exec.Command("docker", "stop", name).Run()
+	// Force remove
+	cmd := exec.Command("docker", "rm", "-f", name)
+	return cmd.Run()
+}
+
+// checkOrphanedNetworks finds docker networks belonging to the project that
+// are not attached to any running container (left behind by crashed sessions).
+func (s *ContainerService) checkOrphanedNetworks(slug string) error {
+	projectName := "llm-" + strings.ReplaceAll(slug, ".", "-")
+
+	cmd := exec.Command("docker", "network", "ls", "--filter", "name="+projectName, "--format", "{{.Name}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var orphaned []string
+
+	for _, netName := range lines {
+		if netName == "" {
+			continue
+		}
+		// Check if any running container uses this network
+		inspectCmd := exec.Command("docker", "network", "inspect", netName,
+			"--format", "{{range .Containers}}{{.Name}} {{end}}")
+		netOutput, _ := inspectCmd.Output()
+		netConns := strings.TrimSpace(string(netOutput))
+		if netConns == "" {
+			orphaned = append(orphaned, netName)
+		}
+	}
+
+	if len(orphaned) > 0 {
+		return fmt.Errorf("orphaned networks found: %s", strings.Join(orphaned, ", "))
+	}
+	return nil
+}
+
+// cleanOrphanedNetworks removes all dangling docker networks (not just project-scoped).
+// This covers the case where a machine hangs and leaves networks from other projects.
+func (s *ContainerService) cleanOrphanedNetworks() error {
+	cmd := exec.Command("docker", "network", "ls", "--format", "{{.Name}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var cleaned []string
+
+	for _, netName := range lines {
+		if netName == "" {
+			continue
+		}
+		// Skip built-in networks
+		if netName == "bridge" || netName == "host" || netName == "none" {
+			continue
+		}
+		// Check if any running container uses this network
+		inspectCmd := exec.Command("docker", "network", "inspect", netName,
+			"--format", "{{range .Containers}}{{.Name}} {{end}}")
+		netOutput, _ := inspectCmd.Output()
+		netConns := strings.TrimSpace(string(netOutput))
+		if netConns == "" {
+			if rmErr := exec.Command("docker", "network", "rm", netName).Run(); rmErr == nil {
+				cleaned = append(cleaned, netName)
+			}
+		}
+	}
+
+	if len(cleaned) > 0 {
+		fmt.Fprintf(os.Stderr, "  Removed %d orphaned network(s): %s\n", len(cleaned), strings.Join(cleaned, ", "))
+	}
+	return nil
+}
+
+// checkPortConflict checks if the model's port is already bound by another container.
+func (s *ContainerService) checkPortConflict(slug string) error {
+	model, err := s.db.GetModel(slug)
+	if err != nil {
+		return nil
+	}
+	if model.Port == 0 {
+		return nil
+	}
+
+	cmd := exec.Command("docker", "ps",
+		"--format", "{{.Names}}\t{{.Ports}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	// Check if port is already published by another container
+	portStr := fmt.Sprintf("->%d/tcp", model.Port)
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) == 2 {
+			containerName := parts[0]
+			ports := parts[1]
+			if strings.Contains(ports, portStr) {
+				return fmt.Errorf("port %d is already in use by container %q (%s)\n  Stop the conflicting container first: docker stop %s", model.Port, containerName, ports, containerName)
+			}
+		}
+	}
+	return nil
+}
+
+// checkNVIDIARuntime verifies that the nvidia container runtime is available.
+func (s *ContainerService) checkNVIDIARuntime() error {
+	cmd := exec.Command("docker", "info", "--format", "{{.Runtimes}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil // docker info failed, skip (daemon check already ran)
+	}
+	if !strings.Contains(string(output), "nvidia") {
+		return fmt.Errorf("NVIDIA Docker runtime not found\n  Install nvidia-container-toolkit and restart Docker:\n    sudo apt install nvidia-container-toolkit\n    sudo systemctl restart docker")
+	}
+	return nil
+}
+
+// checkGPUMemory checks if there is sufficient free memory to load the model.
+// Uses CanFitDynamic for the full memory calculation with profile data.
+func (s *ContainerService) checkGPUMemory(slug string, overrides StartOverrides) error {
+	model, err := s.db.GetModel(slug)
+	if err != nil {
+		return nil
+	}
+	if model.Type != "llm" && model.Type != "auto-complete" {
+		return nil // only check for LLM models
+	}
+	if model.TotalParamsB == nil || model.QuantBytesPerParam == nil {
+		return nil // no profile data, skip
+	}
+
+	// Build profile from DB fields
+	attentionLayers := 0
+	if model.AttentionLayers != nil {
+		attentionLayers = *model.AttentionLayers
+	}
+	gdnLayers := 0
+	if model.GdnLayers != nil {
+		gdnLayers = *model.GdnLayers
+	}
+	numKvHeads := 0
+	if model.NumKvHeads != nil {
+		numKvHeads = *model.NumKvHeads
+	}
+	headDim := 0
+	if model.HeadDim != nil {
+		headDim = *model.HeadDim
+	}
+	maxContext := 262144
+	if model.MaxContext != nil && *model.MaxContext > 0 {
+		maxContext = *model.MaxContext
+	}
+	defaultContext := 262144
+	if model.DefaultContext != nil && *model.DefaultContext > 0 {
+		defaultContext = *model.DefaultContext
+	}
+
+	profile := ModelProfile{
+		TotalParamsB:       *model.TotalParamsB,
+		ActiveParamsB:      0,
+		IsMoe:              model.IsMoe != nil && *model.IsMoe,
+		AttentionLayers:    attentionLayers,
+		GdnLayers:          gdnLayers,
+		NumKvHeads:         numKvHeads,
+		HeadDim:            headDim,
+		SupportsMtp:        model.SupportsMtp != nil && *model.SupportsMtp,
+		SupportsVision:     strings.Contains(model.CommandArgs, "mm-processor-cache-type"),
+		DefaultContext:     defaultContext,
+		MaxContext:         maxContext,
+		QuantBytesPerParam: *model.QuantBytesPerParam,
+	}
+
+	// Determine MTP tokens from command args string
+	// Looks for --speculative-config with num_speculative_tokens value
+	mtpTokens := 0
+	if model.CommandArgs != "" {
+		// Find the numeric value after "num_speculative_tokens"
+		idx := strings.Index(model.CommandArgs, "num_speculative_tokens")
+		if idx >= 0 {
+			rest := model.CommandArgs[idx+len("num_speculative_tokens"):]
+			for i, ch := range rest {
+				if ch >= '0' && ch <= '9' {
+					for j := i; j < len(rest); j++ {
+						c := rest[j]
+						if c >= '0' && c <= '9' {
+							mtpTokens = mtpTokens*10 + int(c-'0')
+						} else {
+							break
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Apply CLI overrides to context length and sequences for the pre-flight check
+	checkContext := defaultContext
+	checkSeqs := 1
+	if overrides.MaxModelLen > 0 {
+		checkContext = overrides.MaxModelLen
+		fmt.Fprintf(os.Stderr, "  [override] --max-model-len=%d\n", overrides.MaxModelLen)
+	}
+	if overrides.MaxNumSeqs > 0 {
+		checkSeqs = overrides.MaxNumSeqs
+		fmt.Fprintf(os.Stderr, "  [override] --max-num-seqs=%d\n", overrides.MaxNumSeqs)
+	}
+	if overrides.MaxNumBatchedTokens > 0 {
+		fmt.Fprintf(os.Stderr, "  [override] --max-num-batched-tokens=%d\n", overrides.MaxNumBatchedTokens)
+	}
+
+	result, err := CanFitDynamic(profile, *model.QuantBytesPerParam, checkContext, checkSeqs, mtpTokens)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: could not calculate GPU memory: %v\n", err)
+		return nil // non-fatal
+	}
+
+	if !result.Fits {
+		fmt.Fprintf(os.Stderr, "  ERROR: insufficient GPU memory\n")
+		fmt.Fprintf(os.Stderr, "  Model needs %d MB (%.0f GB), only %d MB available (free %d MB - 5 GB safety margin)\n",
+			result.NeededMB, float64(result.NeededMB)/1024, result.AvailableMB, result.FreeMB)
+		fmt.Fprintf(os.Stderr, "  gpu_memory_utilization would be %.2f (vLLM reserves %.2f × %.0f MB = %.0f MB)\n",
+			result.GPUMemoryUtilization, result.GPUMemoryUtilization, float64(TotalGPUMB),
+			result.GPUMemoryUtilization*float64(TotalGPUMB))
+		fmt.Fprintln(os.Stderr, "  Stop other models or reduce context length before starting.")
+		return fmt.Errorf("insufficient GPU memory for model %s", slug)
+	}
+
+	// Warn if tight
+	if result.HeadroomMB < 4096 {
+		fmt.Fprintf(os.Stderr, "  Warning: GPU memory is tight — %.1f GB headroom remaining\n",
+			float64(result.HeadroomMB)/1024)
+	}
+
+	return nil
+}
+
 // StartContainer starts a Docker container via docker compose.
 // It always regenerates the compose YAML from DB state before starting,
 // ensuring engine config changes are picked up.
-func (s *ContainerService) StartContainer(slug string, allowMultiple bool) error {
+// Overrides (if nonzero) replace auto-calculated values for the given run.
+func (s *ContainerService) StartContainer(slug string, allowMultiple bool, overrides StartOverrides) error {
 	model, err := s.db.GetModel(slug)
 	if err != nil {
 		return fmt.Errorf("model not found: %w", err)
@@ -491,16 +856,49 @@ func (s *ContainerService) StartContainer(slug string, allowMultiple bool) error
 	}
 
 	// Always regenerate compose YAML to stay in sync with engine config changes.
-	if err := s.ensureCompose(model); err != nil {
+	if err := s.ensureComposeWithOptions(model, overrides); err != nil {
 		return fmt.Errorf("failed to regenerate compose: %w", err)
 	}
 
 	composeFile := filepath.Join(s.cfg.LLMDir, slug+".yml")
+
+	// Run pre-flight checks before attempting to start.
+	if err := s.preFlightChecks(slug, composeFile, overrides); err != nil {
+		return err
+	}
+
 	projectName := "llm-" + strings.ReplaceAll(slug, ".", "-")
+
+	// Ensure a clean slate: bring down any leftover compose state for this project.
+	// This handles the case where a previous session left stopped containers or
+	// orphaned networks that block docker compose up from recreating them.
+	downCmd := exec.Command("docker", "compose", "--project-name", projectName, "-f", composeFile, "down")
+	downCmd.Dir = s.cfg.LLMDir
+	_ = downCmd.Run() // non-fatal — just cleans up stale state
+
+	// Aggressively remove any container with the expected name, regardless of state.
+	// This covers containers that were manually created, left over from crashed sessions,
+	// or created by a different compose project that used the same container name.
+	// docker compose down won't touch these.
+	if model.Container != "" {
+		exec.Command("docker", "stop", model.Container).Run() // stop if running, ignore errors
+		exec.Command("docker", "rm", "-f", model.Container).Run() // force remove, ignore errors
+	}
+
+	// Debug: log memory calculation values
+	if model.TotalParamsB != nil && model.QuantBytesPerParam != nil {
+		freeGPUmb := ReadFreeGPUMemory()
+		fmt.Fprintf(os.Stderr, "  Memory profile: %.1fB params, %.1f bytes/param, free GPU: %d MB\n",
+			*model.TotalParamsB, *model.QuantBytesPerParam, freeGPUmb)
+		fmt.Fprintf(os.Stderr, "  Estimated weights: %.0f MB\n",
+			*model.TotalParamsB**model.QuantBytesPerParam*1024)
+	}
+
 	cmd := exec.Command("docker", "compose", "--project-name", projectName, "-f", composeFile, "up", "-d")
 	cmd.Dir = s.cfg.LLMDir
-	if _, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start container %s: %w", slug, err)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to start container %s: %v\nDocker output:\n%s", slug, err, strings.TrimSpace(string(output)))
 	}
 
 	if err := s.db.UpdateContainerStatus(slug, "running"); err != nil {
@@ -536,7 +934,7 @@ func (s *ContainerService) RestartContainer(slug string) error {
 	if err := s.StopContainer(slug); err != nil {
 		return err
 	}
-	return s.StartContainer(slug, false)
+	return s.StartContainer(slug, false, StartOverrides{})
 }
 
 // GetContainerLogs retrieves logs for a container.
@@ -1194,7 +1592,7 @@ func (s *ServiceService) ListServices() ([]ServiceStatus, error) {
 
 // StartService starts a model's container.
 func (s *ServiceService) StartService(slug string, allowMultiple bool) error {
-	return s.container.StartContainer(slug, allowMultiple)
+	return s.container.StartContainer(slug, allowMultiple, StartOverrides{})
 }
 
 // StopService stops a model's container.

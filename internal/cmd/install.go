@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -288,7 +289,7 @@ func (c *InstallCommand) runSingle(slug string) int {
 			return 1
 		}
 
-		if err := c.container.StartContainer(slug, false); err != nil {
+		if err := c.container.StartContainer(slug, false, service.StartOverrides{}); err != nil {
 			fmt.Fprintf(os.Stderr, "  ✗ Failed to start container: %v\n", err)
 			return 1
 		}
@@ -349,6 +350,48 @@ func (c *InstallCommand) preflight(slug string) (*models.Model, bool) {
 	if c.cfg.LLMDir == "" {
 		fmt.Fprintln(os.Stderr, "Error: LLM_DIR is not configured.")
 		return nil, false
+	}
+
+	// ──── Install-specific checks (fail-fast, no auto-fix) ────
+
+	// Port conflict check
+	if c.cfg.OpenAIAPIURL != "" {
+		cmd := exec.Command("docker", "ps",
+			"--format", "{{.Names}}\t{{.Ports}}")
+		if output, err := cmd.Output(); err == nil {
+			portStr := fmt.Sprintf("->%d/tcp", model.Port)
+			for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+				if line == "" {
+					continue
+				}
+				parts := strings.SplitN(line, "\t", 2)
+				if len(parts) == 2 && strings.Contains(parts[1], portStr) {
+					fmt.Fprintf(os.Stderr, "Error: port %d is already in use by container %q (%s)\n", model.Port, parts[0], parts[1])
+					fmt.Fprintln(os.Stderr, "  Stop the conflicting container first: docker stop", parts[0])
+					return nil, false
+				}
+			}
+		}
+	}
+
+	// Container name conflict check
+	cmd := exec.Command("docker", "inspect", model.Container)
+	if inspectOutput, err := cmd.Output(); err == nil {
+		// Container exists — check if it's compose-managed
+		var results []map[string]interface{}
+		if json.Unmarshal(inspectOutput, &results) == nil && len(results) > 0 {
+			config, _ := results[0]["Config"].(map[string]interface{})
+			if config != nil {
+				labels, _ := config["Labels"].(map[string]interface{})
+				if labels != nil {
+					if _, hasComposeLabel := labels["com.docker.compose.project"]; hasComposeLabel {
+						fmt.Fprintf(os.Stderr, "Error: container %q already exists and is managed by docker compose\n", model.Container)
+						fmt.Fprintln(os.Stderr, "  Remove it first: docker compose -f <compose-file> down")
+						return nil, false
+					}
+				}
+			}
+		}
 	}
 
 	return model, true

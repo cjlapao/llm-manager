@@ -7,6 +7,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/user/llm-manager/internal/database/migrations"
 	"github.com/user/llm-manager/internal/database/models"
+	"github.com/user/llm-manager/internal/version"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -76,6 +77,7 @@ func (m *sqliteManager) ApplyPendingMigrations() error {
 		return fmt.Errorf("migration engine not initialized")
 	}
 	fmt.Println("Checking for pending migrations...")
+	fmt.Printf("  Version: %s (built: %s)\n", version.Version(), version.Date())
 	if err := m.ensureLegacyColumns(); err != nil {
 		return fmt.Errorf("legacy column check failed: %w", err)
 	}

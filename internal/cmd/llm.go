@@ -83,13 +83,50 @@ func (c *LlmCommand) Run(args []string) int {
 
 // ── start ──────────────────────────────────────────────────────────────────
 
+// ── start ──────────────────────────────────────────────────────────────────
+
 // runStart starts a model container, handling flux/3D special cases.
 func (c *LlmCommand) runStart(args []string) int {
 	slug := args[0]
 	allowMultiple := false
+	overrides := service.StartOverrides{}
 	for _, arg := range args[1:] {
-		if arg == "--allow-multiple" || arg == "-m" {
+		switch arg {
+		case "--allow-multiple", "-m":
 			allowMultiple = true
+		case "--max-model-len":
+			// next arg is the value
+		case "--max-num-seqs":
+			// next arg is the value
+		case "--max-num-batched-tokens":
+			// next arg is the value
+		}
+	}
+
+	// Parse numeric overrides (simple positional: --flag value)
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--max-model-len":
+			if i+1 < len(args) {
+				var val int
+				fmt.Sscanf(args[i+1], "%d", &val)
+				overrides.MaxModelLen = val
+				i++
+			}
+		case "--max-num-seqs":
+			if i+1 < len(args) {
+				var val int
+				fmt.Sscanf(args[i+1], "%d", &val)
+				overrides.MaxNumSeqs = val
+				i++
+			}
+		case "--max-num-batched-tokens":
+			if i+1 < len(args) {
+				var val int
+				fmt.Sscanf(args[i+1], "%d", &val)
+				overrides.MaxNumBatchedTokens = val
+				i++
+			}
 		}
 	}
 
@@ -104,7 +141,7 @@ func (c *LlmCommand) runStart(args []string) int {
 	}
 
 	// Normal LLM start
-	if err := c.svc.StartContainer(slug, allowMultiple); err != nil {
+	if err := c.svc.StartContainer(slug, allowMultiple, overrides); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting container: %v\n", err)
 		return 1
 	}
@@ -255,7 +292,7 @@ func (c *LlmCommand) runSwap(args []string) int {
 	// If --allow-multiple is set, skip the stop-all step
 	if allowMultiple {
 		fmt.Printf("Swapping to model: %s (--allow-multiple, skipping stop-all)\n", slug)
-		if err := c.svc.StartContainer(slug, true); err != nil {
+		if err := c.svc.StartContainer(slug, true, service.StartOverrides{}); err != nil {
 			fmt.Fprintf(os.Stderr, "Error starting container: %v\n", err)
 			return 1
 		}
@@ -288,7 +325,7 @@ func (c *LlmCommand) runSwap(args []string) int {
 	}
 
 	fmt.Printf("Starting model: %s\n", slug)
-	if err := c.svc.StartContainer(slug, false); err != nil {
+	if err := c.svc.StartContainer(slug, false, service.StartOverrides{}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting container: %v\n", err)
 		return 1
 	}

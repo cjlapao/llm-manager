@@ -403,6 +403,45 @@ func (c *ModelCommand) runInfo(slug string) int {
 		}
 	}
 
+	// ---- profile / memory ----
+	hasProfile := model.TotalParamsB != nil || model.ActiveParamsB != nil || model.QuantBytesPerParam != nil
+	if hasProfile {
+		fmt.Println("\nprofile:")
+		if model.TotalParamsB != nil {
+			fmt.Printf("%-24s%.1fB\n", "total_params:", *model.TotalParamsB)
+		}
+		if model.ActiveParamsB != nil {
+			fmt.Printf("%-24s%.1fB\n", "active_params:", *model.ActiveParamsB)
+		}
+		if model.IsMoe != nil {
+			fmt.Printf("%-24s%v\n", "is_moe:", *model.IsMoe)
+		}
+		if model.AttentionLayers != nil {
+			fmt.Printf("%-24s%d\n", "attention_layers:", *model.AttentionLayers)
+		}
+		if model.GdnLayers != nil {
+			fmt.Printf("%-24s%d\n", "gdn_layers:", *model.GdnLayers)
+		}
+		if model.NumKvHeads != nil {
+			fmt.Printf("%-24s%d\n", "num_kv_heads:", *model.NumKvHeads)
+		}
+		if model.HeadDim != nil {
+			fmt.Printf("%-24s%d\n", "head_dim:", *model.HeadDim)
+		}
+		if model.SupportsMtp != nil {
+			fmt.Printf("%-24s%v\n", "supports_mtp:", *model.SupportsMtp)
+		}
+		if model.DefaultContext != nil {
+			fmt.Printf("%-24s%d\n", "default_context:", *model.DefaultContext)
+		}
+		if model.MaxContext != nil {
+			fmt.Printf("%-24s%d\n", "max_context:", *model.MaxContext)
+		}
+		if model.QuantBytesPerParam != nil {
+			fmt.Printf("%-24s%.1f\n", "quant_bytes_per_param:", *model.QuantBytesPerParam)
+		}
+	}
+
 	// ---- litellm ----
 	hasLiteLLM := model.LiteLLMParams != "" || model.ModelInfo != ""
 	if hasLiteLLM {
@@ -428,7 +467,7 @@ func (c *ModelCommand) runInfo(slug string) int {
 	}
 
 	// No data at all
-	if !hasBase && !hasDocker && !hasLiteLLM {
+	if !hasBase && !hasDocker && !hasProfile && !hasLiteLLM {
 		fmt.Println("\nno model information available.")
 	}
 

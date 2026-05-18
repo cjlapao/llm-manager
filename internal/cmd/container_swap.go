@@ -71,7 +71,7 @@ func (c *ContainerSwapCommand) runSwap(slug string) int {
 
 	// Step 4: Start the target model
 	fmt.Printf("Starting model: %s\n", slug)
-	if err := c.svc.StartContainer(slug, false); err != nil {
+	if err := c.svc.StartContainer(slug, false, service.StartOverrides{}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting container: %v\n", err)
 		return 1
 	}

@@ -1,9 +1,11 @@
 package yamlparser
 
 import (
+	"fmt"
 	"os"
-	"strings"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -413,8 +415,8 @@ func TestSlugRegex(t *testing.T) {
 		"a_b_c",
 		"123",
 		"a1b2c3",
-		"has.dot",          // dots are allowed
-		"model.name.v2",    // multiple dots
+		"has.dot",       // dots are allowed
+		"model.name.v2", // multiple dots
 	}
 	for _, slug := range validSlugs {
 		if !slugRegex.MatchString(slug) {
@@ -439,4 +441,428 @@ func TestSlugRegex(t *testing.T) {
 
 func floatPtr(f float64) *float64 {
 	return &f
+}
+
+func intPtr(i int) *int {
+	return &i
+}
+
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+// --- Profile validation tests ---
+
+func TestValidate_ProfileValid(t *testing.T) {
+	totalParams := 35.0
+	activeParams := 3.0
+	quantBytes := 1.0
+	y := &ModelYAML{
+		Slug:   "valid-model",
+		Name:   "Valid Model",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			TotalParamsB:       &totalParams,
+			ActiveParamsB:      &activeParams,
+			IsMoe:              boolPtr(true),
+			AttentionLayers:    intPtr(10),
+			GdnLayers:          intPtr(30),
+			NumKvHeads:         intPtr(2),
+			HeadDim:            intPtr(256),
+			SupportsMtp:        boolPtr(true),
+			DefaultContext:     intPtr(262144),
+			MaxContext:         intPtr(262144),
+			QuantBytesPerParam: &quantBytes,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) != 0 {
+		t.Errorf("Validate(valid profile) returned %d errors: %v", len(errs), errs)
+	}
+}
+
+func TestValidate_ProfileParseYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	yamlContent := `slug: test-model
+name: "Test Model"
+engine: vllm
+port: 8080
+
+profile:
+  total_params_b: 35
+  active_params_b: 3
+  is_moe: true
+  attention_layers: 10
+  gdn_layers: 30
+  num_kv_heads: 2
+  head_dim: 256
+  supports_mtp: true
+  default_context: 262144
+  max_context: 262144
+  quant_bytes_per_param: 1.0
+`
+	path := filepath.Join(tmpDir, "profile.yaml")
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	y, err := ParseYAML(path)
+	if err != nil {
+		t.Fatalf("ParseYAML() error: %v", err)
+	}
+
+	if y.Profile == nil {
+		t.Fatal("Profile is nil, expected non-nil")
+	}
+	if y.Profile.TotalParamsB == nil || *y.Profile.TotalParamsB != 35.0 {
+		t.Errorf("TotalParamsB = %v, want 35.0", y.Profile.TotalParamsB)
+	}
+	if y.Profile.ActiveParamsB == nil || *y.Profile.ActiveParamsB != 3.0 {
+		t.Errorf("ActiveParamsB = %v, want 3.0", y.Profile.ActiveParamsB)
+	}
+	if y.Profile.IsMoe == nil || *y.Profile.IsMoe != true {
+		t.Errorf("IsMoe = %v, want true", y.Profile.IsMoe)
+	}
+	if y.Profile.AttentionLayers == nil || *y.Profile.AttentionLayers != 10 {
+		t.Errorf("AttentionLayers = %v, want 10", y.Profile.AttentionLayers)
+	}
+	if y.Profile.GdnLayers == nil || *y.Profile.GdnLayers != 30 {
+		t.Errorf("GdnLayers = %v, want 30", y.Profile.GdnLayers)
+	}
+	if y.Profile.NumKvHeads == nil || *y.Profile.NumKvHeads != 2 {
+		t.Errorf("NumKvHeads = %v, want 2", y.Profile.NumKvHeads)
+	}
+	if y.Profile.HeadDim == nil || *y.Profile.HeadDim != 256 {
+		t.Errorf("HeadDim = %v, want 256", y.Profile.HeadDim)
+	}
+	if y.Profile.SupportsMtp == nil || *y.Profile.SupportsMtp != true {
+		t.Errorf("SupportsMtp = %v, want true", y.Profile.SupportsMtp)
+	}
+	if y.Profile.DefaultContext == nil || *y.Profile.DefaultContext != 262144 {
+		t.Errorf("DefaultContext = %v, want 262144", y.Profile.DefaultContext)
+	}
+	if y.Profile.MaxContext == nil || *y.Profile.MaxContext != 262144 {
+		t.Errorf("MaxContext = %v, want 262144", y.Profile.MaxContext)
+	}
+	if y.Profile.QuantBytesPerParam == nil || *y.Profile.QuantBytesPerParam != 1.0 {
+		t.Errorf("QuantBytesPerParam = %v, want 1.0", y.Profile.QuantBytesPerParam)
+	}
+
+	errs := Validate(y)
+	if len(errs) != 0 {
+		t.Errorf("Validate() returned %d errors: %v", len(errs), errs)
+	}
+}
+
+func TestValidate_ProfileNegativeTotalParams(t *testing.T) {
+	neg := -1.0
+	y := &ModelYAML{
+		Slug:   "neg-params",
+		Name:   "Neg Params",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			TotalParamsB: &neg,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(negative total_params_b) should return error")
+	}
+	found := false
+	for _, e := range errs {
+		if e != nil && strings.Contains(e.Error(), "total_params_b") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected error about total_params_b, got: %v", errs)
+	}
+}
+
+func TestValidate_ProfileNegativeActiveParams(t *testing.T) {
+	neg := -1.0
+	y := &ModelYAML{
+		Slug:   "neg-active",
+		Name:   "Neg Active",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			ActiveParamsB: &neg,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(negative active_params_b) should return error")
+	}
+	found := false
+	for _, e := range errs {
+		if e != nil && strings.Contains(e.Error(), "active_params_b") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected error about active_params_b, got: %v", errs)
+	}
+}
+
+func TestValidate_ProfileNegativeAttentionLayers(t *testing.T) {
+	neg := -1
+	y := &ModelYAML{
+		Slug:   "neg-attention",
+		Name:   "Neg Attention",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			AttentionLayers: &neg,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(negative attention_layers) should return error")
+	}
+}
+
+func TestValidate_ProfileNegativeGdnLayers(t *testing.T) {
+	neg := -1
+	y := &ModelYAML{
+		Slug:   "neg-gdn",
+		Name:   "Neg GDN",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			GdnLayers: &neg,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(negative gdn_layers) should return error")
+	}
+}
+
+func TestValidate_ProfileZeroNumKvHeads(t *testing.T) {
+	zero := 0
+	y := &ModelYAML{
+		Slug:   "zero-kv",
+		Name:   "Zero KV",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			NumKvHeads: &zero,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(zero num_kv_heads) should return error")
+	}
+}
+
+func TestValidate_ProfileZeroHeadDim(t *testing.T) {
+	zero := 0
+	y := &ModelYAML{
+		Slug:   "zero-head",
+		Name:   "Zero Head",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			HeadDim: &zero,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(zero head_dim) should return error")
+	}
+}
+
+func TestValidate_ProfileZeroDefaultContext(t *testing.T) {
+	zero := 0
+	y := &ModelYAML{
+		Slug:   "zero-context",
+		Name:   "Zero Context",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			DefaultContext: &zero,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(zero default_context) should return error")
+	}
+}
+
+func TestValidate_ProfileZeroMaxContext(t *testing.T) {
+	zero := 0
+	y := &ModelYAML{
+		Slug:   "zero-maxctx",
+		Name:   "Zero MaxCtx",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			MaxContext: &zero,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(zero max_context) should return error")
+	}
+}
+
+func TestValidate_ProfileInvalidQuantBytes(t *testing.T) {
+	tests := []struct {
+		name  string
+		value float64
+		field string
+	}{
+		{"invalid_quant_3", 3.0, "quant_bytes_per_param"},
+		{"invalid_quant_0", 0.0, "quant_bytes_per_param"},
+		{"invalid_quant_neg", -1.0, "quant_bytes_per_param"},
+		{"invalid_quant_1_5", 1.5, "quant_bytes_per_param"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			y := &ModelYAML{
+				Slug:   "bad-quant",
+				Name:   "Bad Quant",
+				Engine: "vllm",
+				Port:   8080,
+				Profile: &ModelProfile{
+					QuantBytesPerParam: &tc.value,
+				},
+			}
+			errs := Validate(y)
+			if len(errs) == 0 {
+				t.Errorf("Validate(quant=%f) should return error", tc.value)
+			}
+			found := false
+			for _, e := range errs {
+				if e != nil && strings.Contains(e.Error(), tc.field) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Expected error about %s, got: %v", tc.field, errs)
+			}
+		})
+	}
+}
+
+func TestValidate_ProfileValidQuantBytes(t *testing.T) {
+	validValues := []float64{0.5, 1.0, 2.0}
+	for _, v := range validValues {
+		t.Run(fmt.Sprintf("quant_%s", strconv.FormatFloat(v, 'f', -1, 64)), func(t *testing.T) {
+			y := &ModelYAML{
+				Slug:   "good-quant",
+				Name:   "Good Quant",
+				Engine: "vllm",
+				Port:   8080,
+				Profile: &ModelProfile{
+					QuantBytesPerParam: &v,
+				},
+			}
+			errs := Validate(y)
+			if len(errs) != 0 {
+				t.Errorf("Validate(quant=%f) returned %d errors: %v", v, len(errs), errs)
+			}
+		})
+	}
+}
+
+func TestValidate_ProfileZeroValuesValid(t *testing.T) {
+	// attention_layers and gdn_layers can be 0 (>= 0)
+	zero := 0
+	y := &ModelYAML{
+		Slug:   "zero-layers",
+		Name:   "Zero Layers",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			AttentionLayers: &zero,
+			GdnLayers:       &zero,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) != 0 {
+		t.Errorf("Validate(zero layers) returned %d errors: %v", len(errs), errs)
+	}
+}
+
+func TestValidate_BackwardCompatibilityNoProfile(t *testing.T) {
+	y := &ModelYAML{
+		Slug:   "no-profile",
+		Name:   "No Profile Model",
+		Engine: "vllm",
+		Port:   8080,
+	}
+	errs := Validate(y)
+	if len(errs) != 0 {
+		t.Errorf("Validate(no profile) returned %d errors: %v", len(errs), errs)
+	}
+}
+
+func TestValidate_BackwardCompatibilityParseYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	yamlContent := `slug: legacy-model
+name: "Legacy Model"
+engine: vllm
+port: 8080
+`
+	path := filepath.Join(tmpDir, "legacy.yaml")
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	y, err := ParseYAML(path)
+	if err != nil {
+		t.Fatalf("ParseYAML() error: %v", err)
+	}
+
+	if y.Profile != nil {
+		t.Error("Profile should be nil for YAML without profile block")
+	}
+
+	errs := Validate(y)
+	if len(errs) != 0 {
+		t.Errorf("Validate(legacy yaml) returned %d errors: %v", len(errs), errs)
+	}
+}
+
+func TestValidateNonCapabilities_Profile(t *testing.T) {
+	totalParams := 35.0
+	y := &ModelYAML{
+		Slug:   "valid-model",
+		Name:   "Valid Model",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			TotalParamsB: &totalParams,
+			IsMoe:        boolPtr(true),
+		},
+	}
+	errs := ValidateNonCapabilities(y)
+	if len(errs) != 0 {
+		t.Errorf("ValidateNonCapabilities(valid profile) returned %d errors: %v", len(errs), errs)
+	}
+}
+
+func TestValidateNonCapabilities_ProfileInvalid(t *testing.T) {
+	neg := -1.0
+	y := &ModelYAML{
+		Slug:   "bad-model",
+		Name:   "Bad Model",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			TotalParamsB: &neg,
+		},
+	}
+	errs := ValidateNonCapabilities(y)
+	if len(errs) == 0 {
+		t.Error("ValidateNonCapabilities(negative total_params_b) should return error")
+	}
 }

@@ -109,6 +109,18 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	// 1c. Auto-inject capabilities from type/subtype (e.g., rag/embedding → "embedding")
 	yamlparser.InjectCapabilitiesFromTypeSubtype(y)
 
+	// 1d. Auto-discover profile from HF config if profile block is empty
+	if y.Profile == nil {
+		if dp, err := DiscoverProfile(y.HFRepo); err == nil {
+			y.Profile = MergeProfile(nil, dp)
+			for field, src := range dp.Sources {
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", field, src)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: profile discovery failed for %s: %v\n", y.HFRepo, err)
+		}
+	}
+
 	// Handle override — delete existing DB record + LiteLLM deployments before reimport from YAML
 	if overrides.Override {
 		if existing, dbErr := s.db.GetModel(y.Slug); dbErr == nil && existing != nil {
@@ -167,21 +179,21 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 
 	// Map ModelYAML → models.Model
 	model := &models.Model{
-		Slug:            y.Slug,
-		Type:            y.Type,    // from YAML (defaults to "llm" if empty)
-		SubType:         y.SubType, // from YAML
-		Name:            y.Name,
-		HFRepo:          y.HFRepo,
-		Container:       y.Container,
-		Port:            y.Port,
-		EngineType:      "vllm", // default engine
-		EngineVersionSlug: "",   // resolved by engine service
-		InputTokenCost:  0.0,
-		OutputTokenCost: 0.0,
-		Capabilities:    "",
-		EnvVars:         "",
-		CommandArgs:     "",
-		Default:         false,
+		Slug:              y.Slug,
+		Type:              y.Type,    // from YAML (defaults to "llm" if empty)
+		SubType:           y.SubType, // from YAML
+		Name:              y.Name,
+		HFRepo:            y.HFRepo,
+		Container:         y.Container,
+		Port:              y.Port,
+		EngineType:        "vllm", // default engine
+		EngineVersionSlug: "",     // resolved by engine service
+		InputTokenCost:    0.0,
+		OutputTokenCost:   0.0,
+		Capabilities:      "",
+		EnvVars:           "",
+		CommandArgs:       "",
+		Default:           false,
 	}
 
 	// Apply YAML-level optional fields
@@ -222,6 +234,21 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 			return nil, fmt.Errorf("failed to marshal capabilities: %w", err)
 		}
 		model.Capabilities = string(b)
+	}
+
+	// Map profile fields from YAML to model
+	if y.Profile != nil {
+		model.TotalParamsB = y.Profile.TotalParamsB
+		model.ActiveParamsB = y.Profile.ActiveParamsB
+		model.IsMoe = y.Profile.IsMoe
+		model.AttentionLayers = y.Profile.AttentionLayers
+		model.GdnLayers = y.Profile.GdnLayers
+		model.NumKvHeads = y.Profile.NumKvHeads
+		model.HeadDim = y.Profile.HeadDim
+		model.SupportsMtp = y.Profile.SupportsMtp
+		model.DefaultContext = y.Profile.DefaultContext
+		model.MaxContext = y.Profile.MaxContext
+		model.QuantBytesPerParam = y.Profile.QuantBytesPerParam
 	}
 
 	// Marshal litellm_params and model_info to JSON for DB storage
@@ -467,6 +494,23 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 	}
 	if model.OutputTokenCost > 0 {
 		y.OutputTokenCost = &model.OutputTokenCost
+	}
+
+	// Export profile fields
+	if model.TotalParamsB != nil {
+		y.Profile = &yamlparser.ModelProfile{
+			TotalParamsB:       model.TotalParamsB,
+			ActiveParamsB:      model.ActiveParamsB,
+			IsMoe:              model.IsMoe,
+			AttentionLayers:    model.AttentionLayers,
+			GdnLayers:          model.GdnLayers,
+			NumKvHeads:         model.NumKvHeads,
+			HeadDim:            model.HeadDim,
+			SupportsMtp:        model.SupportsMtp,
+			DefaultContext:     model.DefaultContext,
+			MaxContext:         model.MaxContext,
+			QuantBytesPerParam: model.QuantBytesPerParam,
+		}
 	}
 
 	return y, nil

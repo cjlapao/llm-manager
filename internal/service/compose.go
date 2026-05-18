@@ -3,11 +3,111 @@ package service
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"text/template"
 
 	"github.com/user/llm-manager/internal/database/models"
 )
+
+// mergeProfileFlagsWithOptions is like mergeProfileFlags but accepts CLI
+// overrides that replace auto-calculated values.
+func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, overrides StartOverrides) []string {
+	if model == nil || model.TotalParamsB == nil || model.QuantBytesPerParam == nil {
+		return existingCmds
+	}
+
+	// Build profile from DB fields
+	profile := ModelProfile{
+		TotalParamsB:       *model.TotalParamsB,
+		ActiveParamsB:      derefOrZero(model.ActiveParamsB),
+		IsMoe:              derefOrFalse(model.IsMoe),
+		AttentionLayers:    derefOrZero(model.AttentionLayers),
+		GdnLayers:          derefOrZero(model.GdnLayers),
+		NumKvHeads:         derefOrZero(model.NumKvHeads),
+		HeadDim:            derefOrZero(model.HeadDim),
+		SupportsMtp:        derefOrFalse(model.SupportsMtp),
+		SupportsVision:     strings.Contains(model.CommandArgs, "mm-processor-cache-type"),
+		DefaultContext:     derefOrZero(model.DefaultContext),
+		MaxContext:         derefOrZero(model.MaxContext),
+		QuantBytesPerParam: *model.QuantBytesPerParam,
+	}
+
+	// Apply CLI overrides — non-zero values replace auto-calculated defaults
+	contextLen := profile.DefaultContext
+	if overrides.MaxModelLen > 0 {
+		contextLen = overrides.MaxModelLen
+	}
+	numSequences := 1
+	if overrides.MaxNumSeqs > 0 {
+		numSequences = overrides.MaxNumSeqs
+	}
+
+	// Extract MTP tokens from command args (same logic as checkGPUMemory)
+	mtpTokens := 0
+	if model.CommandArgs != "" {
+		idx := strings.Index(model.CommandArgs, "num_speculative_tokens")
+		if idx >= 0 {
+			rest := model.CommandArgs[idx+len("num_speculative_tokens"):]
+			for i, ch := range rest {
+				if ch >= '0' && ch <= '9' {
+					for j := i; j < len(rest); j++ {
+						c := rest[j]
+						if c >= '0' && c <= '9' {
+							mtpTokens = mtpTokens*10 + int(c-'0')
+						} else {
+							break
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Compute memory result for the profile (with MTP tokens)
+	freeGPUmb := ReadFreeGPUMemory()
+	memResult, err := CalculateMemory(profile, *model.QuantBytesPerParam, contextLen, numSequences, mtpTokens, freeGPUmb)
+	if err != nil {
+		return existingCmds
+	}
+
+	// Generate smart command flags
+	genFlags := GenerateFlags(profile, memResult, contextLen, numSequences)
+
+	// Debug: print what we're generating
+	fmt.Fprintf(os.Stderr, "  mergeProfileFlags: contextLen=%d numSeqs=%d MTP=%d\n", contextLen, numSequences, mtpTokens)
+	fmt.Fprintf(os.Stderr, "  genFlags: maxModelLen=%s maxNumBatchedTokens=%s maxNumSeqs=%s gpuMemUtil=%s\n",
+		genFlags.MaxModelLen, genFlags.MaxNumBatchedTokens, genFlags.MaxNumSeqs, genFlags.GPUMemoryUtil)
+
+	// Apply MaxNumBatchedTokens override if provided
+	if overrides.MaxNumBatchedTokens > 0 {
+		genFlags.MaxNumBatchedTokens = strconv.Itoa(overrides.MaxNumBatchedTokens)
+		fmt.Fprintf(os.Stderr, "  genFlags[override]: maxNumBatchedTokens=%s\n", genFlags.MaxNumBatchedTokens)
+	}
+
+	// Merge generated flags with existing args
+	result := MergeFlags(existingCmds, genFlags)
+	fmt.Fprintf(os.Stderr, "  merge result: %v\n", result)
+	return result
+}
+
+// derefOrZero returns the dereferenced value of a *T or zero for *int/*float64.
+func derefOrZero[T ~int | ~float64](p *T) T {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// derefOrFalse returns the dereferenced value of a *bool or false.
+func derefOrFalse(p *bool) bool {
+	if p == nil {
+		return false
+	}
+	return *p
+}
 
 // EngineComposeConfig carries pre-merged compose data from the caller.
 type EngineComposeConfig struct {
@@ -86,18 +186,28 @@ func NewComposeGenerator() (*ComposeGenerator, error) {
 
 // Generate produces a complete docker-compose YAML string.
 func (g *ComposeGenerator) Generate(model *models.Model, cfg EngineComposeConfig) (string, error) {
+	return g.GenerateWithOptions(model, cfg, StartOverrides{})
+}
+
+// GenerateWithOptions produces a complete docker-compose YAML string with
+// optional CLI overrides applied to auto-calculated flags.
+func (g *ComposeGenerator) GenerateWithOptions(model *models.Model, cfg EngineComposeConfig, overrides StartOverrides) (string, error) {
 	if model == nil {
 		return "", fmt.Errorf("model is required for composition generation")
 	}
+
+	// Merge profile-derived flags into command args (with overrides)
+	commandArgs := mergeProfileFlagsWithOptions(model, cfg.CommandArgs, overrides)
+
 	data := ComposeTemplateData{
-		ServiceName: fmt.Sprintf("%s-%s", model.Type, model.Slug),
+		ServiceName:    fmt.Sprintf("%s-%s", model.Type, model.Slug),
 		Container:      model.Container,
 		Port:           model.Port,
 		Image:          cfg.Image,
 		Entrypoint:     cfg.Entrypoint,
 		EnvVars:        cfg.EnvVars,
 		Volumes:        cfg.Volumes,
-		CommandArgs:    cfg.CommandArgs,
+		CommandArgs:    commandArgs,
 		LoggingSection: cfg.LoggingSection,
 		DeploySection:  cfg.DeploySection,
 	}
