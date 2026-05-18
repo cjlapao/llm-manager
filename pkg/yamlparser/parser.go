@@ -304,11 +304,11 @@ func validateProfile(p *ModelProfile) []error {
 	if p.GdnLayers != nil && *p.GdnLayers < 0 {
 		errs = append(errs, fmt.Errorf("profile.gdn_layers must be >= 0 (got %d)", *p.GdnLayers))
 	}
-	if p.NumKvHeads != nil && *p.NumKvHeads <= 0 {
-		errs = append(errs, fmt.Errorf("profile.num_kv_heads must be > 0 (got %d)", *p.NumKvHeads))
+	if p.NumKvHeads != nil && *p.NumKvHeads < 0 {
+		errs = append(errs, fmt.Errorf("profile.num_kv_heads must be >= 0 (got %d)", *p.NumKvHeads))
 	}
-	if p.HeadDim != nil && *p.HeadDim <= 0 {
-		errs = append(errs, fmt.Errorf("profile.head_dim must be > 0 (got %d)", *p.HeadDim))
+	if p.HeadDim != nil && *p.HeadDim < 0 {
+		errs = append(errs, fmt.Errorf("profile.head_dim must be >= 0 (got %d)", *p.HeadDim))
 	}
 	if p.DefaultContext != nil && *p.DefaultContext <= 0 {
 		errs = append(errs, fmt.Errorf("profile.default_context must be > 0 (got %d)", *p.DefaultContext))

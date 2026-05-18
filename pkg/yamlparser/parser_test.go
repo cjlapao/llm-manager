@@ -644,6 +644,8 @@ func TestValidate_ProfileNegativeGdnLayers(t *testing.T) {
 }
 
 func TestValidate_ProfileZeroNumKvHeads(t *testing.T) {
+	// Zero is valid for encoder models (embeddings, rerankers) that have no attention layers.
+	// Only negative values should be rejected.
 	zero := 0
 	y := &ModelYAML{
 		Slug:   "zero-kv",
@@ -655,12 +657,30 @@ func TestValidate_ProfileZeroNumKvHeads(t *testing.T) {
 		},
 	}
 	errs := Validate(y)
-	if len(errs) == 0 {
-		t.Error("Validate(zero num_kv_heads) should return error")
+	if len(errs) != 0 {
+		t.Errorf("Validate(zero num_kv_heads) should not return error for encoder models, got: %v", errs)
+	}
+
+	// Negative should still be rejected
+	neg := -1
+	yNeg := &ModelYAML{
+		Slug:   "neg-kv",
+		Name:   "Neg KV",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			NumKvHeads: &neg,
+		},
+	}
+	errNeg := Validate(yNeg)
+	if len(errNeg) == 0 {
+		t.Error("Validate(negative num_kv_heads) should return error")
 	}
 }
 
 func TestValidate_ProfileZeroHeadDim(t *testing.T) {
+	// Zero is valid for encoder models (embeddings, rerankers) that have no attention layers.
+	// Only negative values should be rejected.
 	zero := 0
 	y := &ModelYAML{
 		Slug:   "zero-head",
@@ -672,8 +692,24 @@ func TestValidate_ProfileZeroHeadDim(t *testing.T) {
 		},
 	}
 	errs := Validate(y)
-	if len(errs) == 0 {
-		t.Error("Validate(zero head_dim) should return error")
+	if len(errs) != 0 {
+		t.Errorf("Validate(zero head_dim) should not return error for encoder models, got: %v", errs)
+	}
+
+	// Negative should still be rejected
+	neg := -1
+	yNeg := &ModelYAML{
+		Slug:   "neg-head",
+		Name:   "Neg Head",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			HeadDim: &neg,
+		},
+	}
+	errNeg := Validate(yNeg)
+	if len(errNeg) == 0 {
+		t.Error("Validate(negative head_dim) should return error")
 	}
 }
 
