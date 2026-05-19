@@ -131,84 +131,57 @@ func (h *RAGHandler) StartRAG(w http.ResponseWriter, r *http.Request) {
 	// Resolve embed slug: if empty, pick the first available embedding model
 	embedSlug := req.EmbedSlug
 	if embedSlug == "" {
-		models, err := h.DB.ListModelsByTypeSubType("rag", "embedding")
+		ms, err := h.DB.ListModelsByTypeSubType("rag", "embedding")
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "failed to list embedding models: "+err.Error())
 			return
 		}
-		if len(models) == 0 {
+		if len(ms) == 0 {
 			WriteError(w, http.StatusNotFound, "no embedding models available")
 			return
 		}
-		embedSlug = models[0].Slug
+		embedSlug = ms[0].Slug
 	}
 
 	// Resolve rerank slug: if empty, pick the first available reranker model
 	rerankSlug := req.RerankSlug
 	if rerankSlug == "" {
-		models, err := h.DB.ListModelsByTypeSubType("rag", "reranker")
+		ms, err := h.DB.ListModelsByTypeSubType("rag", "reranker")
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "failed to list reranker models: "+err.Error())
 			return
 		}
-		if len(models) == 0 {
+		if len(ms) == 0 {
 			WriteError(w, http.StatusNotFound, "no reranker models available")
 			return
 		}
-		rerankSlug = models[0].Slug
+		rerankSlug = ms[0].Slug
+	}
+
+	// Validate both resolved slugs exist in DB before starting
+	if _, err := h.DB.GetModel(embedSlug); err != nil {
+		WriteError(w, http.StatusNotFound, "embedding model not found: "+embedSlug)
+		return
+	}
+	if _, err := h.DB.GetModel(rerankSlug); err != nil {
+		WriteError(w, http.StatusNotFound, "reranker model not found: "+rerankSlug)
+		return
 	}
 
 	started := make([]string, 0, 2)
 
-	// Start embed model if specified
-	if req.EmbedSlug != "" {
-		if _, err := h.DB.GetModel(embedSlug); err != nil {
-			WriteError(w, http.StatusNotFound, "embedding model not found: "+embedSlug)
-			return
-		}
-		if err := h.ContainerService.StartModelBySlugWithAllow(embedSlug, false); err != nil {
-			WriteError(w, http.StatusInternalServerError, "failed to start embedding model: "+err.Error())
-			return
-		}
-		started = append(started, embedSlug)
+	// Always start both resolved slugs (matching CLI behavior)
+	if err := h.ContainerService.StartModelBySlugWithAllow(embedSlug, false); err != nil {
+		WriteError(w, http.StatusInternalServerError, "failed to start embedding model: "+err.Error())
+		return
 	}
+	started = append(started, embedSlug)
 
-	// Start rerank model if specified
-	if req.RerankSlug != "" {
-		if _, err := h.DB.GetModel(rerankSlug); err != nil {
-			WriteError(w, http.StatusNotFound, "reranker model not found: "+rerankSlug)
-			return
-		}
-		if err := h.ContainerService.StartModelBySlugWithAllow(rerankSlug, false); err != nil {
-			WriteError(w, http.StatusInternalServerError, "failed to start reranker model: "+err.Error())
-			return
-		}
-		started = append(started, rerankSlug)
+	if err := h.ContainerService.StartModelBySlugWithAllow(rerankSlug, false); err != nil {
+		WriteError(w, http.StatusInternalServerError, "failed to start reranker model: "+err.Error())
+		return
 	}
-
-	// If both were resolved from defaults (empty in request), start both
-	if req.EmbedSlug == "" && req.RerankSlug == "" {
-		// Both were auto-resolved above; start both
-		if _, err := h.DB.GetModel(embedSlug); err != nil {
-			WriteError(w, http.StatusNotFound, "embedding model not found: "+embedSlug)
-			return
-		}
-		if err := h.ContainerService.StartModelBySlugWithAllow(embedSlug, false); err != nil {
-			WriteError(w, http.StatusInternalServerError, "failed to start embedding model: "+err.Error())
-			return
-		}
-		started = append(started, embedSlug)
-
-		if _, err := h.DB.GetModel(rerankSlug); err != nil {
-			WriteError(w, http.StatusNotFound, "reranker model not found: "+rerankSlug)
-			return
-		}
-		if err := h.ContainerService.StartModelBySlugWithAllow(rerankSlug, false); err != nil {
-			WriteError(w, http.StatusInternalServerError, "failed to start reranker model: "+err.Error())
-			return
-		}
-		started = append(started, rerankSlug)
-	}
+	started = append(started, rerankSlug)
 
 	WriteJSON(w, http.StatusOK, StartRAGResponse{Started: started})
 }
