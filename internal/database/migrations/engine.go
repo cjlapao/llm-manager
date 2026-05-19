@@ -212,6 +212,14 @@ func (e *Engine) runSingleMigration(m Migration, direction Direction) error {
 			continue
 		}
 		if err := e.db.Exec(stmt).Error; err != nil {
+			// Treat "duplicate column name" as success — the column already exists,
+			// which is the desired idempotent state. This handles the case where
+			// ensureLegacyColumns already added the column before the migration engine
+			// ran.
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "duplicate column") || strings.Contains(errMsg, "Duplicate column") {
+				continue
+			}
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
 	}
