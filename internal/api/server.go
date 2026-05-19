@@ -40,6 +40,13 @@ func StartAPIServer(ctx *APIContext, host string, port int, shutdownTimeout time
 	api.HandleFunc("/models/{slug}", modelHandler.DeleteModel).Methods(http.MethodDelete)
 	api.HandleFunc("/models/{slug}/info", modelHandler.GetModelInfo).Methods(http.MethodGet)
 
+	// Model utility routes (from model_util_handler.go)
+	modelUtilHandler := &ModelUtilHandler{h}
+	api.HandleFunc("/models/import", modelUtilHandler.ImportModel).Methods(http.MethodPost)
+	api.HandleFunc("/models/{slug}/export", modelUtilHandler.ExportModel).Methods(http.MethodGet)
+	api.HandleFunc("/models/{slug}/compose", modelUtilHandler.ComposeModel).Methods(http.MethodGet)
+	api.HandleFunc("/models/{slug}/cache", modelUtilHandler.ClearCache).Methods(http.MethodDelete)
+
 	// RAG routes (from rag_handler.go)
 	ragHandler := &RAGHandler{h}
 	api.HandleFunc("/rag", ragHandler.ListRAG).Methods(http.MethodGet)
