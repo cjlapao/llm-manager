@@ -28,7 +28,24 @@ func StartAPIServer(ctx *APIContext, host string, port int, shutdownTimeout time
 	api := router.PathPrefix("/api").Subrouter()
 	api.Use(JSONEnvelope)
 
-	// Register routes — initially empty; handlers will be registered by subsequent tasks
+	// Register routes — handlers registered by task branches
+	h := &APIContext{DB: ctx.DB, Config: ctx.Config, ModelService: ctx.ModelService, ContainerService: ctx.ContainerService}
+
+	// Model routes (from model_handler.go)
+	modelHandler := &ModelHandler{h}
+	api.HandleFunc("/models", modelHandler.ListModels).Methods(http.MethodGet)
+	api.HandleFunc("/models", modelHandler.CreateModel).Methods(http.MethodPost)
+	api.HandleFunc("/models/{slug}", modelHandler.GetModel).Methods(http.MethodGet)
+	api.HandleFunc("/models/{slug}", modelHandler.UpdateModel).Methods(http.MethodPut)
+	api.HandleFunc("/models/{slug}", modelHandler.DeleteModel).Methods(http.MethodDelete)
+	api.HandleFunc("/models/{slug}/info", modelHandler.GetModelInfo).Methods(http.MethodGet)
+
+	// RAG routes (from rag_handler.go)
+	ragHandler := &RAGHandler{h}
+	api.HandleFunc("/rag", ragHandler.ListRAG).Methods(http.MethodGet)
+	api.HandleFunc("/rag/start", ragHandler.StartRAG).Methods(http.MethodPost)
+	api.HandleFunc("/rag/stop", ragHandler.StopRAG).Methods(http.MethodPost)
+
 	// Placeholder health check to verify server is running
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
