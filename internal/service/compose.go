@@ -103,6 +103,10 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 	// Merge generated flags with existing args
 	result := MergeFlags(existingCmds, genFlags)
 
+	// Combine any remaining standalone "--flag" + value pairs into combined
+	// strings so the compose template renders them on a single line.
+	result = combineFlagPairs(result)
+
 	// Remove any existing --speculative-config to prevent collisions
 	// when the profile overrides it.
 	result = removeSpeculativeConfigFlag(result)

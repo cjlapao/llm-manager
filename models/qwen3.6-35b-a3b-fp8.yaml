@@ -34,6 +34,8 @@ profile:
   default_context: 262144
   max_context: 262144
   quant_bytes_per_param: 1.0
+  max_num_seqs: 8
+  max_num_batched_tokens: 32768
 
 command:
   - ${{ .hf_repo }}
