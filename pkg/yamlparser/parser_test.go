@@ -607,7 +607,8 @@ func TestValidate_ProfileNegativeTotalParams(t *testing.T) {
 }
 
 func TestValidate_ProfileNegativeActiveParams(t *testing.T) {
-	neg := -1.0
+	// -1.0 is a sentinel (allowed for non-MoE models); test with -2.0 which is invalid
+	neg := -2.0
 	y := &ModelYAML{
 		Slug:   "neg-active",
 		Name:   "Neg Active",
@@ -630,6 +631,25 @@ func TestValidate_ProfileNegativeActiveParams(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("Expected error about active_params_b, got: %v", errs)
+	}
+}
+
+func TestValidate_ProfileActiveParamsBSentinel(t *testing.T) {
+	// -1.0 is a sentinel value meaning "active params equals total params";
+	// used for non-MoE models where all params are active. Should NOT error.
+	sentinel := -1.0
+	y := &ModelYAML{
+		Slug:   "sentinel-active",
+		Name:   "Sentinel Active",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			ActiveParamsB: &sentinel,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) != 0 {
+		t.Errorf("Validate(active_params_b=-1.0 sentinel) should NOT return error, got: %v", errs)
 	}
 }
 

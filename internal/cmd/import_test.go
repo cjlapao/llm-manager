@@ -97,6 +97,14 @@ hf_repo: "test/import-model"
 container: test-import-container
 port: 8080
 
+profile:
+  total_params_b: 8.0
+  active_params_b: 8.0
+  attention_layers: 40
+  num_kv_heads: 8
+  head_dim: 128
+  quant_bytes_per_param: 2.0
+
 environment:
   VLLM_HOST: "0.0.0.0"
 
@@ -246,6 +254,14 @@ container: override-container
 port: 8080
 hf_repo: "test/override-model"
 
+profile:
+  total_params_b: 8.0
+  active_params_b: 8.0
+  attention_layers: 40
+  num_kv_heads: 8
+  head_dim: 128
+  quant_bytes_per_param: 2.0
+
 input_token_cost: 0.0000001
 output_token_cost: 0.0000001
 
@@ -271,6 +287,14 @@ engine: vllm
 container: override-container-v2
 port: 8081
 hf_repo: "test/override-model-v2"
+
+profile:
+  total_params_b: 8.0
+  active_params_b: 8.0
+  attention_layers: 40
+  num_kv_heads: 8
+  head_dim: 128
+  quant_bytes_per_param: 2.0
 
 input_token_cost: 0.0000002
 output_token_cost: 0.0000003

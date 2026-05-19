@@ -301,7 +301,11 @@ func validateProfile(p *ModelProfile) []error {
 		errs = append(errs, fmt.Errorf("profile.total_params_b must be > 0 (got %s)", formatCost(*p.TotalParamsB)))
 	}
 	if p.ActiveParamsB != nil && *p.ActiveParamsB <= 0 {
-		errs = append(errs, fmt.Errorf("profile.active_params_b must be > 0 (got %s)", formatCost(*p.ActiveParamsB)))
+		// -1.0 is a sentinel value meaning "active params equals total params"
+		// (used for non-MoE models where all params are active). Allow it.
+		if *p.ActiveParamsB < -1.0 {
+			errs = append(errs, fmt.Errorf("profile.active_params_b must be > 0 or -1.0 sentinel (got %s)", formatCost(*p.ActiveParamsB)))
+		}
 	}
 	if p.AttentionLayers != nil && *p.AttentionLayers < 0 {
 		errs = append(errs, fmt.Errorf("profile.attention_layers must be >= 0 (got %d)", *p.AttentionLayers))
