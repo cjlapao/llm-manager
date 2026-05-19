@@ -142,3 +142,31 @@ func MergeFlags(existingCmds []string, flags *GeneratedFlags) []string {
 
 	return result
 }
+
+// removeSpeculativeConfigFlag removes any --speculative-config flag and its value
+// from a command args slice, handling both combined and separate formats.
+func removeSpeculativeConfigFlag(cmds []string) []string {
+	result := make([]string, 0, len(cmds))
+	skipNext := false
+	for i, arg := range cmds {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if !strings.HasPrefix(arg, "--speculative-config") {
+			result = append(result, arg)
+			continue
+		}
+		// This is the flag — skip it and the next element if it's a separate value
+		if strings.Contains(arg, " ") {
+			// Combined format: "--speculative-config {...}" — skip it
+			continue
+		}
+		// Separate format: "--speculative-config" followed by value
+		if i+1 < len(cmds) {
+			skipNext = true
+		}
+		// Skip the flag itself
+	}
+	return result
+}

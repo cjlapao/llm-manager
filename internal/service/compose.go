@@ -32,6 +32,7 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 		DefaultContext:     derefOrZero(model.DefaultContext),
 		MaxContext:         derefOrZero(model.MaxContext),
 		QuantBytesPerParam: *model.QuantBytesPerParam,
+		MaxNumSeqs:         derefOrZero(model.MaxNumSeqs),
 	}
 
 	// Apply CLI overrides — non-zero values replace auto-calculated defaults
@@ -39,10 +40,18 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 	if overrides.MaxModelLen > 0 {
 		contextLen = overrides.MaxModelLen
 	}
+
+	// numSequences: CLI override > profile > hardcoded default (1)
 	numSequences := 1
+	if profile.MaxNumSeqs > 0 {
+		numSequences = profile.MaxNumSeqs
+	}
 	if overrides.MaxNumSeqs > 0 {
 		numSequences = overrides.MaxNumSeqs
 	}
+
+	// Profile-based MaxNumBatchedTokens override (yields to CLI override)
+	profileBatchedTokens := derefOrZero(model.MaxNumBatchedTokens)
 
 	// Extract MTP tokens from command args (same logic as checkGPUMemory)
 	mtpTokens := 0
@@ -85,10 +94,38 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 	if overrides.MaxNumBatchedTokens > 0 {
 		genFlags.MaxNumBatchedTokens = strconv.Itoa(overrides.MaxNumBatchedTokens)
 		fmt.Fprintf(os.Stderr, "  genFlags[override]: maxNumBatchedTokens=%s\n", genFlags.MaxNumBatchedTokens)
+	} else if profileBatchedTokens > 0 {
+		// Profile-based MaxNumBatchedTokens override (yields to CLI override)
+		genFlags.MaxNumBatchedTokens = strconv.Itoa(profileBatchedTokens)
+		fmt.Fprintf(os.Stderr, "  genFlags[profile]: maxNumBatchedTokens=%s\n", genFlags.MaxNumBatchedTokens)
 	}
 
 	// Merge generated flags with existing args
 	result := MergeFlags(existingCmds, genFlags)
+
+	// Remove any existing --speculative-config to prevent collisions
+	// when the profile overrides it.
+	result = removeSpeculativeConfigFlag(result)
+
+	// Inject --speculative-config if profile specifies it and model supports MTP
+	if model.SpeculativeDecoding != nil && *model.SpeculativeDecoding != "" &&
+		model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
+
+		method := *model.SpeculativeDecoding
+		tokens := *model.NumSpeculativeTokens
+
+		// Only inject if model supports MTP (NVFP4 does not support speculative decoding)
+		if model.SupportsMtp != nil && *model.SupportsMtp && model.QuantBytesPerParam != nil && *model.QuantBytesPerParam != 0.5 {
+			specConfig := fmt.Sprintf(`{"method":"%s","num_speculative_tokens":%d}`, method, tokens)
+			result = append(result, "--speculative-config", specConfig)
+			fmt.Fprintf(os.Stderr, "  [speculative] --speculative-config '%s'\n", specConfig)
+		} else if !(model.SupportsMtp != nil && *model.SupportsMtp) {
+			fmt.Fprintf(os.Stderr, "  [warning] speculative_decoding set but model does not support MTP\n")
+		} else if model.QuantBytesPerParam != nil && *model.QuantBytesPerParam == 0.5 {
+			fmt.Fprintf(os.Stderr, "  [warning] speculative_decoding set but NVFP4 does not support speculative decoding\n")
+		}
+	}
+
 	fmt.Fprintf(os.Stderr, "  merge result: %v\n", result)
 	return result
 }

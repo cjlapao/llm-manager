@@ -46,6 +46,10 @@ type Model struct {
 	DefaultContext       *int      `gorm:"column:default_context"`
 	MaxContext           *int      `gorm:"column:max_context"`
 	QuantBytesPerParam   *float64  `gorm:"column:quant_bytes_per_param"`
+	MaxNumSeqs           *int      `gorm:"column:max_num_seqs"`
+	MaxNumBatchedTokens  *int      `gorm:"column:max_num_batched_tokens"`
+	SpeculativeDecoding  *string   `gorm:"column:speculative_decoding"`
+	NumSpeculativeTokens *int      `gorm:"column:num_speculative_tokens"`
 	CreatedAt            time.Time `gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt            time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }

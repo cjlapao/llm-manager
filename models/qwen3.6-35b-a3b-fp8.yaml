@@ -8,7 +8,7 @@
 slug: qwen3.6-35b-a3b-fp8
 name: "Qwen3.6 35B-A3B FP8"
 engine: vllm
-engine_version: pgx-llm-v1
+engine_version: pgx-llm-v2
 hf_repo: "Qwen/Qwen3.6-35B-A3B-FP8"
 container: llm-qwen3.6-35b-a3b-fp8
 port: 8013
@@ -20,7 +20,7 @@ environment:
   VLLM_TEST_FORCE_FP8_MARLIN: 1
 
 input_token_cost: 0.00000228
-output_token_cost: 0.00000458
+output_token_cost: 0.00000456
 
 profile:
   total_params_b: 35
@@ -53,8 +53,6 @@ command:
   - "--disable-custom-all-reduce"
   - "--enable-expert-parallel"
   - "--mm-encoder-tp-mode data"
-  - "--attention-backend flashinfer"
-  - "--moe-backend marlin"
   - "--load-format instanttensor"
   - "--chat-template /app/templates/qwen3.5-chat-template.jinja"
 

@@ -35,6 +35,7 @@ type ModelProfile struct {
 	DefaultContext     int
 	MaxContext         int
 	QuantBytesPerParam float64 // bytes per param (2.0 BF16, 1.0 FP8, 0.5 NVFP4)
+	MaxNumSeqs         int     // optional override for number of concurrent sequences
 }
 
 // MemoryBreakdown holds per-component VRAM usage in MB.
@@ -93,6 +94,14 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 
 	bd := MemoryBreakdown{}
 
+	// Use profile override for numSequences if set, otherwise use the passed value.
+	// This allows the DB profile to adjust KV cache, GDN state, and prefix cache
+	// calculations independently of the CLI override (which only affects flags).
+	seqs := numSequences
+	if profile.MaxNumSeqs > 0 {
+		seqs = profile.MaxNumSeqs
+	}
+
 	// 1. Model Weights
 	bd.WeightsMB = int(profile.TotalParamsB * profile.QuantBytesPerParam * 1024)
 
@@ -103,7 +112,7 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 	// because vLLM pre-allocates KV cache for that length at startup.
 	if profile.AttentionLayers > 0 {
 		kvPerToken := float64(2 * profile.NumKvHeads * profile.HeadDim * profile.AttentionLayers * int(kvDtypeBytes))
-		bd.KVCacheMB = int(kvPerToken*float64(contextLen*numSequences)) / (1024 * 1024)
+		bd.KVCacheMB = int(kvPerToken*float64(contextLen*seqs)) / (1024 * 1024)
 		// Use full-context KV for utilization calculation — vLLM needs this
 		// much KV cache memory reserved. The "realistic" estimate was causing
 		// OOM because vLLM pre-allocates KV cache for max_model_len.
@@ -112,11 +121,11 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 
 	// 3. GDN Recurrent State (hybrid models only)
 	if profile.GdnLayers > 0 {
-		bd.GDNStateMB = 50 * numSequences
+		bd.GDNStateMB = 50 * seqs
 	}
 
 	// 4. Prefix Cache Overhead
-	if numSequences >= 2 {
+	if seqs >= 2 {
 		bd.PrefixCacheMB = 2048 // heavy multi-agent
 	} else {
 		bd.PrefixCacheMB = 1024 // standard
@@ -286,6 +295,7 @@ func EstimateMemory(model *models.Model) (*MemoryResult, error) {
 		DefaultContext:     defaultContext,
 		MaxContext:         maxContext,
 		QuantBytesPerParam: *model.QuantBytesPerParam,
+		MaxNumSeqs:         derefOrZero(model.MaxNumSeqs),
 	}
 
 	return CalculateMemory(profile, *model.QuantBytesPerParam, defaultContext, 1, 0, 0)
