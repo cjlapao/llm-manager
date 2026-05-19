@@ -15,12 +15,12 @@ type ModelHandler struct {
 
 // ListModels handles GET /api/models — returns all models as a JSON array.
 func (h *ModelHandler) ListModels(w http.ResponseWriter, r *http.Request) {
-	models, err := h.ModelService.ListModels()
+	allModels, err := h.ModelService.ListModels()
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "failed to list models: "+err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, models)
+	WriteJSON(w, http.StatusOK, allModels)
 }
 
 // CreateModel handles POST /api/models — creates a new model from a JSON body.
@@ -58,6 +58,11 @@ func (h *ModelHandler) UpdateModel(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	slug := vars["slug"]
 
+	if slug == "" {
+		WriteError(w, http.StatusBadRequest, "slug is required")
+		return
+	}
+
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 		WriteError(w, http.StatusBadRequest, "malformed JSON body: "+err.Error())
@@ -69,7 +74,13 @@ func (h *ModelHandler) UpdateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	WriteJSON(w, http.StatusOK, map[string]string{"message": "model updated"})
+	updated, err := h.ModelService.GetModel(slug)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "failed to retrieve updated model: "+err.Error())
+		return
+	}
+
+	WriteJSON(w, http.StatusOK, updated)
 }
 
 // DeleteModel handles DELETE /api/models/{slug} — deletes a model by slug.
@@ -77,8 +88,13 @@ func (h *ModelHandler) DeleteModel(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	slug := vars["slug"]
 
+	if slug == "" {
+		WriteError(w, http.StatusBadRequest, "slug is required")
+		return
+	}
+
 	if err := h.ModelService.DeleteModel(slug); err != nil {
-		WriteError(w, http.StatusInternalServerError, "failed to delete model: "+err.Error())
+		WriteError(w, http.StatusNotFound, "model not found: "+slug)
 		return
 	}
 
@@ -88,22 +104,37 @@ func (h *ModelHandler) DeleteModel(w http.ResponseWriter, r *http.Request) {
 // ModelInfoResponse is the enriched response shape for GET /api/models/{slug}/info.
 // It includes the model record with JSON string fields parsed into typed objects.
 type ModelInfoResponse struct {
-	Slug            string                 `json:"slug"`
-	Type            string                 `json:"type"`
-	SubType         string                 `json:"sub_type"`
-	Name            string                 `json:"name"`
-	HFRepo          string                 `json:"hf_repo"`
-	Container       string                 `json:"container"`
-	Port            int                    `json:"port"`
-	EngineType      string                 `json:"engine_type"`
-	InputTokenCost  float64                `json:"input_token_cost"`
-	OutputTokenCost float64                `json:"output_token_cost"`
-	Capabilities    []string               `json:"capabilities"`
-	LiteLLMParams   map[string]interface{} `json:"litellm_params"`
-	ModelInfo       map[string]interface{} `json:"model_info"`
-	Default         bool                   `json:"default"`
-	CreatedAt       string                 `json:"created_at"`
-	UpdatedAt       string                 `json:"updated_at"`
+	Slug                 string                 `json:"slug"`
+	Type                 string                 `json:"type"`
+	SubType              string                 `json:"sub_type"`
+	Name                 string                 `json:"name"`
+	HFRepo               string                 `json:"hf_repo"`
+	Container            string                 `json:"container"`
+	Port                 int                    `json:"port"`
+	EngineType           string                 `json:"engine_type"`
+	InputTokenCost       float64                `json:"input_token_cost"`
+	OutputTokenCost      float64                `json:"output_token_cost"`
+	Capabilities         []string               `json:"capabilities"`
+	LiteLLMParams        map[string]interface{} `json:"litellm_params"`
+	ModelInfo            map[string]interface{} `json:"model_info"`
+	Default              bool                   `json:"default"`
+	TotalParamsB         *float64               `json:"total_params_b"`
+	ActiveParamsB        *float64               `json:"active_params_b"`
+	IsMoe                *bool                  `json:"is_moe"`
+	AttentionLayers      *int                   `json:"attention_layers"`
+	GdnLayers            *int                   `json:"gdn_layers"`
+	NumKvHeads           *int                   `json:"num_kv_heads"`
+	HeadDim              *int                   `json:"head_dim"`
+	SupportsMtp          *bool                  `json:"supports_mtp"`
+	DefaultContext       *int                   `json:"default_context"`
+	MaxContext           *int                   `json:"max_context"`
+	QuantBytesPerParam   *float64               `json:"quant_bytes_per_param"`
+	MaxNumSeqs           *int                   `json:"max_num_seqs"`
+	MaxNumBatchedTokens  *int                   `json:"max_num_batched_tokens"`
+	SpeculativeDecoding  *string                `json:"speculative_decoding"`
+	NumSpeculativeTokens *int                   `json:"num_speculative_tokens"`
+	CreatedAt            string                 `json:"created_at"`
+	UpdatedAt            string                 `json:"updated_at"`
 }
 
 // GetModelInfo handles GET /api/models/{slug}/info — returns model with parsed
@@ -143,22 +174,37 @@ func (h *ModelHandler) GetModelInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := ModelInfoResponse{
-		Slug:            model.Slug,
-		Type:            model.Type,
-		SubType:         model.SubType,
-		Name:            model.Name,
-		HFRepo:          model.HFRepo,
-		Container:       model.Container,
-		Port:            model.Port,
-		EngineType:      model.EngineType,
-		InputTokenCost:  model.InputTokenCost,
-		OutputTokenCost: model.OutputTokenCost,
-		Capabilities:    capabilities,
-		LiteLLMParams:   liteLLMParams,
-		ModelInfo:       modelInfo,
-		Default:         model.Default,
-		CreatedAt:       model.CreatedAt.String(),
-		UpdatedAt:       model.UpdatedAt.String(),
+		Slug:                 model.Slug,
+		Type:                 model.Type,
+		SubType:              model.SubType,
+		Name:                 model.Name,
+		HFRepo:               model.HFRepo,
+		Container:            model.Container,
+		Port:                 model.Port,
+		EngineType:           model.EngineType,
+		InputTokenCost:       model.InputTokenCost,
+		OutputTokenCost:      model.OutputTokenCost,
+		Capabilities:         capabilities,
+		LiteLLMParams:        liteLLMParams,
+		ModelInfo:            modelInfo,
+		Default:              model.Default,
+		TotalParamsB:         model.TotalParamsB,
+		ActiveParamsB:        model.ActiveParamsB,
+		IsMoe:                model.IsMoe,
+		AttentionLayers:      model.AttentionLayers,
+		GdnLayers:            model.GdnLayers,
+		NumKvHeads:           model.NumKvHeads,
+		HeadDim:              model.HeadDim,
+		SupportsMtp:          model.SupportsMtp,
+		DefaultContext:       model.DefaultContext,
+		MaxContext:           model.MaxContext,
+		QuantBytesPerParam:   model.QuantBytesPerParam,
+		MaxNumSeqs:           model.MaxNumSeqs,
+		MaxNumBatchedTokens:  model.MaxNumBatchedTokens,
+		SpeculativeDecoding:  model.SpeculativeDecoding,
+		NumSpeculativeTokens: model.NumSpeculativeTokens,
+		CreatedAt:           model.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:           model.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
 	WriteJSON(w, http.StatusOK, response)
