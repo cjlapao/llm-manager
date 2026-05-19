@@ -20,7 +20,7 @@ environment:
   VLLM_TEST_FORCE_FP8_MARLIN: 1
 
 input_token_cost: 0.00000228
-output_token_cost: 0.00000456
+output_token_cost: 0.00000458
 
 profile:
   total_params_b: 35
@@ -57,7 +57,7 @@ command:
   - "--moe-backend marlin"
   - "--load-format instanttensor"
   - "--chat-template /app/templates/qwen3.5-chat-template.jinja"
-  - 
+
 capabilities:
   - reasoning
   - tool-use

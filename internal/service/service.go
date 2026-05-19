@@ -1248,28 +1248,21 @@ func (s *ContainerService) StartModelBySlug(slug string) error {
 	projectName := "rag-" + strings.ReplaceAll(model.Slug, ".", "-")
 	composeDir := filepath.Dir(ymlPath)
 
-	// Check if the container already exists
-	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Status}}", model.Container)
-	if _, err := cmd.CombinedOutput(); err != nil {
-		// Container doesn't exist — create it
-		fmt.Fprintf(os.Stderr, "  Container %s does not exist — creating via compose...\n", model.Container)
+	// Aggressively clean up any existing container with the same name, regardless of state.
+	// This covers containers that were manually created, left over from crashed sessions,
+	// or created by a different compose project that used the same container name.
+	// docker compose up cannot reuse a name that is already in use (even if stopped).
+	fmt.Fprintf(os.Stderr, "  Cleaning up stale container %s...\n", model.Container)
+	exec.Command("docker", "stop", model.Container).Run() // stop if running, ignore errors
+	exec.Command("docker", "rm", "-f", model.Container).Run() // force remove, ignore errors
 
-		composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
-		composeUp.Dir = composeDir
-		if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
-			return fmt.Errorf("failed to create container %s: %s (%w)", model.Container, string(composeOut), composeErr)
-		}
-		fmt.Printf("Container %s created\n", model.Container)
-	} else {
-		// Container exists — bring it up with the regenerated compose YAML
-		// so engine config changes are picked up.
-		composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
-		composeUp.Dir = composeDir
-		if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
-			return fmt.Errorf("failed to start container %s: %s (%w)", model.Container, string(composeOut), composeErr)
-		}
-		fmt.Printf("Container %s started\n", model.Container)
+	// Always create fresh via compose
+	composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
+	composeUp.Dir = composeDir
+	if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
+		return fmt.Errorf("failed to create container %s: %s (%w)", model.Container, string(composeOut), composeErr)
 	}
+	fmt.Printf("Container %s created\n", model.Container)
 
 	return nil
 }
@@ -1387,28 +1380,21 @@ func (s *ContainerService) StartModelBySlugWithAllow(slug string, allowMultiple 
 	projectName := "rag-" + strings.ReplaceAll(model.Slug, ".", "-")
 	composeDir := filepath.Dir(ymlPath)
 
-	// Check if the container already exists
-	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Status}}", model.Container)
-	if _, err := cmd.CombinedOutput(); err != nil {
-		// Container doesn't exist — create it
-		fmt.Fprintf(os.Stderr, "  Container %s does not exist — creating via compose...\n", model.Container)
+	// Aggressively clean up any existing container with the same name, regardless of state.
+	// This covers containers that were manually created, left over from crashed sessions,
+	// or created by a different compose project that used the same container name.
+	// docker compose up cannot reuse a name that is already in use (even if stopped).
+	fmt.Fprintf(os.Stderr, "  Cleaning up stale container %s...\n", model.Container)
+	exec.Command("docker", "stop", model.Container).Run() // stop if running, ignore errors
+	exec.Command("docker", "rm", "-f", model.Container).Run() // force remove, ignore errors
 
-		composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
-		composeUp.Dir = composeDir
-		if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
-			return fmt.Errorf("failed to create container %s: %s (%w)", model.Container, string(composeOut), composeErr)
-		}
-		fmt.Printf("Container %s created\n", model.Container)
-	} else {
-		// Container exists — bring it up with the regenerated compose YAML
-		// so engine config changes are picked up.
-		composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
-		composeUp.Dir = composeDir
-		if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
-			return fmt.Errorf("failed to start container %s: %s (%w)", model.Container, string(composeOut), composeErr)
-		}
-		fmt.Printf("Container %s started\n", model.Container)
+	// Always create fresh via compose
+	composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
+	composeUp.Dir = composeDir
+	if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
+		return fmt.Errorf("failed to create container %s: %s (%w)", model.Container, string(composeOut), composeErr)
 	}
+	fmt.Printf("Container %s created\n", model.Container)
 
 	return nil
 }

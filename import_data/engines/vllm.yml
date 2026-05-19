@@ -7,7 +7,7 @@ versions:
   - slug: pgx-llm-v1
     version: "001"
     container_name: vllm-node
-    image: cjlapao/pgx-vllm-gb10-nvfp4:230426
+    image: cjlapao/pgx-vllm-gb10-nvfp4:180526
     entrypoint:
       - python3
       - -m
