@@ -87,6 +87,10 @@ func ParseExistingFlags(cmds []string) map[string]string {
 // MergeFlags takes existing command args and merges auto-generated flags into them.
 // Existing flags are replaced by value; missing flags are appended.
 // All other YAML-provided flags remain untouched.
+//
+// Flags are output as combined strings ("--flag value") so the compose template
+// renders them on a single line instead of splitting flag and value onto
+// separate lines.
 func MergeFlags(existingCmds []string, flags *GeneratedFlags) []string {
 	replacements := map[string]string{
 		"max-model-len":          flags.MaxModelLen,
@@ -110,8 +114,8 @@ func MergeFlags(existingCmds []string, flags *GeneratedFlags) []string {
 			parts := strings.SplitN(arg, " ", 2)
 			flagName := strings.TrimPrefix(parts[0], "--")
 			if newVal, ok := replacements[flagName]; ok {
-				// Replace the value of this flag with separate elements
-				result = append(result, fmt.Sprintf("--%s", flagName), newVal)
+				// Replace the value of this flag as a combined string
+				result = append(result, fmt.Sprintf("--%s %s", flagName, newVal))
 				done[flagName] = true
 				continue
 			}
@@ -123,8 +127,8 @@ func MergeFlags(existingCmds []string, flags *GeneratedFlags) []string {
 		flagName := strings.TrimPrefix(arg, "--")
 		if newVal, ok := replacements[flagName]; ok {
 			if i+1 < len(existingCmds) {
-				// Replace the value of this flag with separate elements
-				result = append(result, fmt.Sprintf("--%s", flagName), newVal)
+				// Replace the value as a combined string
+				result = append(result, fmt.Sprintf("--%s %s", flagName, newVal))
 				done[flagName] = true
 				i++ // skip the old value element
 				continue
@@ -133,12 +137,59 @@ func MergeFlags(existingCmds []string, flags *GeneratedFlags) []string {
 		result = append(result, arg)
 	}
 
-	// Append missing flags
+	// Append missing flags as combined strings
 	for name, val := range replacements {
 		if !done[name] {
-			result = append(result, fmt.Sprintf("--%s", name), val)
+			result = append(result, fmt.Sprintf("--%s %s", name, val))
 		}
 	}
 
+	return result
+}
+
+// removeSpeculativeConfigFlag removes any --speculative-config flag and its value
+// from a command args slice, handling both combined and separate formats.
+func removeSpeculativeConfigFlag(cmds []string) []string {
+	result := make([]string, 0, len(cmds))
+	skipNext := false
+	for i, arg := range cmds {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if !strings.HasPrefix(arg, "--speculative-config") {
+			result = append(result, arg)
+			continue
+		}
+		// This is the flag — skip it and the next element if it's a separate value
+		if strings.Contains(arg, " ") {
+			// Combined format: "--speculative-config {...}" — skip it
+			continue
+		}
+		// Separate format: "--speculative-config" followed by value
+		if i+1 < len(cmds) {
+			skipNext = true
+		}
+		// Skip the flag itself
+	}
+	return result
+}
+
+// combineFlagPairs walks a command args slice and merges any standalone "--flag"
+// elements that are immediately followed by their value (a non-flag string) into
+// combined "--flag value" strings. This ensures the compose template renders each
+// flag+value pair on a single line.
+func combineFlagPairs(cmds []string) []string {
+	result := make([]string, 0, len(cmds))
+	for i := 0; i < len(cmds); i++ {
+		arg := cmds[i]
+		if strings.HasPrefix(arg, "--") && i+1 < len(cmds) && !strings.HasPrefix(cmds[i+1], "--") {
+			// Combine flag with its value
+			result = append(result, arg+" "+cmds[i+1])
+			i++ // skip the value element
+		} else {
+			result = append(result, arg)
+		}
+	}
 	return result
 }

@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-//go:embed 001_create_schema/*.sql 002_add_default_column/*.sql 003_create_engine_tables/*.sql 004_add_model_profile_columns/*.sql
+//go:embed 001_create_schema/*.sql 002_add_default_column/*.sql 003_create_engine_tables/*.sql 004_add_model_profile_columns/*.sql 005_add_runtime_tuning_columns/*.sql
 var migrationFS embed.FS
 
 // Direction indicates which way a migration runs.
@@ -61,6 +61,7 @@ func (e *Engine) loadMigrations() error {
 		{2, "add_default_column", "002_add_default_column/up.sql", "002_add_default_column/down.sql"},
 		{3, "create_engine_tables", "003_create_engine_tables/up.sql", "003_create_engine_tables/down.sql"},
 		{4, "add_model_profile_columns", "004_add_model_profile_columns/up.sql", "004_add_model_profile_columns/down.sql"},
+		{5, "add_runtime_tuning_columns", "005_add_runtime_tuning_columns/up.sql", "005_add_runtime_tuning_columns/down.sql"},
 	}
 
 	for _, f := range files {
@@ -211,6 +212,14 @@ func (e *Engine) runSingleMigration(m Migration, direction Direction) error {
 			continue
 		}
 		if err := e.db.Exec(stmt).Error; err != nil {
+			// Treat "duplicate column name" as success — the column already exists,
+			// which is the desired idempotent state. This handles the case where
+			// ensureLegacyColumns already added the column before the migration engine
+			// ran.
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "duplicate column") || strings.Contains(errMsg, "Duplicate column") {
+				continue
+			}
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
 	}

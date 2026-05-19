@@ -249,6 +249,10 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		model.DefaultContext = y.Profile.DefaultContext
 		model.MaxContext = y.Profile.MaxContext
 		model.QuantBytesPerParam = y.Profile.QuantBytesPerParam
+		model.MaxNumSeqs = y.Profile.MaxNumSeqs
+		model.MaxNumBatchedTokens = y.Profile.MaxNumBatchedTokens
+		model.SpeculativeDecoding = y.Profile.SpeculativeDecoding
+		model.NumSpeculativeTokens = y.Profile.NumSpeculativeTokens
 	}
 
 	// Marshal litellm_params and model_info to JSON for DB storage
@@ -510,6 +514,10 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 			DefaultContext:     model.DefaultContext,
 			MaxContext:         model.MaxContext,
 			QuantBytesPerParam: model.QuantBytesPerParam,
+			MaxNumSeqs:         model.MaxNumSeqs,
+			MaxNumBatchedTokens: model.MaxNumBatchedTokens,
+			SpeculativeDecoding: model.SpeculativeDecoding,
+			NumSpeculativeTokens: model.NumSpeculativeTokens,
 		}
 	}
 

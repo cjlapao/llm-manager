@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -298,5 +299,175 @@ func TestCalculateMemory_VisionEncoder_Scaling(t *testing.T) {
 				t.Errorf("VisionEncoderMB = %d, want %d", result.Breakdown.VisionEncoderMB, tt.wantVisionMB)
 			}
 		})
+	}
+}
+
+// --- RAG Encoder Memory Tests ---
+
+func TestCalculateMemory_RAGEncoder_BF16(t *testing.T) {
+	// Encoder model (0 attention layers) with BF16 quantization.
+	// This is the path used for embedding and reranker RAG models.
+	profile := ModelProfile{
+		TotalParamsB:       0.6,
+		ActiveParamsB:      0.6,
+		IsMoe:              false,
+		AttentionLayers:    0,
+		GdnLayers:          0,
+		NumKvHeads:         0,
+		HeadDim:            0,
+		SupportsMtp:        false,
+		SupportsVision:     false,
+		DefaultContext:     8192,
+		MaxContext:         8192,
+		QuantBytesPerParam: 2.0, // BF16
+	}
+
+	result, err := CalculateMemory(profile, 2.0, 8192, 1, 0, 0)
+	if err != nil {
+		t.Fatalf("CalculateMemory() error: %v", err)
+	}
+
+	// Weights: 0.6 * 2.0 * 1024 = 1228.8 → truncated to 1228
+	if result.Breakdown.WeightsMB != 1228 {
+		t.Errorf("WeightsMB = %d, want 1228", result.Breakdown.WeightsMB)
+	}
+
+	// Encoder has no attention layers → KV cache is 0
+	if result.Breakdown.KVCacheMB != 0 {
+		t.Errorf("KVCacheMB = %d, want 0 for encoder", result.Breakdown.KVCacheMB)
+	}
+
+	// No GDN layers
+	if result.Breakdown.GDNStateMB != 0 {
+		t.Errorf("GDNStateMB = %d, want 0", result.Breakdown.GDNStateMB)
+	}
+
+	// numSequences=1 → standard prefix cache
+	if result.Breakdown.PrefixCacheMB != 1024 {
+		t.Errorf("PrefixCacheMB = %d, want 1024", result.Breakdown.PrefixCacheMB)
+	}
+
+	// No MTP support
+	if result.Breakdown.MTPMB != 0 {
+		t.Errorf("MTPMB = %d, want 0", result.Breakdown.MTPMB)
+	}
+
+	// Encoder path: CUDA context = 1500
+	if result.Breakdown.CUDAContextMB != 1500 {
+		t.Errorf("CUDAContextMB = %d, want 1500 for encoder", result.Breakdown.CUDAContextMB)
+	}
+
+	// Encoder path: off-budget = 500
+	if result.Breakdown.OffBudgetMB != 500 {
+		t.Errorf("OffBudgetMB = %d, want 500 for encoder", result.Breakdown.OffBudgetMB)
+	}
+
+	// No vision
+	if result.Breakdown.VisionEncoderMB != 0 {
+		t.Errorf("VisionEncoderMB = %d, want 0", result.Breakdown.VisionEncoderMB)
+	}
+
+	// Total: 1228 + 0 + 0 + 1024 + 0 + 1500 + 500 + 0 = 4252
+	if result.TotalMB != 4252 {
+		t.Errorf("TotalMB = %d, want 4252", result.TotalMB)
+	}
+
+	// Fits on GPU? 4252 <= 121856 → true
+	if !result.FitsAtMaxContext {
+		t.Errorf("FitsAtMaxContext = false, want true")
+	}
+
+	// GPU utilization: (4252 / 121856) * 1.02 = 0.0356 → ceil to 0.04
+	if result.GPUMemoryUtilization != 0.04 {
+		t.Errorf("GPUMemoryUtilization = %.4f, want 0.04", result.GPUMemoryUtilization)
+	}
+}
+
+func TestCalculateMemory_RAGEncoder_Reranker_BF16(t *testing.T) {
+	// Reranker model has identical profile structure to embedding model.
+	// Verify it produces the same memory result.
+	profile := ModelProfile{
+		TotalParamsB:       0.6,
+		ActiveParamsB:      0.6,
+		IsMoe:              false,
+		AttentionLayers:    0,
+		GdnLayers:          0,
+		NumKvHeads:         0,
+		HeadDim:            0,
+		SupportsMtp:        false,
+		SupportsVision:     false,
+		DefaultContext:     8192,
+		MaxContext:         8192,
+		QuantBytesPerParam: 2.0, // BF16
+	}
+
+	result, err := CalculateMemory(profile, 2.0, 8192, 1, 0, 0)
+	if err != nil {
+		t.Fatalf("CalculateMemory() error: %v", err)
+	}
+
+	// Reranker should produce the same total as embedding model
+	if result.TotalMB != 4252 {
+		t.Errorf("TotalMB = %d, want 4252 (same as embed)", result.TotalMB)
+	}
+	if result.GPUMemoryUtilization != 0.04 {
+		t.Errorf("GPUMemoryUtilization = %.4f, want 0.04", result.GPUMemoryUtilization)
+	}
+	if !result.FitsAtMaxContext {
+		t.Errorf("FitsAtMaxContext = false, want true")
+	}
+}
+
+func TestCalculateMemory_RAGEncoder_FP8(t *testing.T) {
+	// Same encoder profile but with FP8 quantization (1.0 bytes/param).
+	profile := ModelProfile{
+		TotalParamsB:       0.6,
+		ActiveParamsB:      0.6,
+		IsMoe:              false,
+		AttentionLayers:    0,
+		GdnLayers:          0,
+		NumKvHeads:         0,
+		HeadDim:            0,
+		SupportsMtp:        false,
+		SupportsVision:     false,
+		DefaultContext:     8192,
+		MaxContext:         8192,
+		QuantBytesPerParam: 1.0, // FP8
+	}
+
+	result, err := CalculateMemory(profile, 1.0, 8192, 1, 0, 0)
+	if err != nil {
+		t.Fatalf("CalculateMemory() error: %v", err)
+	}
+
+	// Weights: 0.6 * 1.0 * 1024 = 614.4 → truncated to 614
+	if result.Breakdown.WeightsMB != 614 {
+		t.Errorf("WeightsMB = %d, want 614", result.Breakdown.WeightsMB)
+	}
+
+	// Total: 614 + 0 + 0 + 1024 + 0 + 1500 + 500 + 0 = 3638
+	if result.TotalMB != 3638 {
+		t.Errorf("TotalMB = %d, want 3638", result.TotalMB)
+	}
+
+	if !result.FitsAtMaxContext {
+		t.Errorf("FitsAtMaxContext = false, want true")
+	}
+}
+
+func TestCalculateMemory_NoProfileData(t *testing.T) {
+	// Model with zero/invalid profile should return an error, not panic.
+	profile := ModelProfile{
+		TotalParamsB: 0,
+	}
+
+	_, err := CalculateMemory(profile, 2.0, 8192, 1, 0, 0)
+	if err == nil {
+		t.Fatalf("CalculateMemory() expected error for zero profile, got nil")
+	}
+
+	wantMsg := "total_params_b must be > 0"
+	if !strings.Contains(err.Error(), wantMsg) {
+		t.Errorf("error = %q, want to contain %q", err.Error(), wantMsg)
 	}
 }

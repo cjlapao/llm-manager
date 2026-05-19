@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/user/llm-manager/internal/service"
+	"github.com/user/llm-manager/internal/database/models"
 )
 
 func init() {
@@ -403,11 +404,14 @@ func (c *RagCommand) runInfo() int {
 		return 0
 	}
 
-	// Embed section
-	if len(embedModels) > 0 {
-		fmt.Println("Embed Models")
+	// displayModelInfo prints structured info for a single model, including memory estimates.
+	displayModelInfo := func(title string, modelsList []models.Model) {
+		if len(modelsList) == 0 {
+			return
+		}
+		fmt.Println(title)
 		fmt.Println(strings.Repeat("─", 60))
-		for _, m := range embedModels {
+		for _, m := range modelsList {
 			status, statusErr := c.svc.GetModelStatus(m.Slug)
 			if statusErr != nil {
 				fmt.Fprintf(os.Stderr, "  Warning: could not get status for %s: %v\n", m.Slug, statusErr)
@@ -423,36 +427,32 @@ func (c *RagCommand) runInfo() int {
 			fmt.Printf("  Container:  %s\n", status.Container)
 			fmt.Printf("  Port:       %d\n", status.Port)
 			fmt.Printf("  Status:     %s\n", status.Status)
+
+			// Memory estimate
+			mem, err := c.svc.EstimateMemory(m.Slug)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  Warning: could not calculate memory for %s: %v\n", m.Slug, err)
+			} else if mem != nil {
+				fmt.Printf("  VRAM (est): %.0f MB (weights: %d, CUDA: %d, off-budget: %d)\n",
+					float64(mem.TotalRealisticMB),
+					mem.Breakdown.WeightsMB,
+					mem.Breakdown.CUDAContextMB,
+					mem.Breakdown.OffBudgetMB,
+				)
+				fmt.Printf("  GPU mem util:   %.2f\n", mem.GPUMemoryUtilization)
+			} else {
+				fmt.Println("  VRAM (est):     N/A (no profile data)")
+			}
 			fmt.Println(strings.Repeat("─", 60))
 		}
 	}
 
-	// Rerank section
-	if len(rerankModels) > 0 {
-		fmt.Println("Rerank Models")
-		fmt.Println(strings.Repeat("─", 60))
-		for _, m := range rerankModels {
-			status, statusErr := c.svc.GetModelStatus(m.Slug)
-			if statusErr != nil {
-				fmt.Fprintf(os.Stderr, "  Warning: could not get status for %s: %v\n", m.Slug, statusErr)
-				continue
-			}
-
-			fmt.Printf("  Name:       %s\n", status.Name)
-			fmt.Printf("  Slug:       %s", m.Slug)
-			if m.Default {
-				fmt.Print(" (default)")
-			}
-			fmt.Println()
-			fmt.Printf("  Container:  %s\n", status.Container)
-			fmt.Printf("  Port:       %d\n", status.Port)
-			fmt.Printf("  Status:     %s\n", status.Status)
-			fmt.Println(strings.Repeat("─", 60))
-		}
-	}
+	displayModelInfo("Embed Models", embedModels)
+	displayModelInfo("Rerank Models", rerankModels)
 
 	return 0
 }
+
 
 // PrintHelp prints the rag command help.
 func (c *RagCommand) PrintHelp() {

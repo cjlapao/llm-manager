@@ -80,7 +80,12 @@ type ModelProfile struct {
 	SupportsMtp        *bool    `yaml:"supports_mtp"`
 	DefaultContext     *int     `yaml:"default_context"`
 	MaxContext         *int     `yaml:"max_context"`
-	QuantBytesPerParam *float64 `yaml:"quant_bytes_per_param"`
+	QuantBytesPerParam   *float64 `yaml:"quant_bytes_per_param"`
+	// New fields for runtime tuning
+	MaxNumSeqs           *int     `yaml:"max_num_seqs"`
+	MaxNumBatchedTokens  *int     `yaml:"max_num_batched_tokens"`
+	SpeculativeDecoding  *string  `yaml:"speculative_decoding"` // e.g., "mtp"
+	NumSpeculativeTokens *int     `yaml:"num_speculative_tokens"`
 }
 
 // ModelYAML represents the YAML schema for model import.
@@ -304,11 +309,11 @@ func validateProfile(p *ModelProfile) []error {
 	if p.GdnLayers != nil && *p.GdnLayers < 0 {
 		errs = append(errs, fmt.Errorf("profile.gdn_layers must be >= 0 (got %d)", *p.GdnLayers))
 	}
-	if p.NumKvHeads != nil && *p.NumKvHeads <= 0 {
-		errs = append(errs, fmt.Errorf("profile.num_kv_heads must be > 0 (got %d)", *p.NumKvHeads))
+	if p.NumKvHeads != nil && *p.NumKvHeads < 0 {
+		errs = append(errs, fmt.Errorf("profile.num_kv_heads must be >= 0 (got %d)", *p.NumKvHeads))
 	}
-	if p.HeadDim != nil && *p.HeadDim <= 0 {
-		errs = append(errs, fmt.Errorf("profile.head_dim must be > 0 (got %d)", *p.HeadDim))
+	if p.HeadDim != nil && *p.HeadDim < 0 {
+		errs = append(errs, fmt.Errorf("profile.head_dim must be >= 0 (got %d)", *p.HeadDim))
 	}
 	if p.DefaultContext != nil && *p.DefaultContext <= 0 {
 		errs = append(errs, fmt.Errorf("profile.default_context must be > 0 (got %d)", *p.DefaultContext))
@@ -322,6 +327,27 @@ func validateProfile(p *ModelProfile) []error {
 		} else if _, ok := validQuantBytesPerParam[*p.QuantBytesPerParam]; !ok {
 			errs = append(errs, fmt.Errorf("profile.quant_bytes_per_param must be one of 0.5, 1.0, 2.0 (got %s)", formatCost(*p.QuantBytesPerParam)))
 		}
+	}
+
+	// Validate new runtime-tuning fields
+	if p.MaxNumSeqs != nil && *p.MaxNumSeqs <= 0 {
+		errs = append(errs, fmt.Errorf("profile.max_num_seqs must be > 0 (got %d)", *p.MaxNumSeqs))
+	}
+	if p.MaxNumBatchedTokens != nil && *p.MaxNumBatchedTokens <= 0 {
+		errs = append(errs, fmt.Errorf("profile.max_num_batched_tokens must be > 0 (got %d)", *p.MaxNumBatchedTokens))
+	}
+	if p.SpeculativeDecoding != nil {
+		switch *p.SpeculativeDecoding {
+		case "mtp":
+			// valid
+		case "":
+			// empty is fine (disabled)
+		default:
+			errs = append(errs, fmt.Errorf("profile.speculative_decoding must be one of mtp (got %q)", *p.SpeculativeDecoding))
+		}
+	}
+	if p.NumSpeculativeTokens != nil && *p.NumSpeculativeTokens <= 0 {
+		errs = append(errs, fmt.Errorf("profile.num_speculative_tokens must be > 0 (got %d)", *p.NumSpeculativeTokens))
 	}
 
 	return errs

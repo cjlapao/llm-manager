@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -92,11 +93,11 @@ func TestMergeFlags_ReplacesExistingFlags(t *testing.T) {
 
 	result := MergeFlags(existingCmds, flags)
 
-	// Verify replaced flags are separate elements
-	checkFlagValue(t, result, "max-model-len", "8192")
-	checkFlagValue(t, result, "max-num-batched-tokens", "16384")
-	checkFlagValue(t, result, "max-num-seqs", "4")
-	checkFlagValue(t, result, "gpu-memory-utilization", "0.85")
+	// Verify replaced flags are combined strings ("--flag value")
+	checkCombinedFlagValue(t, result, "max-model-len", "8192")
+	checkCombinedFlagValue(t, result, "max-num-batched-tokens", "16384")
+	checkCombinedFlagValue(t, result, "max-num-seqs", "4")
+	checkCombinedFlagValue(t, result, "gpu-memory-utilization", "0.85")
 
 	// Verify non-flag elements are preserved
 	if result[0] != "python" || result[1] != "vllm" || result[2] != "serve" {
@@ -121,27 +122,17 @@ func TestMergeFlags_AppendsMissingFlags(t *testing.T) {
 	result := MergeFlags(existingCmds, flags)
 
 	// max-model-len should be replaced
-	checkFlagValue(t, result, "max-model-len", "8192")
+	checkCombinedFlagValue(t, result, "max-model-len", "8192")
 
-	// Missing flags should be appended as separate elements
-	checkFlagValue(t, result, "max-num-batched-tokens", "16384")
-	checkFlagValue(t, result, "max-num-seqs", "4")
-	checkFlagValue(t, result, "gpu-memory-utilization", "0.85")
-
-	// Verify no combined "--flag value" strings exist
-	for i, elem := range result {
-		if i+1 < len(result) &&
-			len(elem) >= 2 && elem[0] == '-' && elem[1] == '-' &&
-			elem[len(elem)-1] != '"' {
-			// Check it's not a combined string like "--flag value"
-			// A combined string would have a space inside it
-			// (we only care that our output doesn't produce combined strings)
-		}
-	}
+	// Missing flags should be appended as combined strings
+	checkCombinedFlagValue(t, result, "max-num-batched-tokens", "16384")
+	checkCombinedFlagValue(t, result, "max-num-seqs", "4")
+	checkCombinedFlagValue(t, result, "gpu-memory-utilization", "0.85")
 }
 
-func TestMergeFlags_OutputFormatIsSeparateElements(t *testing.T) {
-	// The core contract: output must be ["--flag", "value", ...] not ["--flag value", ...]
+func TestMergeFlags_OutputFormatIsCombinedStrings(t *testing.T) {
+	// The core contract: output must be ["--flag value", ...] combined strings
+	// so the compose template renders each on a single line.
 	existingCmds := []string{
 		"python", "vllm", "serve",
 	}
@@ -155,31 +146,34 @@ func TestMergeFlags_OutputFormatIsSeparateElements(t *testing.T) {
 
 	result := MergeFlags(existingCmds, flags)
 
-	// Every "--flag" element should NOT contain a space (i.e., not combined)
-	for i, elem := range result {
-		if len(elem) >= 2 && elem[0] == '-' && elem[1] == '-' {
-			if containsSpace(elem) {
-				t.Errorf("result[%d] = %q is a combined string; expected separate --flag and value elements", i, elem)
+	// Every replacement flag should be a combined string "--flag value"
+	for _, elem := range result {
+		if strings.HasPrefix(elem, "--max-model-len ") {
+			if elem != "--max-model-len 262144" {
+				t.Errorf("--max-model-len = %q, want %q", elem, "--max-model-len 262144")
 			}
 		}
-	}
-
-	// Verify --max-model-len and its value are adjacent and separate
-	found := false
-	for i := 0; i < len(result); i++ {
-		if result[i] == "--max-model-len" && i+1 < len(result) && result[i+1] == "262144" {
-			found = true
-			break
+		if strings.HasPrefix(elem, "--max-num-batched-tokens ") {
+			if elem != "--max-num-batched-tokens 32768" {
+				t.Errorf("--max-num-batched-tokens = %q, want %q", elem, "--max-num-batched-tokens 32768")
+			}
 		}
-	}
-	if !found {
-		t.Errorf("expected adjacent [\"--max-model-len\", \"262144\"] in result, got: %v", result)
+		if strings.HasPrefix(elem, "--max-num-seqs ") {
+			if elem != "--max-num-seqs 2" {
+				t.Errorf("--max-num-seqs = %q, want %q", elem, "--max-num-seqs 2")
+			}
+		}
+		if strings.HasPrefix(elem, "--gpu-memory-utilization ") {
+			if elem != "--gpu-memory-utilization 0.42" {
+				t.Errorf("--gpu-memory-utilization = %q, want %q", elem, "--gpu-memory-utilization 0.42")
+			}
+		}
 	}
 }
 
 func TestMergeFlags_BackwardCompatWithCombinedInput(t *testing.T) {
 	// Existing data in combined format should still be parsed and merged correctly.
-	// Known flags in combined format are replaced with separate elements;
+	// Known flags in combined format are replaced with combined strings;
 	// unknown flags pass through unchanged.
 	existingCmds := []string{
 		"python", "vllm", "serve",
@@ -196,29 +190,17 @@ func TestMergeFlags_BackwardCompatWithCombinedInput(t *testing.T) {
 
 	result := MergeFlags(existingCmds, flags)
 
-	// The combined "--max-model-len 4096" should be replaced with separate elements
-	checkFlagValue(t, result, "max-model-len", "8192")
+	// The combined "--max-model-len 4096" should be replaced with combined string
+	checkCombinedFlagValue(t, result, "max-model-len", "8192")
 
-	// New flags should be separate elements
-	checkFlagValue(t, result, "max-num-batched-tokens", "16384")
-	checkFlagValue(t, result, "max-num-seqs", "4")
-	checkFlagValue(t, result, "gpu-memory-utilization", "0.85")
+	// New flags should be combined strings
+	checkCombinedFlagValue(t, result, "max-num-batched-tokens", "16384")
+	checkCombinedFlagValue(t, result, "max-num-seqs", "4")
+	checkCombinedFlagValue(t, result, "gpu-memory-utilization", "0.85")
 
 	// Unknown combined-format flags should pass through unchanged
 	if !containsElement(result, "--model my-model") {
 		t.Error("expected --model my-model to pass through unchanged")
-	}
-
-	// Verify no combined strings for known replacement flags
-	for i, elem := range result {
-		if len(elem) >= 2 && elem[0] == '-' && elem[1] == '-' && containsSpace(elem) {
-			for _, replName := range []string{"max-model-len", "max-num-batched-tokens", "max-num-seqs", "gpu-memory-utilization"} {
-				combined := "--" + replName
-				if len(elem) > len(combined) && elem[:len(combined)] == combined {
-					t.Errorf("result[%d] = %q is a combined string for a replaced flag; should be separate elements", i, elem)
-				}
-			}
-		}
 	}
 }
 
@@ -249,40 +231,137 @@ func TestMergeFlags_PreservesExtraArgs(t *testing.T) {
 	}
 
 	// Replaced flag should have new value
-	checkFlagValue(t, result, "max-model-len", "8192")
+	checkCombinedFlagValue(t, result, "max-model-len", "8192")
+}
+
+// --- combineFlagPairs Tests ---
+
+func TestCombineFlagPairs_CombinesAdjacentPairs(t *testing.T) {
+	cmds := []string{
+		"python", "vllm", "serve",
+		"--model", "my-model",
+		"--max-model-len", "8192",
+		"--max-num-seqs", "4",
+	}
+
+	result := combineFlagPairs(cmds)
+
+	expected := []string{
+		"python", "vllm", "serve",
+		"--model my-model",
+		"--max-model-len 8192",
+		"--max-num-seqs 4",
+	}
+
+	if len(result) != len(expected) {
+		t.Fatalf("expected %d elements, got %d: %v", len(expected), len(result), result)
+	}
+	for i, exp := range expected {
+		if result[i] != exp {
+			t.Errorf("result[%d] = %q, want %q", i, result[i], exp)
+		}
+	}
+}
+
+func TestCombineFlagPairs_AlreadyCombinedPassesThrough(t *testing.T) {
+	cmds := []string{
+		"python", "vllm", "serve",
+		"--model my-model",
+		"--max-model-len 8192",
+	}
+
+	result := combineFlagPairs(cmds)
+
+	if len(result) != len(cmds) {
+		t.Fatalf("expected %d elements, got %d: %v", len(cmds), len(result), result)
+	}
+	for i, elem := range cmds {
+		if result[i] != elem {
+			t.Errorf("result[%d] = %q, want %q", i, result[i], elem)
+		}
+	}
+}
+
+func TestCombineFlagPairs_NoFlags(t *testing.T) {
+	cmds := []string{"python", "vllm", "serve"}
+	result := combineFlagPairs(cmds)
+
+	if len(result) != len(cmds) {
+		t.Fatalf("expected %d elements, got %d: %v", len(cmds), len(result), result)
+	}
+}
+
+func TestCombineFlagPairs_FlagWithoutValue(t *testing.T) {
+	cmds := []string{
+		"python", "serve",
+		"--trust-remote-code",
+		"--model", "my-model",
+	}
+
+	result := combineFlagPairs(cmds)
+
+	// --trust-remote-code has no value following it, should stay alone
+	if result[2] != "--trust-remote-code" {
+		t.Errorf("--trust-remote-code = %q, want %q", result[2], "--trust-remote-code")
+	}
+	// --model should be combined with its value
+	if result[3] != "--model my-model" {
+		t.Errorf("result[3] = %q, want %q", result[3], "--model my-model")
+	}
+}
+
+// --- removeSpeculativeConfigFlag Tests ---
+
+func TestRemoveSpeculativeConfigFlag_CombinedFormat(t *testing.T) {
+	cmds := []string{
+		"python", "serve",
+		"--model", "my-model",
+		"--speculative-config '{\"method\":\"mtp\",\"num_speculative_tokens\":3}'",
+		"--max-model-len", "8192",
+	}
+
+	result := removeSpeculativeConfigFlag(cmds)
+
+	if len(result) != 6 {
+		t.Fatalf("expected 6 elements, got %d: %v", len(result), result)
+	}
+	if containsElement(result, "--speculative-config") {
+		t.Error("--speculative-config should be removed")
+	}
+}
+
+func TestRemoveSpeculativeConfigFlag_SeparateElements(t *testing.T) {
+	cmds := []string{
+		"python", "serve",
+		"--model", "my-model",
+		"--speculative-config",
+		"{\"method\":\"mtp\"}",
+		"--max-model-len", "8192",
+	}
+
+	result := removeSpeculativeConfigFlag(cmds)
+
+	if len(result) != 6 {
+		t.Fatalf("expected 6 elements, got %d: %v", len(result), result)
+	}
+	if containsElement(result, "--speculative-config") {
+		t.Error("--speculative-config should be removed")
+	}
 }
 
 // --- Helper functions ---
 
-func checkFlagValue(t *testing.T, result []string, flagName, expectedValue string) {
+func checkCombinedFlagValue(t *testing.T, result []string, flagName, expectedValue string) {
 	t.Helper()
-	for i := 0; i < len(result); i++ {
-		if result[i] == "--"+flagName {
-			if i+1 >= len(result) {
-				t.Errorf("--%s: no value found after flag", flagName)
-				return
-			}
-			if result[i+1] != expectedValue {
-				t.Errorf("--%s value = %q, want %q", flagName, result[i+1], expectedValue)
-			}
-			return
-		}
+	combined := "--" + flagName + " " + expectedValue
+	if !containsElement(result, combined) {
+		t.Errorf("expected combined flag %q in result: %v", combined, result)
 	}
-	t.Errorf("--%s: flag not found in result: %v", flagName, result)
 }
 
 func containsElement(slice []string, elem string) bool {
 	for _, s := range slice {
 		if s == elem {
-			return true
-		}
-	}
-	return false
-}
-
-func containsSpace(s string) bool {
-	for _, c := range s {
-		if c == ' ' {
 			return true
 		}
 	}

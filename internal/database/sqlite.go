@@ -122,6 +122,10 @@ func (m *sqliteManager) ensureLegacyColumns() error {
 		{"models", "litellm_variant_ids", "TEXT"},
 		{"models", "base_image_id", "TEXT DEFAULT ''"},
 		{"models", "default", "BOOLEAN DEFAULT 0"},
+		{"models", "max_num_seqs", "INTEGER"},
+		{"models", "max_num_batched_tokens", "INTEGER"},
+		{"models", "speculative_decoding", "TEXT"},
+		{"models", "num_speculative_tokens", "INTEGER"},
 	}
 	for _, c := range columns {
 		colRef := c.col

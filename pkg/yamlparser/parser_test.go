@@ -451,6 +451,10 @@ func boolPtr(b bool) *bool {
 	return &b
 }
 
+func strPtr(s string) *string {
+	return &s
+}
+
 // --- Profile validation tests ---
 
 func TestValidate_ProfileValid(t *testing.T) {
@@ -474,6 +478,10 @@ func TestValidate_ProfileValid(t *testing.T) {
 			DefaultContext:     intPtr(262144),
 			MaxContext:         intPtr(262144),
 			QuantBytesPerParam: &quantBytes,
+			MaxNumSeqs:         intPtr(64),
+			MaxNumBatchedTokens: intPtr(8192),
+			SpeculativeDecoding:  strPtr("mtp"),
+			NumSpeculativeTokens: intPtr(4),
 		},
 	}
 	errs := Validate(y)
@@ -501,6 +509,10 @@ profile:
   default_context: 262144
   max_context: 262144
   quant_bytes_per_param: 1.0
+  max_num_seqs: 64
+  max_num_batched_tokens: 8192
+  speculative_decoding: mtp
+  num_speculative_tokens: 4
 `
 	path := filepath.Join(tmpDir, "profile.yaml")
 	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
@@ -547,6 +559,18 @@ profile:
 	}
 	if y.Profile.QuantBytesPerParam == nil || *y.Profile.QuantBytesPerParam != 1.0 {
 		t.Errorf("QuantBytesPerParam = %v, want 1.0", y.Profile.QuantBytesPerParam)
+	}
+	if y.Profile.MaxNumSeqs == nil || *y.Profile.MaxNumSeqs != 64 {
+		t.Errorf("MaxNumSeqs = %v, want 64", y.Profile.MaxNumSeqs)
+	}
+	if y.Profile.MaxNumBatchedTokens == nil || *y.Profile.MaxNumBatchedTokens != 8192 {
+		t.Errorf("MaxNumBatchedTokens = %v, want 8192", y.Profile.MaxNumBatchedTokens)
+	}
+	if y.Profile.SpeculativeDecoding == nil || *y.Profile.SpeculativeDecoding != "mtp" {
+		t.Errorf("SpeculativeDecoding = %v, want mtp", y.Profile.SpeculativeDecoding)
+	}
+	if y.Profile.NumSpeculativeTokens == nil || *y.Profile.NumSpeculativeTokens != 4 {
+		t.Errorf("NumSpeculativeTokens = %v, want 4", y.Profile.NumSpeculativeTokens)
 	}
 
 	errs := Validate(y)
@@ -644,6 +668,8 @@ func TestValidate_ProfileNegativeGdnLayers(t *testing.T) {
 }
 
 func TestValidate_ProfileZeroNumKvHeads(t *testing.T) {
+	// Zero is valid for encoder models (embeddings, rerankers) that have no attention layers.
+	// Only negative values should be rejected.
 	zero := 0
 	y := &ModelYAML{
 		Slug:   "zero-kv",
@@ -655,12 +681,30 @@ func TestValidate_ProfileZeroNumKvHeads(t *testing.T) {
 		},
 	}
 	errs := Validate(y)
-	if len(errs) == 0 {
-		t.Error("Validate(zero num_kv_heads) should return error")
+	if len(errs) != 0 {
+		t.Errorf("Validate(zero num_kv_heads) should not return error for encoder models, got: %v", errs)
+	}
+
+	// Negative should still be rejected
+	neg := -1
+	yNeg := &ModelYAML{
+		Slug:   "neg-kv",
+		Name:   "Neg KV",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			NumKvHeads: &neg,
+		},
+	}
+	errNeg := Validate(yNeg)
+	if len(errNeg) == 0 {
+		t.Error("Validate(negative num_kv_heads) should return error")
 	}
 }
 
 func TestValidate_ProfileZeroHeadDim(t *testing.T) {
+	// Zero is valid for encoder models (embeddings, rerankers) that have no attention layers.
+	// Only negative values should be rejected.
 	zero := 0
 	y := &ModelYAML{
 		Slug:   "zero-head",
@@ -672,8 +716,24 @@ func TestValidate_ProfileZeroHeadDim(t *testing.T) {
 		},
 	}
 	errs := Validate(y)
-	if len(errs) == 0 {
-		t.Error("Validate(zero head_dim) should return error")
+	if len(errs) != 0 {
+		t.Errorf("Validate(zero head_dim) should not return error for encoder models, got: %v", errs)
+	}
+
+	// Negative should still be rejected
+	neg := -1
+	yNeg := &ModelYAML{
+		Slug:   "neg-head",
+		Name:   "Neg Head",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			HeadDim: &neg,
+		},
+	}
+	errNeg := Validate(yNeg)
+	if len(errNeg) == 0 {
+		t.Error("Validate(negative head_dim) should return error")
 	}
 }
 
@@ -864,5 +924,134 @@ func TestValidateNonCapabilities_ProfileInvalid(t *testing.T) {
 	errs := ValidateNonCapabilities(y)
 	if len(errs) == 0 {
 		t.Error("ValidateNonCapabilities(negative total_params_b) should return error")
+	}
+}
+
+func TestValidate_ProfileZeroMaxNumSeqs(t *testing.T) {
+	zero := 0
+	y := &ModelYAML{
+		Slug:   "zero-maxseqs",
+		Name:   "Zero MaxSeqs",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			MaxNumSeqs: &zero,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(zero max_num_seqs) should return error")
+	}
+}
+
+func TestValidate_ProfileNegativeMaxNumSeqs(t *testing.T) {
+	neg := -1
+	y := &ModelYAML{
+		Slug:   "neg-maxseqs",
+		Name:   "Neg MaxSeqs",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			MaxNumSeqs: &neg,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(negative max_num_seqs) should return error")
+	}
+}
+
+func TestValidate_ProfileZeroMaxNumBatchedTokens(t *testing.T) {
+	zero := 0
+	y := &ModelYAML{
+		Slug:   "zero-batch",
+		Name:   "Zero Batch",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			MaxNumBatchedTokens: &zero,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(zero max_num_batched_tokens) should return error")
+	}
+}
+
+func TestValidate_ProfileInvalidSpeculativeDecoding(t *testing.T) {
+	invalid := "invalid_method"
+	y := &ModelYAML{
+		Slug:   "bad-spec",
+		Name:   "Bad Spec",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			SpeculativeDecoding: &invalid,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(invalid speculative_decoding) should return error")
+	}
+	found := false
+	for _, e := range errs {
+		if e != nil && strings.Contains(e.Error(), "speculative_decoding") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected error about speculative_decoding, got: %v", errs)
+	}
+}
+
+func TestValidate_ProfileValidSpeculativeDecoding(t *testing.T) {
+	mtp := "mtp"
+	y := &ModelYAML{
+		Slug:   "good-spec",
+		Name:   "Good Spec",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			SpeculativeDecoding: &mtp,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) != 0 {
+		t.Errorf("Validate(valid speculative_decoding) returned %d errors: %v", len(errs), errs)
+	}
+}
+
+func TestValidate_ProfileEmptySpeculativeDecoding(t *testing.T) {
+	empty := ""
+	y := &ModelYAML{
+		Slug:   "empty-spec",
+		Name:   "Empty Spec",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			SpeculativeDecoding: &empty,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) != 0 {
+		t.Errorf("Validate(empty speculative_decoding) returned %d errors: %v", len(errs), errs)
+	}
+}
+
+func TestValidate_ProfileZeroNumSpeculativeTokens(t *testing.T) {
+	zero := 0
+	y := &ModelYAML{
+		Slug:   "zero-spec-tokens",
+		Name:   "Zero Spec Tokens",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			NumSpeculativeTokens: &zero,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) == 0 {
+		t.Error("Validate(zero num_speculative_tokens) should return error")
 	}
 }
