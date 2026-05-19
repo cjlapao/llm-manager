@@ -25,6 +25,9 @@ type ImportCommand struct {
 func NewImportCommand(root *RootCommand) *ImportCommand {
 	svc := service.NewModelService(root.db, root.cfg)
 	svc.SetEngineService(service.NewEngineService(root.db))
+	configSvc := service.NewConfigService(root.db)
+	litellmSvc := service.NewLiteLLMService(root.db, root.cfg, configSvc)
+	svc.SetLiteLLMService(litellmSvc)
 	return &ImportCommand{
 		cfg: root,
 		svc: svc,
