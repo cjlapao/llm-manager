@@ -44,13 +44,25 @@ func (rw *responseWriter) WriteHeader(statusCode int) {
 
 // JSONEnvelope wraps an HTTP handler with a consistent JSON response envelope.
 // Every response is wrapped in {"success": bool, "data": ..., "error": ..., "status": int}.
+// Exceptions:
+//   - Responses with Content-Type other than application/json are passed through unchanged
+//     (allows YAML, plain text, etc. to bypass the envelope)
+//   - 204 No Content responses are passed through unchanged (no body to envelope)
 func JSONEnvelope(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rw := newResponseWriter(w)
 		next.ServeHTTP(rw, r)
 
-		// Set Content-Type to application/json
-		rw.writer.Header().Set("Content-Type", "application/json")
+		// Skip envelope for non-JSON content types and 204 No Content
+		ct := rw.writer.Header().Get("Content-Type")
+		if ct != "" && ct != "application/json" {
+			// Already set a non-JSON content type — pass through unchanged
+			return
+		}
+		if rw.status == http.StatusNoContent {
+			// 204 has no body — nothing to envelope
+			return
+		}
 
 		// Build the envelope
 		var data interface{}

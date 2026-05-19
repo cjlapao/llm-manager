@@ -67,7 +67,10 @@ func (h *ModelUtilHandler) importFromJSON(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusInternalServerError, "failed to write temp file: "+err.Error())
 		return
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		WriteError(w, http.StatusInternalServerError, "failed to close temp file: "+err.Error())
+		return
+	}
 
 	model, err := h.ModelService.ImportModel(tmpFile.Name(), service.ImportOverrides{
 		Type:   "llm",
@@ -114,7 +117,10 @@ func (h *ModelUtilHandler) importFromFile(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusInternalServerError, "failed to write temp file: "+err.Error())
 		return
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		WriteError(w, http.StatusInternalServerError, "failed to close temp file: "+err.Error())
+		return
+	}
 
 	model, err := h.ModelService.ImportModel(tmpFile.Name(), service.ImportOverrides{
 		Type:   "llm",
