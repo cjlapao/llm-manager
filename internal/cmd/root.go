@@ -6,8 +6,10 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/user/llm-manager/internal/api"
 	"github.com/user/llm-manager/internal/config"
 	"github.com/user/llm-manager/internal/database"
 	"github.com/user/llm-manager/internal/version"
@@ -15,8 +17,10 @@ import (
 
 // RootCommand represents the root command for the application.
 type RootCommand struct {
-	cfg *config.Config
-	db  database.DatabaseManager
+	cfg    *config.Config
+	db     database.DatabaseManager
+	apiPort int
+	apiHost string
 }
 
 // NewRootCommand creates a new RootCommand.
@@ -24,11 +28,88 @@ func NewRootCommand() *RootCommand {
 	return &RootCommand{}
 }
 
+// ParseGlobalFlags parses global flags that appear before any subcommand.
+// Supported flags: --api-port, --api-host
+func (c *RootCommand) ParseGlobalFlags(args []string) []string {
+	remaining := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--api-port":
+			if i+1 < len(args) {
+				port, err := strconv.Atoi(args[i+1])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: --api-port requires a numeric value, got %q\n", args[i+1])
+					os.Exit(1)
+				}
+				c.apiPort = port
+				i++ // skip the value
+			} else {
+				fmt.Fprintln(os.Stderr, "Error: --api-port requires a value")
+				os.Exit(1)
+			}
+		case "--api-host":
+			if i+1 < len(args) {
+				c.apiHost = args[i+1]
+				i++ // skip the value
+			} else {
+				fmt.Fprintln(os.Stderr, "Error: --api-host requires a value")
+				os.Exit(1)
+			}
+		default:
+			remaining = append(remaining, arg)
+		}
+	}
+	return remaining
+}
+
 // Run executes the root command with the given arguments.
 func (c *RootCommand) Run(args []string) int {
 	c.cfg = mustLoadConfig()
 
-	// Open database connection for all commands that need it
+	// Parse global flags (--api-port, --api-host) before anything else
+	apiArgs := c.ParseGlobalFlags(args)
+
+	// Check if API mode is requested
+	if c.apiPort > 0 {
+		if c.apiHost == "" {
+			c.apiHost = "127.0.0.1"
+		}
+
+		// Open database connection for the API server
+		db, err := database.NewDatabaseManager(c.cfg.DatabaseURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error initializing database: %v\n", err)
+			return 1
+		}
+		if err := db.Open(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+			return 1
+		}
+		defer db.Close()
+
+		// Auto-apply pending migrations
+		if err := db.ApplyPendingMigrations(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error applying pending migrations: %v\n", err)
+			return 1
+		}
+
+		// Merge database config into the config struct
+		c.cfg.MergeFromDB(db)
+		c.db = db
+
+		// Create API context
+		apiCtx := api.NewAPIContext(db, c.cfg)
+
+		// Start the API server (this blocks until shutdown)
+		if err := api.StartAPIServer(apiCtx, c.apiHost, c.apiPort, 0); err != nil {
+			fmt.Fprintf(os.Stderr, "API server error: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+
+	// CLI mode: open database, apply migrations, dispatch commands
 	db, err := database.NewDatabaseManager(c.cfg.DatabaseURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing database: %v\n", err)
@@ -42,7 +123,7 @@ func (c *RootCommand) Run(args []string) int {
 	defer db.Close()
 
 	// Auto-apply pending migrations on every command (except version/help which don't need DB data)
-	if len(args) > 0 && args[0] != "-h" && args[0] != "--help" && args[0] != "help" && args[0] != "-v" && args[0] != "--version" && args[0] != "version" && args[0] != "migrate" {
+	if len(apiArgs) > 0 && apiArgs[0] != "-h" && apiArgs[0] != "--help" && apiArgs[0] != "help" && apiArgs[0] != "-v" && apiArgs[0] != "--version" && apiArgs[0] != "version" && apiArgs[0] != "migrate" {
 		if err := c.db.ApplyPendingMigrations(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error applying pending migrations: %v\n", err)
 			return 1
@@ -52,13 +133,13 @@ func (c *RootCommand) Run(args []string) int {
 	// Merge database config into the config struct (env/file take priority)
 	c.cfg.MergeFromDB(c.db)
 
-	if len(args) < 1 {
+	if len(apiArgs) < 1 {
 		c.PrintHelp()
 		return 0
 	}
 
 	// Handle built-in commands (no dispatch needed)
-	switch args[0] {
+	switch apiArgs[0] {
 	case "-h", "--help", "help":
 		c.PrintHelp()
 		return 0
@@ -66,16 +147,16 @@ func (c *RootCommand) Run(args []string) int {
 		fmt.Print(version.Info())
 		return 0
 	case "config":
-		return NewConfigCommand(c.cfg, c.db).Run(args[1:])
+		return NewConfigCommand(c.cfg, c.db).Run(apiArgs[1:])
 	case "migrate":
 		return c.runMigrate()
 	}
 
 	// Dispatch to registered commands
 	dispatcher := NewCommandDispatcher(c.cfg, c.db)
-	exitCode := dispatcher.Dispatch(args[0], args[1:])
+	exitCode := dispatcher.Dispatch(apiArgs[0], apiArgs[1:])
 	if exitCode == 127 {
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", apiArgs[0])
 		c.PrintHelp()
 		return 1
 	}
@@ -132,9 +213,9 @@ COMMANDS:
   rag         Manage RAG services - embed + rerank (start, stop)
   speech      Manage speech services - whisper + kokoro (start, stop)
 
-OPTIONS:
-  -h, --help      Show this help message
-  -v, --version   Show version information
+GLOBAL OPTIONS:
+  --api-port <port>     Start API server on the given port (e.g., --api-port 8080)
+  --api-host <host>     Host to bind the API server to (default: 127.0.0.1)
 
 ENVIRONMENT VARIABLES:
   LLM_MANAGER_VERBOSE       Set to "true" or "1" to enable verbose output
