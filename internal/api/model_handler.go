@@ -13,14 +13,69 @@ type ModelHandler struct {
 	*APIContext
 }
 
-// ListModels handles GET /api/models — returns all models as a JSON array.
+// ListModels handles GET /api/models — returns all models as a JSON array,
+// or a wrapped OData response when query parameters are present.
 func (h *ModelHandler) ListModels(w http.ResponseWriter, r *http.Request) {
-	allModels, err := h.ModelService.ListModels()
+	// Parse OData query parameters
+	opts, err := ParseODataQuery(r)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "failed to list models: "+err.Error())
+		WriteError(w, http.StatusBadRequest, "invalid query parameters: "+err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, allModels)
+
+	// Check if any OData params are present
+	hasOData := opts.Page != 1 || opts.Limit != 25 || opts.SortField != "" ||
+		len(opts.Filter) > 0 || opts.Search != "" || len(opts.Fields) > 0
+
+	if !hasOData {
+		// No OData params — return flat array (backward compatible)
+		allModels, err := h.ModelService.ListModels()
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "failed to list models: "+err.Error())
+			return
+		}
+		WriteJSON(w, http.StatusOK, allModels)
+		return
+	}
+
+	// OData params present — apply filters and return wrapped response
+	db := h.DB.DB()
+
+	// Apply OData filters
+	filtered, total, err := ApplyODataFilters(db.Model(&models.Model{}), ODataOptions{
+		ODataQuery: opts,
+		ModelTable: "models",
+		ModelType:  &models.Model{},
+	})
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var allModels []models.Model
+	if err := filtered.Find(&allModels).Error; err != nil {
+		WriteError(w, http.StatusInternalServerError, "failed to query models: "+err.Error())
+		return
+	}
+
+	// Calculate total pages
+	limit := opts.Limit
+	if limit == 0 {
+		limit = 25
+	}
+	totalPages := int((total + int64(limit) - 1) / int64(limit))
+
+	resp := ODataListResponse{
+		Data: allModels,
+		Meta: ODataMeta{
+			Total:      int(total),
+			Page:       opts.Page,
+			Limit:      limit,
+			TotalPages: totalPages,
+		},
+	}
+
+	WriteJSON(w, http.StatusOK, resp)
 }
 
 // CreateModel handles POST /api/models — creates a new model from a JSON body.
@@ -203,8 +258,8 @@ func (h *ModelHandler) GetModelInfo(w http.ResponseWriter, r *http.Request) {
 		MaxNumBatchedTokens:  model.MaxNumBatchedTokens,
 		SpeculativeDecoding:  model.SpeculativeDecoding,
 		NumSpeculativeTokens: model.NumSpeculativeTokens,
-		CreatedAt:           model.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:           model.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		CreatedAt:            model.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:            model.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
 	WriteJSON(w, http.StatusOK, response)
