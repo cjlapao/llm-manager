@@ -11,9 +11,10 @@ import (
 	"github.com/user/llm-manager/pkg/yamlparser"
 )
 
-// DeleteModeler provides an interface for deleting models from external systems like LiteLLM.
-type DeleteModeler interface {
+// LiteLLMModeler provides an interface for managing models in external systems like LiteLLM.
+type LiteLLMModeler interface {
 	DeleteModel(slug string) error
+	SyncModel(slug string) error
 }
 
 // resolvePortCollision scans existing models for any conflict with the requested port.
@@ -308,6 +309,19 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	// 8. Create in database
 	if err := s.db.CreateModel(model); err != nil {
 		return nil, fmt.Errorf("failed to create model: %w", err)
+	}
+
+	// If we did an override import (deleted old LiteLLM deployments),
+	// recreate them now so the model is usable immediately without
+	// requiring a separate 'litellm sync' step.
+	if overrides.Override {
+		if s.litellm != nil && model.Type == "llm" {
+			if syncErr := s.litellm.SyncModel(model.Slug); syncErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to sync model to LiteLLM after override import: %v\n", syncErr)
+			} else {
+				fmt.Fprintf(os.Stderr, "Synced to LiteLLM ✓\n")
+			}
+		}
 	}
 
 	return model, nil

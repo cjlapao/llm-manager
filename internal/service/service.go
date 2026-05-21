@@ -48,7 +48,7 @@ type variantEntry struct {
 type ModelService struct {
 	db       database.DatabaseManager
 	cfg      *config.Config
-	litellm  DeleteModeler
+	litellm  LiteLLMModeler
 	eng      *EngineService
 }
 
@@ -62,8 +62,8 @@ func (s *ModelService) SetEngineService(svc *EngineService) {
 	s.eng = svc
 }
 
-// SetLiteLLMService sets the optional LiteLLM deleter for delete+reimport mode.
-func (s *ModelService) SetLiteLLMService(l DeleteModeler) {
+// SetLiteLLMService sets the optional LiteLLM manager for delete+reimport mode.
+func (s *ModelService) SetLiteLLMService(l LiteLLMModeler) {
 	s.litellm = l
 }
 
