@@ -363,3 +363,80 @@ func TestModel_GetVariantKeys(t *testing.T) {
 		t.Errorf("expected nil for no variants, got %v", nilKeys)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// HasThinkingCapability tests.
+// ---------------------------------------------------------------------------
+
+func TestModel_HasThinkingCapability_ThinkSuffix(t *testing.T) {
+	// Models with "-think" in the name should return true.
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"qwen3.6-35b-a3b-fp8", false}, // no -think or thinking
+		{"meta-llama-3.3-70b-think", true},
+		{"deepseek-r1-think", true},
+		{"my-model-v2-think-fp8", true},
+		{"my-think-model", true}, // -think as prefix
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{Name: tt.name}
+			got := m.HasThinkingCapability()
+			if got != tt.want {
+				t.Errorf("HasThinkingCapability(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestModel_HasThinkingCapability_ThinkingKeyword(t *testing.T) {
+	// Models with "thinking" in the name or capabilities should return true.
+	tests := []struct {
+		name    string
+		caps    string
+		want    bool
+		desc    string
+	}{
+		{"qwen3-coder-next-fp8", "", false, "non-thinking model name"},
+		{"qwen3.6-35b-a3b-fp8", "", false, "no thinking keyword in name"},
+		{"llama-3-8b", "thinking", true, "thinking in capabilities"},
+		{"phi-4-thinking", "", true, "thinking in model name"},
+		{"gemma-thinking-pro", "", true, "thinking in model name (middle)"},
+		{"mistral-large", "reasoning,thinking", true, "thinking in comma-separated capabilities"},
+		{"openchat-v3", "reasoning", false, "reasoning alone does not count"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			m := &Model{Name: tt.name, Capabilities: tt.caps}
+			got := m.HasThinkingCapability()
+			if got != tt.want {
+				t.Errorf("HasThinkingCapability(name=%q, caps=%q) = %v, want %v", tt.name, tt.caps, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestModel_HasThinkingCapability_CaseInsensitive(t *testing.T) {
+	// Detection should be case-insensitive.
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"MODEL-THINK", true},
+		{"model-think", true},
+		{"Model-Think", true},
+		{"MY-THINKING-MODEL", true},
+		{"my-thinking-model", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{Name: tt.name}
+			got := m.HasThinkingCapability()
+			if got != tt.want {
+				t.Errorf("HasThinkingCapability(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}

@@ -253,3 +253,202 @@ func TestDeepMerge_NumberComparedCorrectly(t *testing.T) {
 		t.Errorf("number comparison: got %v, want 0.7", result["temperature"])
 	}
 }
+
+// ─── buildDeploymentSpecs tests ───
+
+func TestBuildDeploymentSpecs_ThinkingModel_DualAlias(t *testing.T) {
+	// A model with thinking capability should produce:
+	//   1. base deployment (slug)
+	//   2. active alias (thinking disabled)
+	//   3. active-thinking alias (thinking enabled, preserve enabled)
+	params := map[string]interface{}{
+		"model": "qwen3.6-35b-a3b-fp8",
+		"temperature": 0.7,
+	}
+	minfo := map[string]interface{}{
+		"id": "model-123",
+		"name": "Qwen 3.6",
+	}
+
+	specs, err := buildDeploymentSpecs(params, minfo, "qwen3.6-35b-a3b-fp8", true, nil, 0.0001, 0.0002)
+	if err != nil {
+		t.Fatalf("buildDeploymentSpecs returned error: %v", err)
+	}
+
+	// Should have exactly 3 specs: base + active + active-thinking
+	if len(specs) != 3 {
+		t.Fatalf("expected 3 specs, got %d", len(specs))
+	}
+
+	// 1. Base deployment
+	base := specs[0]
+	if base.Name != "qwen3.6-35b-a3b-fp8" {
+		t.Errorf("base name: got %q, want %q", base.Name, "qwen3.6-35b-a3b-fp8")
+	}
+	if base.Type != "base" {
+		t.Errorf("base type: got %q, want %q", base.Type, "base")
+	}
+
+	// 2. Active alias — thinking disabled
+	active := specs[1]
+	if active.Name != "active" {
+		t.Errorf("active alias name: got %q, want %q", active.Name, "active")
+	}
+	if active.Type != "alias" {
+		t.Errorf("active alias type: got %q, want %q", active.Type, "alias")
+	}
+
+	activeParams := active.Params["extra_body"].(map[string]interface{})
+	kt := activeParams["chat_template_kwargs"].(map[string]interface{})
+	if kt["enable_thinking"] != false {
+		t.Errorf("active enable_thinking: got %v, want false", kt["enable_thinking"])
+	}
+	if kt["preserve_thinking"] != false {
+		t.Errorf("active preserve_thinking: got %v, want false", kt["preserve_thinking"])
+	}
+
+	// 3. Active-thinking alias — thinking enabled
+	thinkAlias := specs[2]
+	if thinkAlias.Name != "active-thinking" {
+		t.Errorf("active-thinking alias name: got %q, want %q", thinkAlias.Name, "active-thinking")
+	}
+	if thinkAlias.Type != "alias" {
+		t.Errorf("active-thinking alias type: got %q, want %q", thinkAlias.Type, "alias")
+	}
+
+	thinkParams := thinkAlias.Params["extra_body"].(map[string]interface{})
+	thinkKt := thinkParams["chat_template_kwargs"].(map[string]interface{})
+	if thinkKt["enable_thinking"] != true {
+		t.Errorf("active-thinking enable_thinking: got %v, want true", thinkKt["enable_thinking"])
+	}
+	if thinkKt["preserve_thinking"] != true {
+		t.Errorf("active-thinking preserve_thinking: got %v, want true", thinkKt["preserve_thinking"])
+	}
+}
+
+func TestBuildDeploymentSpecs_NonThinkingModel_SingleAlias(t *testing.T) {
+	// A model without thinking capability should produce:
+	//   1. base deployment (slug)
+	//   2. active alias (thinking disabled)
+	// No active-thinking alias.
+	params := map[string]interface{}{
+		"model": "qwen3-coder-next-fp8",
+		"temperature": 0.8,
+	}
+	minfo := map[string]interface{}{
+		"id": "model-456",
+		"name": "Qwen Coder",
+	}
+
+	specs, err := buildDeploymentSpecs(params, minfo, "qwen3-coder-next-fp8", false, nil, 0.00005, 0.0001)
+	if err != nil {
+		t.Fatalf("buildDeploymentSpecs returned error: %v", err)
+	}
+
+	// Should have exactly 2 specs: base + active (no active-thinking)
+	if len(specs) != 2 {
+		t.Fatalf("expected 2 specs, got %d", len(specs))
+	}
+
+	// 1. Base deployment
+	base := specs[0]
+	if base.Name != "qwen3-coder-next-fp8" {
+		t.Errorf("base name: got %q, want %q", base.Name, "qwen3-coder-next-fp8")
+	}
+	if base.Type != "base" {
+		t.Errorf("base type: got %q, want %q", base.Type, "base")
+	}
+
+	// 2. Active alias — thinking disabled
+	active := specs[1]
+	if active.Name != "active" {
+		t.Errorf("active alias name: got %q, want %q", active.Name, "active")
+	}
+	if active.Type != "alias" {
+		t.Errorf("active alias type: got %q, want %q", active.Type, "alias")
+	}
+
+	activeParams := active.Params["extra_body"].(map[string]interface{})
+	kt := activeParams["chat_template_kwargs"].(map[string]interface{})
+	if kt["enable_thinking"] != false {
+		t.Errorf("active enable_thinking: got %v, want false", kt["enable_thinking"])
+	}
+	if kt["preserve_thinking"] != false {
+		t.Errorf("active preserve_thinking: got %v, want false", kt["preserve_thinking"])
+	}
+
+	// Verify no active-thinking alias exists
+	for _, sp := range specs {
+		if sp.Name == "active-thinking" {
+			t.Errorf("unexpected active-thinking alias found in non-thinking model specs")
+		}
+	}
+}
+
+func TestBuildDeploymentSpecs_ExistingChatTemplateKwargs_Merge(t *testing.T) {
+	// When a model already has chat_template_kwargs with non-thinking keys,
+	// buildDeploymentSpecs must preserve those keys and only set/override
+	// enable_thinking and preserve_thinking.
+	params := map[string]interface{}{
+		"model": "qwen3.6-35b-a3b-fp8",
+		"temperature": 0.7,
+		"extra_body": map[string]interface{}{
+			"chat_template_kwargs": map[string]interface{}{
+				"max_prefix_tokens":  100,
+				"other_value":        "preserved",
+				"enable_thinking":    false, // should be overridden
+			},
+		},
+	}
+	minfo := map[string]interface{}{
+		"id": "model-789",
+		"name": "Qwen with kwargs",
+	}
+
+	specs, err := buildDeploymentSpecs(params, minfo, "qwen3.6-35b-a3b-fp8", true, nil, 0.0001, 0.0002)
+	if err != nil {
+		t.Fatalf("buildDeploymentSpecs returned error: %v", err)
+	}
+
+	if len(specs) != 3 {
+		t.Fatalf("expected 3 specs, got %d", len(specs))
+	}
+
+	// Helper to extract chat_template_kwargs from a spec's params
+	extractKT := func(sp DeploymentSpec) map[string]interface{} {
+		ebr := sp.Params["extra_body"].(map[string]interface{})
+		return ebr["chat_template_kwargs"].(map[string]interface{})
+	}
+
+	// Active alias: thinking disabled, existing keys preserved
+	active := specs[1]
+	activeKT := extractKT(active)
+	if activeKT["enable_thinking"] != false {
+		t.Errorf("active enable_thinking: got %v, want false", activeKT["enable_thinking"])
+	}
+	if activeKT["preserve_thinking"] != false {
+		t.Errorf("active preserve_thinking: got %v, want false", activeKT["preserve_thinking"])
+	}
+	if activeKT["max_prefix_tokens"] != 100 {
+		t.Errorf("active max_prefix_tokens preserved: got %v, want 100", activeKT["max_prefix_tokens"])
+	}
+	if activeKT["other_value"] != "preserved" {
+		t.Errorf("active other_value preserved: got %v, want preserved", activeKT["other_value"])
+	}
+
+	// Active-thinking alias: thinking enabled, existing keys preserved
+	thinkAlias := specs[2]
+	thinkKT := extractKT(thinkAlias)
+	if thinkKT["enable_thinking"] != true {
+		t.Errorf("active-thinking enable_thinking: got %v, want true", thinkKT["enable_thinking"])
+	}
+	if thinkKT["preserve_thinking"] != true {
+		t.Errorf("active-thinking preserve_thinking: got %v, want true", thinkKT["preserve_thinking"])
+	}
+	if thinkKT["max_prefix_tokens"] != 100 {
+		t.Errorf("active-thinking max_prefix_tokens preserved: got %v, want 100", thinkKT["max_prefix_tokens"])
+	}
+	if thinkKT["other_value"] != "preserved" {
+		t.Errorf("active-thinking other_value preserved: got %v, want preserved", thinkKT["other_value"])
+	}
+}
