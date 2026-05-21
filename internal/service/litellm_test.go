@@ -134,9 +134,9 @@ func TestDeepMerge_RealWorldExtraBodyChatTemplateKwargs(t *testing.T) {
 	dst := map[string]interface{}{
 		"extra_body": map[string]interface{}{
 			"chat_template_kwargs": map[string]interface{}{
-				"enable_thinking":    true,
-				"max_prefix_tokens":  100,
-				"other_value":        "preserved",
+				"enable_thinking":   true,
+				"max_prefix_tokens": 100,
+				"other_value":       "preserved",
 			},
 		},
 	}
@@ -195,21 +195,21 @@ func TestDeepMerge_TableDriven(t *testing.T) {
 			expect: map[string]interface{}{"a": 1, "b": 2},
 		},
 		{
-			name: "boolean passthrough true",
-			dst:  map[string]interface{}{"flag": false},
-			src:  map[string]interface{}{"flag": true},
+			name:   "boolean passthrough true",
+			dst:    map[string]interface{}{"flag": false},
+			src:    map[string]interface{}{"flag": true},
 			expect: map[string]interface{}{"flag": true},
 		},
 		{
-			name: "boolean passthrough false",
-			dst:  map[string]interface{}{"flag": true},
-			src:  map[string]interface{}{"flag": false},
+			name:   "boolean passthrough false",
+			dst:    map[string]interface{}{"flag": true},
+			src:    map[string]interface{}{"flag": false},
 			expect: map[string]interface{}{"flag": false},
 		},
 		{
-			name: "numeric scalar replacement",
-			dst:  map[string]interface{}{"count": 10},
-			src:  map[string]interface{}{"count": 42},
+			name:   "numeric scalar replacement",
+			dst:    map[string]interface{}{"count": 10},
+			src:    map[string]interface{}{"count": 42},
 			expect: map[string]interface{}{"count": 42},
 		},
 	}
@@ -262,11 +262,11 @@ func TestBuildDeploymentSpecs_ThinkingModel_DualAlias(t *testing.T) {
 	//   2. active alias (thinking disabled)
 	//   3. active-thinking alias (thinking enabled, preserve enabled)
 	params := map[string]interface{}{
-		"model": "qwen3.6-35b-a3b-fp8",
+		"model":       "qwen3.6-35b-a3b-fp8",
 		"temperature": 0.7,
 	}
 	minfo := map[string]interface{}{
-		"id": "model-123",
+		"id":   "model-123",
 		"name": "Qwen 3.6",
 	}
 
@@ -332,11 +332,11 @@ func TestBuildDeploymentSpecs_NonThinkingModel_SingleAlias(t *testing.T) {
 	//   2. active alias (thinking disabled)
 	// No active-thinking alias.
 	params := map[string]interface{}{
-		"model": "qwen3-coder-next-fp8",
+		"model":       "qwen3-coder-next-fp8",
 		"temperature": 0.8,
 	}
 	minfo := map[string]interface{}{
-		"id": "model-456",
+		"id":   "model-456",
 		"name": "Qwen Coder",
 	}
 
@@ -390,18 +390,18 @@ func TestBuildDeploymentSpecs_ExistingChatTemplateKwargs_Merge(t *testing.T) {
 	// buildDeploymentSpecs must preserve those keys and only set/override
 	// enable_thinking and preserve_thinking.
 	params := map[string]interface{}{
-		"model": "qwen3.6-35b-a3b-fp8",
+		"model":       "qwen3.6-35b-a3b-fp8",
 		"temperature": 0.7,
 		"extra_body": map[string]interface{}{
 			"chat_template_kwargs": map[string]interface{}{
-				"max_prefix_tokens":  100,
-				"other_value":        "preserved",
-				"enable_thinking":    false, // should be overridden
+				"max_prefix_tokens": 100,
+				"other_value":       "preserved",
+				"enable_thinking":   false, // should be overridden
 			},
 		},
 	}
 	minfo := map[string]interface{}{
-		"id": "model-789",
+		"id":   "model-789",
 		"name": "Qwen with kwargs",
 	}
 
