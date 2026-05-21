@@ -70,11 +70,15 @@ func (c *LiteLLMCommand) Run(args []string) int {
 		}
 		return c.runDelete(args[1])
 	case "sync":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Error: 'sync' requires a model slug\n")
+		// sync supports optional --all flag: "litellm sync --all" or "litellm sync <slug>"
+		if len(args) == 0 {
+			fmt.Fprintln(os.Stderr, "Error: 'sync' requires a model slug or --all flag")
 			return 1
 		}
-		return c.runSync(args[1])
+		if args[0] == "--all" {
+			return c.runSyncAll()
+		}
+		return c.runSync(args[0])
 	case "help", "-h", "--help":
 		c.PrintHelp()
 		return 0
@@ -218,6 +222,23 @@ func (c *LiteLLMCommand) runSync(slug string) int {
 	return 0
 }
 
+// runSyncAll syncs every LLM-type model in the database to LiteLLM.
+func (c *LiteLLMCommand) runSyncAll() int {
+	if c.cfg.LiteLLMURL == "" {
+		fmt.Fprintf(os.Stderr, "Error: LiteLLM URL not configured\n")
+		fmt.Fprintf(os.Stderr, "Set LITELLM_URL in config or environment\n")
+		return 1
+	}
+
+	if err := c.svc.SyncAll(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error syncing all models to LiteLLM: %v\n", err)
+		return 1
+	}
+
+	fmt.Println("✓ All models synced to LiteLLM")
+	return 0
+}
+
 // PrintHelp prints the litellm command help.
 func (c *LiteLLMCommand) PrintHelp() {
 	fmt.Println(`litellm - Manage models in the LiteLLM proxy.
@@ -231,7 +252,9 @@ SUBCOMMANDS:
   add <slug>       Add a model from the database to LiteLLM
   update <slug>    Update a model in LiteLLM with database values
   delete, del <slug>  Delete a model from LiteLLM
-  sync <slug>      Add or update a model in LiteLLM (auto-detect)
+  sync [<slug>] [--all]   Sync model(s) to LiteLLM. If slug omitted and --all,
+                          syncs all LLM models. Otherwise syncs the specified
+                          model.
 
 CONFIGURATION:
   Requires LITELLM_URL and LITELLM_API_KEY to be set.
@@ -242,5 +265,6 @@ EXAMPLES:
   llm-manager litellm add qwen3_6
   llm-manager litellm update qwen3_6
   llm-manager litellm delete qwen3_6
-  llm-manager litellm sync qwen3_6`)
+  llm-manager litellm sync qwen3_6
+  llm-manager litellm sync --all`)
 }

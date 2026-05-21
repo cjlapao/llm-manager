@@ -1174,3 +1174,47 @@ func (s *LiteLLMService) SyncModel(slug string) error {
 
 	return fmt.Errorf("UpdateModel failed: %w", err)
 }
+
+// SyncAll syncs every LLM-type model in the database to LiteLLM.
+// It iterates over all models, skips non-LLM types, and continues
+// on individual errors (reporting a summary at the end).
+func (s *LiteLLMService) SyncAll() error {
+	allModels, err := s.db.ListModels()
+	if err != nil {
+		return fmt.Errorf("failed to list models for sync-all: %w", err)
+	}
+
+	llmModels := 0
+	skipped := 0
+	succeeded := 0
+	failed := 0
+
+	fmt.Printf("Syncing %d model(s) to LiteLLM...\n", len(allModels))
+	fmt.Println(strings.Repeat("─", 60))
+
+	for _, m := range allModels {
+		if m.Type != "llm" && m.Type != "auto-complete" {
+			skipped++
+			continue
+		}
+		llmModels++
+
+		fmt.Printf("\n[%d/%d] %s (%s)... ", llmModels-skipped, llmModels, m.Slug, m.Name)
+		if err := s.SyncModel(m.Slug); err != nil {
+			fmt.Fprintf(os.Stderr, "FAILED: %v\n", err)
+			failed++
+		} else {
+			fmt.Println("OK")
+			succeeded++
+		}
+	}
+
+	fmt.Println()
+	fmt.Println(strings.Repeat("─", 60))
+	fmt.Printf("Sync complete: %d/%d succeeded, %d failed, %d skipped (non-LLM)\n",
+		succeeded, llmModels, failed, skipped)
+	if failed > 0 {
+		return fmt.Errorf("sync-all: %d model(s) failed", failed)
+	}
+	return nil
+}
