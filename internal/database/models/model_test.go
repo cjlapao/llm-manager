@@ -394,10 +394,10 @@ func TestModel_HasThinkingCapability_ThinkSuffix(t *testing.T) {
 func TestModel_HasThinkingCapability_ThinkingKeyword(t *testing.T) {
 	// Models with "thinking" in the name or capabilities should return true.
 	tests := []struct {
-		name    string
-		caps    string
-		want    bool
-		desc    string
+		name string
+		caps string
+		want bool
+		desc string
 	}{
 		{"qwen3-coder-next-fp8", "", false, "non-thinking model name"},
 		{"qwen3.6-35b-a3b-fp8", "", false, "no thinking keyword in name"},
@@ -439,4 +439,74 @@ func TestModel_HasThinkingCapability_CaseInsensitive(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestModel_HasThinkingCapability_FromLiteLLMParams(t *testing.T) {
+	// Models that declare enable_thinking: true in litellm_params
+	// should return true even without -think or thinking in name/caps.
+	t.Run("enable_thinking true via litellm_params", func(t *testing.T) {
+		params := `{
+			"custom_llm_provider": "hosted_vllm",
+			"extra_body": {
+				"chat_template_kwargs": {
+					"enable_thinking": true,
+					"preserve_thinking": true
+				}
+			}
+		}`
+		m := &Model{
+			Name:          "Qwen3.6 35B-A3B FP8",
+			LiteLLMParams: params,
+		}
+		if !m.HasThinkingCapability() {
+			t.Error("expected HasThinkingCapability to be true when enable_thinking is true in litellm_params")
+		}
+	})
+
+	t.Run("enable_thinking false via litellm_params", func(t *testing.T) {
+		params := `{
+			"custom_llm_provider": "hosted_vllm",
+			"extra_body": {
+				"chat_template_kwargs": {
+					"enable_thinking": false
+				}
+			}
+		}`
+		m := &Model{
+			Name:          "some-model",
+			LiteLLMParams: params,
+		}
+		if m.HasThinkingCapability() {
+			t.Error("expected HasThinkingCapability to be false when enable_thinking is false")
+		}
+	})
+
+	t.Run("no enable_thinking key in litellm_params", func(t *testing.T) {
+		params := `{
+			"custom_llm_provider": "hosted_vllm",
+			"temperature": 0.7
+		}`
+		m := &Model{
+			Name:          "plain-model",
+			LiteLLMParams: params,
+		}
+		if m.HasThinkingCapability() {
+			t.Error("expected false when no enable_thinking key")
+		}
+	})
+
+	t.Run("empty litellm_params", func(t *testing.T) {
+		m := &Model{Name: "no-params-model", LiteLLMParams: ""}
+		if m.HasThinkingCapability() {
+			t.Error("expected false for empty litellm_params")
+		}
+	})
+
+	t.Run("name detection takes precedence", func(t *testing.T) {
+		// Even without litellm_params, name-based detection should still work.
+		m := &Model{Name: "my-think-model", LiteLLMParams: `{}`}
+		if !m.HasThinkingCapability() {
+			t.Error("expected true for name with -think regardless of litellm_params")
+		}
+	})
 }

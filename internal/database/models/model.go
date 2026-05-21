@@ -66,10 +66,31 @@ func (m *Model) BeforeCreate(tx *gorm.DB) error {
 }
 
 // HasThinkingCapability checks if this model should get an active-thinking
-// alias. Detects thinking capability support in the name or capabilities list.
+// alias. Detects thinking capability support in three places (checked in order):
+//  1. Name field for "-think" or "thinking" substrings
+//  2. Capabilities field for "thinking" keyword
+//  3. litellm_params.extra_body.chat_template_kwargs.enable_thinking == true
 func (m *Model) HasThinkingCapability() bool {
 	check := strings.ToLower(m.Name) + "," + strings.ToLower(m.Capabilities)
-	return strings.Contains(check, "-think") || strings.Contains(check, "thinking")
+	if strings.Contains(check, "-think") || strings.Contains(check, "thinking") {
+		return true
+	}
+	// Also check lite_llm_params for explicit enable_thinking flag.
+	if m.LiteLLMParams != "" {
+		var params map[string]interface{}
+		if json.Unmarshal([]byte(m.LiteLLMParams), &params) == nil {
+			if extraBody, ok := params["extra_body"].(map[string]interface{}); ok {
+				if ctKwargs, ok := extraBody["chat_template_kwargs"].(map[string]interface{}); ok {
+					if et, ok := ctKwargs["enable_thinking"]; ok {
+						if enabled, ok := et.(bool); ok && enabled {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // GetLitellmActiveAliases deserializes the JSON map and returns the active alias
