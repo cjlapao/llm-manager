@@ -14,6 +14,20 @@ type jsonResponseEnvelope struct {
 	Status  int         `json:"status"`
 }
 
+// isODataEnvelope detects whether a JSON body is already an OData-style
+// envelope (i.e. has both "data" and "meta" top-level keys). When
+// detected, JSONEnvelope passes the body through unchanged to avoid
+// double-wrapping handler-level OData responses.
+func isODataEnvelope(body []byte) bool {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return false
+	}
+	_, hasData := raw["data"]
+	_, hasMeta := raw["meta"]
+	return hasData && hasMeta
+}
+
 // responseWriter wraps http.ResponseWriter to capture the body and status code.
 type responseWriter struct {
 	writer   http.ResponseWriter
@@ -69,6 +83,13 @@ func JSONEnvelope(next http.Handler) http.Handler {
 		var errMsg string
 
 		if rw.body.Len() > 0 {
+			// Skip envelope for already-wrapped OData responses (has "data" + "meta" keys).
+			// This avoids double-wrapping handler-level ODataListResponse{Data: ..., Meta: ...}.
+			if isODataEnvelope(rw.body.Bytes()) {
+				// Pass through unchanged — the handler already produced the correct format.
+				return
+			}
+
 			// Try to parse the body as JSON already — if so, use it as data
 			var parsed interface{}
 			if err := json.Unmarshal(rw.body.Bytes(), &parsed); err == nil {
