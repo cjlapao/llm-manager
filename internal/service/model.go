@@ -15,6 +15,7 @@ import (
 type LiteLLMModeler interface {
 	DeleteModel(slug string) error
 	SyncModel(slug string) error
+	SyncAll() error
 }
 
 // resolvePortCollision scans existing models for any conflict with the requested port.
