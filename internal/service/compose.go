@@ -115,14 +115,13 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 	if model.SpeculativeDecoding != nil && *model.SpeculativeDecoding != "" &&
 		model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
 
-		method := *model.SpeculativeDecoding
-		tokens := *model.NumSpeculativeTokens
-
 		// Only inject if model supports MTP (NVFP4 does not support speculative decoding)
 		if model.SupportsMtp != nil && *model.SupportsMtp && model.QuantBytesPerParam != nil && *model.QuantBytesPerParam != 0.5 {
-			specConfig := fmt.Sprintf(`{"method":"%s","num_speculative_tokens":%d}`, method, tokens)
-			result = append(result, "--speculative-config", specConfig)
-			fmt.Fprintf(os.Stderr, "  [speculative] --speculative-config '%s'\n", specConfig)
+			// Inject as a single combined string with single quotes around the JSON
+			// so the compose template renders it on one line: --speculative-config '{...}'
+			specConfig := fmt.Sprintf("'{\"method\":\"%s\",\"num_speculative_tokens\":%d}'", *model.SpeculativeDecoding, *model.NumSpeculativeTokens)
+			result = append(result, "--speculative-config "+specConfig)
+			fmt.Fprintf(os.Stderr, "  [speculative] --speculative-config %s\n", specConfig)
 		} else if !(model.SupportsMtp != nil && *model.SupportsMtp) {
 			fmt.Fprintf(os.Stderr, "  [warning] speculative_decoding set but model does not support MTP\n")
 		} else if model.QuantBytesPerParam != nil && *model.QuantBytesPerParam == 0.5 {
