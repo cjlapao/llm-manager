@@ -356,7 +356,7 @@ func (s *LiteLLMService) ListModels() ([]LiteLLMModelItem, error) {
 // loadExistingModels scans GET /model/info — ONE call, returns ALL deploy
 // records belonging to the given slug as map[displayName -> [internalRowUUID]].
 // Base deployments match by model_name == slug.
-// Alias deployments match by model_name in {active, active_thinking} AND
+// Alias deployments match by model_name in {active, active-thinking} AND
 // litellm_params.model == slug.
 // Variant deployments match by prefix slug- AND litellm_params.model == slug
 // with suffix matching known variant names from the variants map.
@@ -391,8 +391,8 @@ func (s *LiteLLMService) loadExistingModels(slug string, variants interface{}) (
 	uuids := make(map[string][]string)
 	for _, raw := range resp.Data {
 		var item struct {
-			ModelName    string                 `json:"model_name"`
-			Info         map[string]interface{} `json:"model_info"`
+			ModelName     string                 `json:"model_name"`
+			Info          map[string]interface{} `json:"model_info"`
 			LiteLLMParams map[string]interface{} `json:"litellm_params"`
 		}
 		if err := json.Unmarshal(raw, &item); err != nil {
@@ -410,7 +410,7 @@ func (s *LiteLLMService) loadExistingModels(slug string, variants interface{}) (
 		if item.ModelName == slug {
 			// Base deployment: exact model_name match
 			uuids[item.ModelName] = append(uuids[item.ModelName], id)
-		} else if item.ModelName == "active" || item.ModelName == "active_thinking" {
+		} else if item.ModelName == "active" || item.ModelName == "active-thinking" {
 			// Alias: check that litellm_params.model points to this slug
 			if item.LiteLLMParams != nil {
 				if paramsModel, ok := item.LiteLLMParams["model"].(string); ok && paramsModel == slug {
@@ -490,6 +490,39 @@ type ReplicationStep struct {
 	OldID  string // internal UUID of deleted deployment (recreated/pruned steps)
 }
 
+// setThinkingConfig configures the thinking-related keys inside
+// litellm_params.extra_body.chat_template_kwargs for a deployment spec.
+// It creates the nested maps if they don't exist, and always overwrites
+// enable_thinking and preserve_thinking with the given values.
+// This ensures the active alias has thinking disabled and the
+// active-thinking alias has thinking enabled.
+func setThinkingConfig(params map[string]interface{}, enableThinking, preserveThinking bool) {
+	// Ensure extra_body exists
+	if params["extra_body"] == nil {
+		params["extra_body"] = make(map[string]interface{})
+	}
+	extraBody, ok := params["extra_body"].(map[string]interface{})
+	if !ok {
+		// extra_body is not a map — replace it
+		extraBody = make(map[string]interface{})
+		params["extra_body"] = extraBody
+	}
+
+	// Ensure chat_template_kwargs exists
+	if extraBody["chat_template_kwargs"] == nil {
+		extraBody["chat_template_kwargs"] = make(map[string]interface{})
+	}
+	kt, ok := extraBody["chat_template_kwargs"].(map[string]interface{})
+	if !ok {
+		// chat_template_kwargs is not a map — replace it
+		kt = make(map[string]interface{})
+		extraBody["chat_template_kwargs"] = kt
+	}
+
+	kt["enable_thinking"] = enableThinking
+	kt["preserve_thinking"] = preserveThinking
+}
+
 // buildDeploymentSpecs constructs all deployment specs for a slug.
 // Each spec is a complete LiteLLM deployment entry — variants are NOT
 // nested under a "variants" key. Instead, the base model has all root
@@ -523,8 +556,9 @@ func buildDeploymentSpecs(params, minfo map[string]interface{},
 		ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
 	})
 
-	// Alias: active
+	// Alias: active — always created with thinking disabled
 	actParams := copyInterfaceToMapStringInterface(baseParams).(map[string]interface{})
+	setThinkingConfig(actParams, false, false)
 	specs = append(specs, DeploymentSpec{
 		Name:      activeAliasName,
 		Type:      "alias",
@@ -532,9 +566,10 @@ func buildDeploymentSpecs(params, minfo map[string]interface{},
 		ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
 	})
 
-	// Alias: active-thinking (if thinking cap present)
+	// Alias: active-thinking — only for thinking-capable models, with thinking enabled
 	if hasThinking {
 		thinkParams := copyInterfaceToMapStringInterface(baseParams).(map[string]interface{})
+		setThinkingConfig(thinkParams, true, true)
 		specs = append(specs, DeploymentSpec{
 			Name:      activeThinkingAlias,
 			Type:      "alias",
@@ -1073,8 +1108,8 @@ func (s *LiteLLMService) CleanDuplicates(slug string) error {
 
 	for _, raw := range resp.Data {
 		var item struct {
-			ModelName    string                 `json:"model_name"`
-			Info         map[string]interface{} `json:"model_info"`
+			ModelName     string                 `json:"model_name"`
+			Info          map[string]interface{} `json:"model_info"`
 			LiteLLMParams map[string]interface{} `json:"litellm_params"`
 		}
 		if err := json.Unmarshal(raw, &item); err != nil {
