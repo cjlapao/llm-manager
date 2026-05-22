@@ -53,12 +53,11 @@ func GenerateFlags(profile ModelProfile, memResult *MemoryResult, contextLen int
 	}
 
 	// --gpu-memory-utilization: from calculated ratio, formatted to 2 decimal places
-	// Encoder models don't use KV cache, so they can safely use higher utilization.
-	util := memResult.GPUMemoryUtilization
-	if profile.AttentionLayers == 0 && util < 0.50 {
-		util = 0.95 // encoder: no KV cache, use most of GPU for weights/activations
-	}
-	flags.GPUMemoryUtil = fmt.Sprintf("%.2f", util)
+	// CalculateMemory already scales utilization against available GPU memory
+	// when other models are running (availableGPUmb < TotalGPUMB). Trust that
+	// value — it accounts for both the model's actual memory needs AND the
+	// currently free GPU memory.
+	flags.GPUMemoryUtil = fmt.Sprintf("%.2f", memResult.GPUMemoryUtilization)
 
 	return flags
 }
