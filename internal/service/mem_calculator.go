@@ -179,13 +179,13 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 		bd.CUDAContextMB = 3000 // vLLM: context + graphs
 	}
 
-	// 7. Off-Budget Allocations
+	// 8. Off-Budget Allocations
 	// These cover intermediate activation tensors during prefill, FlashInfer/
 	// Triton JIT kernel allocations, PyTorch CUDA allocator fragmentation, and
 	// temporary buffers. Vision models need extra headroom because the encoder
 	// adds additional activation overhead during multimodal processing.
 	if profile.AttentionLayers == 0 {
-		bd.OffBudgetMB = 500 // encoder
+		bd.OffBudgetMB = 2000 // encoder: activations + JIT kernels, no KV cache overhead
 	} else if profile.SupportsVision {
 		if contextLen > 65536 {
 			bd.OffBudgetMB = 5000 // vision + large context = bigger activations

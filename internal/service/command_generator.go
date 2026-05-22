@@ -19,10 +19,21 @@ func GenerateFlags(profile ModelProfile, memResult *MemoryResult, contextLen int
 	flags := &GeneratedFlags{}
 
 	// --max-model-len: use provided context, default 65536
+	// For encoder models (0 attention layers), cap at a reasonable value
+	// since encoder models don't benefit from extremely large context windows
+	// and vLLM will pre-allocate memory proportional to this value.
 	if contextLen > 0 {
-		flags.MaxModelLen = strconv.Itoa(contextLen)
+		if profile.AttentionLayers == 0 && contextLen > 16384 {
+			flags.MaxModelLen = "16384" // cap encoder context at 16K
+		} else {
+			flags.MaxModelLen = strconv.Itoa(contextLen)
+		}
 	} else if profile.DefaultContext > 0 {
-		flags.MaxModelLen = strconv.Itoa(profile.DefaultContext)
+		if profile.AttentionLayers == 0 && profile.DefaultContext > 16384 {
+			flags.MaxModelLen = "16384"
+		} else {
+			flags.MaxModelLen = strconv.Itoa(profile.DefaultContext)
+		}
 	} else {
 		flags.MaxModelLen = "65536"
 	}
@@ -31,14 +42,23 @@ func GenerateFlags(profile ModelProfile, memResult *MemoryResult, contextLen int
 	flags.MaxNumBatchedTokens = deriveBatchedTokens(memResult)
 
 	// --max-num-seqs: use provided, default 1
+	// For encoder models, default to a higher number since they handle
+	// concurrent requests efficiently (no KV cache contention).
 	if numSequences > 0 {
 		flags.MaxNumSeqs = strconv.Itoa(numSequences)
+	} else if profile.AttentionLayers == 0 {
+		flags.MaxNumSeqs = "128" // encoder: batch many concurrent requests
 	} else {
 		flags.MaxNumSeqs = "1"
 	}
 
 	// --gpu-memory-utilization: from calculated ratio, formatted to 2 decimal places
-	flags.GPUMemoryUtil = fmt.Sprintf("%.2f", memResult.GPUMemoryUtilization)
+	// Encoder models don't use KV cache, so they can safely use higher utilization.
+	util := memResult.GPUMemoryUtilization
+	if profile.AttentionLayers == 0 && util < 0.50 {
+		util = 0.95 // encoder: no KV cache, use most of GPU for weights/activations
+	}
+	flags.GPUMemoryUtil = fmt.Sprintf("%.2f", util)
 
 	return flags
 }

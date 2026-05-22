@@ -357,9 +357,9 @@ func TestCalculateMemory_RAGEncoder_BF16(t *testing.T) {
 		t.Errorf("CUDAContextMB = %d, want 1500 for encoder", result.Breakdown.CUDAContextMB)
 	}
 
-	// Encoder path: off-budget = 500
-	if result.Breakdown.OffBudgetMB != 500 {
-		t.Errorf("OffBudgetMB = %d, want 500 for encoder", result.Breakdown.OffBudgetMB)
+	// Encoder path: off-budget = 2000 (updated for activation tensors and JIT kernels)
+	if result.Breakdown.OffBudgetMB != 2000 {
+		t.Errorf("OffBudgetMB = %d, want 2000 for encoder", result.Breakdown.OffBudgetMB)
 	}
 
 	// No vision
@@ -367,9 +367,9 @@ func TestCalculateMemory_RAGEncoder_BF16(t *testing.T) {
 		t.Errorf("VisionEncoderMB = %d, want 0", result.Breakdown.VisionEncoderMB)
 	}
 
-	// Total: 1228 + 0 + 0 + 1024 + 0 + 1500 + 500 + 0 = 4252
-	if result.TotalMB != 4252 {
-		t.Errorf("TotalMB = %d, want 4252", result.TotalMB)
+	// Total: 1228 + 0 + 0 + 1024 + 0 + 1500 + 2000 + 0 = 5752
+	if result.TotalMB != 5752 {
+		t.Errorf("TotalMB = %d, want 5752", result.TotalMB)
 	}
 
 	// Fits on GPU? 4252 <= 121856 → true
@@ -377,9 +377,9 @@ func TestCalculateMemory_RAGEncoder_BF16(t *testing.T) {
 		t.Errorf("FitsAtMaxContext = false, want true")
 	}
 
-	// GPU utilization: (4252 / 121856) * 1.02 = 0.0356 → ceil to 0.04
-	if result.GPUMemoryUtilization != 0.04 {
-		t.Errorf("GPUMemoryUtilization = %.4f, want 0.04", result.GPUMemoryUtilization)
+	// GPU utilization: (5752 / 121856) * 1.02 = 0.0481 → ceil to 0.05
+	if result.GPUMemoryUtilization != 0.05 {
+		t.Errorf("GPUMemoryUtilization = %.4f, want 0.05", result.GPUMemoryUtilization)
 	}
 }
 
@@ -407,11 +407,11 @@ func TestCalculateMemory_RAGEncoder_Reranker_BF16(t *testing.T) {
 	}
 
 	// Reranker should produce the same total as embedding model
-	if result.TotalMB != 4252 {
-		t.Errorf("TotalMB = %d, want 4252 (same as embed)", result.TotalMB)
+	if result.TotalMB != 5752 {
+		t.Errorf("TotalMB = %d, want 5752 (same as embed)", result.TotalMB)
 	}
-	if result.GPUMemoryUtilization != 0.04 {
-		t.Errorf("GPUMemoryUtilization = %.4f, want 0.04", result.GPUMemoryUtilization)
+	if result.GPUMemoryUtilization != 0.05 {
+		t.Errorf("GPUMemoryUtilization = %.4f, want 0.05", result.GPUMemoryUtilization)
 	}
 	if !result.FitsAtMaxContext {
 		t.Errorf("FitsAtMaxContext = false, want true")
@@ -445,9 +445,9 @@ func TestCalculateMemory_RAGEncoder_FP8(t *testing.T) {
 		t.Errorf("WeightsMB = %d, want 614", result.Breakdown.WeightsMB)
 	}
 
-	// Total: 614 + 0 + 0 + 1024 + 0 + 1500 + 500 + 0 = 3638
-	if result.TotalMB != 3638 {
-		t.Errorf("TotalMB = %d, want 3638", result.TotalMB)
+	// Total: 614 + 0 + 0 + 1024 + 0 + 1500 + 2000 + 0 = 5138
+	if result.TotalMB != 5138 {
+		t.Errorf("TotalMB = %d, want 5138", result.TotalMB)
 	}
 
 	if !result.FitsAtMaxContext {
