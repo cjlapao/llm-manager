@@ -214,12 +214,27 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 	// safety comes from the sum of all models' reservations fitting within
 	// SAFE_USABLE_MB.
 	//
+	// However, when other models are already running (availableGPUmb < TotalGPUMB),
+	// we must scale the utilization against available memory to avoid over-reserving.
+	// This prevents the "Free memory is less than desired GPU memory utilization"
+	// error that occurs when an LLM is already occupying most of the GPU.
+	//
 	// Add a 2% safety margin to account for untracked overhead: PyTorch
 	// CUDA allocator fragmentation, JIT kernel cache growth, activation
 	// tensor spikes during prefill, and any vision encoder / multimodal
 	// processor overhead that slips past detection.
 	utilization := float64(totalRealistic) / float64(TotalGPUMB)
 	utilization = utilization * 1.02 // +2% safety margin
+
+	// If other models are running, scale utilization against available GPU memory
+	if gpuAvailable > 0 && gpuAvailable < TotalGPUMB {
+		availUtil := float64(totalRealistic) / float64(gpuAvailable)
+		availUtil = availUtil * 1.02
+		// Use whichever is higher — the total-GPU utilization or the available-GPU utilization
+		if availUtil > utilization {
+			utilization = availUtil
+		}
+	}
 
 	return &MemoryResult{
 		TotalMB:            totalMax,       // worst-case total (for validation)
