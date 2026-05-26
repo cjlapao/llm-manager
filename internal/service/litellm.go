@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	activeAliasName     = "active"
-	activeThinkingAlias = "active-thinking"
+	activeAliasName       = "active"
+	activeThinkingAlias   = "active-thinking"
+	ragAliasReranker      = "reranker"
+	ragAliasEmbeddings    = "embeddings"
 )
 
 // LiteLLMService handles CRUD operations against the LiteLLM proxy API.
@@ -417,6 +419,20 @@ func (s *LiteLLMService) loadExistingModels(slug string, variants interface{}) (
 					uuids[item.ModelName] = append(uuids[item.ModelName], id)
 				}
 			}
+		} else if item.ModelName == ragAliasReranker || item.ModelName == ragAliasEmbeddings {
+			// RAG alias: match by model_name + api_base pointing to this model's port.
+			// The alias name is shared ("reranker" / "embeddings"), so we must check
+			// that the api_base matches this specific model's port to avoid
+			// cross-model alias collisions.
+			if item.LiteLLMParams != nil {
+				if paramsModel, ok := item.LiteLLMParams["model"].(string); ok && paramsModel == slug {
+					// Also verify api_base matches — ensures we only delete
+					// the alias that points to this model's container.
+					if apiBase, ok := item.LiteLLMParams["api_base"].(string); ok && apiBase != "" {
+						uuids[item.ModelName] = append(uuids[item.ModelName], id)
+					}
+				}
+			}
 		} else if strings.HasPrefix(item.ModelName, slug+"-") {
 			// Variant: match by prefix + known suffix, or just by slug pointing
 			suffix := strings.TrimPrefix(item.ModelName, slug)
@@ -530,7 +546,7 @@ func setThinkingConfig(params map[string]interface{}, enableThinking, preserveTh
 // deployment with base properties overridden by variant-specific values.
 func buildDeploymentSpecs(params, minfo map[string]interface{},
 	slug string, hasThinking bool, variants interface{},
-	inputCost, outputCost float64) ([]DeploymentSpec, error) {
+	inputCost, outputCost float64, subType string, openAIAURL string, port int) ([]DeploymentSpec, error) {
 	var specs []DeploymentSpec
 
 	// Build base params: root properties only, excluding "variants"
@@ -549,6 +565,47 @@ func buildDeploymentSpecs(params, minfo map[string]interface{},
 		baseParams["output_cost_per_token"] = outputCost
 	}
 
+	// RAG models: only create the alias, no base deployment.
+	// The alias points to the RAG container's OpenAI-compatible endpoint.
+	if subType == "reranker" || subType == "embedding" {
+		// Build alias params from base params (normally empty for RAG).
+		// We need: model (slug), api_base (container endpoint), and custom_llm_provider.
+		aliasParams := make(map[string]interface{})
+		for k, v := range params {
+			if k == "variants" {
+				continue
+			}
+			aliasParams[k] = copyInterfaceToMapStringInterface(v)
+		}
+		aliasParams["model"] = slug
+		aliasParams["custom_llm_provider"] = "hosted_vllm"
+
+		// Construct api_base from the config URL + port, same as LLM models.
+		// The RAG container exposes an OpenAI-compatible API at <config_url>:<port>/v1.
+		if port > 0 && openAIAURL != "" {
+			base := strings.TrimRight(openAIAURL, "/")
+			aliasParams["api_base"] = fmt.Sprintf("%s:%d/v1", base, port)
+		} else {
+			fmt.Fprintf(os.Stderr, "  [WARN] RAG alias api_base NOT set: port=%d openAIAURL=%q\n", port, openAIAURL)
+		}
+
+		var aliasName string
+		if subType == "reranker" {
+			aliasName = ragAliasReranker
+		} else {
+			aliasName = ragAliasEmbeddings
+		}
+
+		specs = append(specs, DeploymentSpec{
+			Name:      aliasName,
+			Type:      "alias",
+			Params:    aliasParams,
+			ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
+		})
+		return specs, nil
+	}
+
+	// Base deployment: only for non-RAG models
 	specs = append(specs, DeploymentSpec{
 		Name:      slug,
 		Type:      "base",
@@ -875,7 +932,7 @@ func (s *LiteLLMService) AddModel(slug string) error {
 	// │ STAGE 1: COLLECT — build specs purely   │
 	// │             from in-memory state        │
 	// └─────────────────────────────────────────┘
-	specs, err := buildDeploymentSpecs(litellmParams, modelInfo, slug, dbModel.HasThinkingCapability(), litellmParams["variants"], dbModel.InputTokenCost, dbModel.OutputTokenCost)
+	specs, err := buildDeploymentSpecs(litellmParams, modelInfo, slug, dbModel.HasThinkingCapability(), litellmParams["variants"], dbModel.InputTokenCost, dbModel.OutputTokenCost, dbModel.SubType, s.cfg.OpenAIAPIURL, dbModel.Port)
 	if err != nil {
 		return fmt.Errorf("stage 1 collect: %w", err)
 	}
@@ -953,7 +1010,7 @@ func (s *LiteLLMService) UpdateModel(slug string) error {
 	// ┌─────────────────────────────────────────┐
 	// │ STAGE 1: COLLECT                        │
 	// └─────────────────────────────────────────┘
-	specs, err := buildDeploymentSpecs(litellmParams, modelInfo, slug, dbModel.HasThinkingCapability(), litellmParams["variants"], dbModel.InputTokenCost, dbModel.OutputTokenCost)
+	specs, err := buildDeploymentSpecs(litellmParams, modelInfo, slug, dbModel.HasThinkingCapability(), litellmParams["variants"], dbModel.InputTokenCost, dbModel.OutputTokenCost, dbModel.SubType, s.cfg.OpenAIAPIURL, dbModel.Port)
 	if err != nil {
 		return fmt.Errorf("stage 1 collect: %w", err)
 	}
@@ -1193,7 +1250,7 @@ func (s *LiteLLMService) SyncAll() error {
 	fmt.Println(strings.Repeat("─", 60))
 
 	for _, m := range allModels {
-		if m.Type != "llm" && m.Type != "auto-complete" {
+		if m.Type != "llm" && m.Type != "auto-complete" && m.Type != "rag" {
 			skipped++
 			continue
 		}
