@@ -12,13 +12,14 @@ import (
 	"github.com/user/llm-manager/internal/api"
 	"github.com/user/llm-manager/internal/config"
 	"github.com/user/llm-manager/internal/database"
+	"github.com/user/llm-manager/internal/service"
 	"github.com/user/llm-manager/internal/version"
 )
 
 // RootCommand represents the root command for the application.
 type RootCommand struct {
-	cfg    *config.Config
-	db     database.DatabaseManager
+	cfg     *config.Config
+	db      database.DatabaseManager
 	apiPort int
 	apiHost string
 }
@@ -66,6 +67,9 @@ func (c *RootCommand) ParseGlobalFlags(args []string) []string {
 // Run executes the root command with the given arguments.
 func (c *RootCommand) Run(args []string) int {
 	c.cfg = mustLoadConfig()
+
+	// Configure GPU memory source before any service initializes.
+	service.SetGPUMemorySource(c.cfg.GPUMemorySource)
 
 	// Parse global flags (--api-port, --api-host) before anything else
 	apiArgs := c.ParseGlobalFlags(args)
@@ -231,6 +235,7 @@ EXAMPLES:
   llm-manager model list
   llm-manager model compose qwen3_6
   llm-manager llm start qwen3_6
+  llm-manager llm start latest
   llm-manager llm swap qwen3_6
   llm-manager hotspot restart
   llm-manager comfyui start

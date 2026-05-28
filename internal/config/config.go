@@ -43,6 +43,12 @@ type Config struct {
 	// OpenAIAPIURL is the base URL of the OpenAI-compatible API endpoint.
 	// Format: http://host:port/v1 or http://host:port
 	OpenAIAPIURL string
+	// GPUMemorySource controls how GPU memory is queried.
+	// "free" (default): uses the system `free` command — works on unified-memory
+	//   chips like NVIDIA GB10 where nvidia-smi cannot report GPU memory.
+	// "nvidia-smi": uses nvidia-smi queries — works on discrete GPUs with
+	//   separate VRAM. Falls back to `free` if nvidia-smi returns [N/A].
+	GPUMemorySource string
 }
 
 // validConfigKeys defines the set of supported config keys and their defaults.
@@ -54,11 +60,13 @@ var validConfigKeys = map[string]string{
 	"LLM_MANAGER_LLM_DIR":      "",
 	"LLM_MANAGER_INSTALL_DIR":  "",
 	"LLM_MANAGER_HF_CACHE_DIR": "",
+	"LLM_MANAGER_LATEST_MODEL": "",
 	"LITELLM_URL":              "",
 	"LITELLM_API_KEY":          "",
 	"LLM_MANAGER_CONFIG":       "",
 	"HF_TOKEN":                 "",
 	"OPENAI_API_URL":           "",
+	"GPU_MEMORY_SOURCE":        "free",
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -101,6 +109,7 @@ func DefaultValues() map[string]string {
 		"LLM_MANAGER_CONFIG":       "",
 		"HF_TOKEN":                 "",
 		"OPENAI_API_URL":           "",
+		"GPU_MEMORY_SOURCE":        "free",
 	}
 }
 
@@ -257,6 +266,10 @@ func LoadConfig() (*Config, error) {
 		cfg.OpenAIAPIURL = val
 	}
 
+	if val, ok := configValues["GPU_MEMORY_SOURCE"]; ok {
+		cfg.GPUMemorySource = val
+	}
+
 	// Layer 3: Override with environment variables (always wins)
 	if val := os.Getenv("LLM_MANAGER_VERBOSE"); val == "true" || val == "1" {
 		cfg.Verbose = true
@@ -306,6 +319,10 @@ func LoadConfig() (*Config, error) {
 
 	if val := os.Getenv("OPENAI_API_URL"); val != "" {
 		cfg.OpenAIAPIURL = val
+	}
+
+	if val := os.Getenv("GPU_MEMORY_SOURCE"); val != "" {
+		cfg.GPUMemorySource = val
 	}
 
 	// Ensure directories exist
@@ -382,11 +399,12 @@ func (c *Config) String() string {
 	fmt.Fprintf(&b, "  install dir: %s\n", c.InstallDir)
 	fmt.Fprintf(&b, "  hf cache:    %s\n", c.HFCacheDir)
 	fmt.Fprintf(&b, "  litellm url:     %s\n", c.LiteLLMURL)
-		fmt.Fprintf(&b, "  litellm api key: %s\n", maskAPIKey(c.LiteLLMAPIKey))
-		fmt.Fprintf(&b, "  hf token:        %s\n", maskAPIKey(c.HfToken))
-		fmt.Fprintf(&b, "  openai api url:  %s\n", c.OpenAIAPIURL)
-		return b.String()
-	}
+	fmt.Fprintf(&b, "  litellm api key: %s\n", maskAPIKey(c.LiteLLMAPIKey))
+	fmt.Fprintf(&b, "  hf token:        %s\n", maskAPIKey(c.HfToken))
+	fmt.Fprintf(&b, "  openai api url:  %s\n", c.OpenAIAPIURL)
+	fmt.Fprintf(&b, "  gpu memory src:  %s\n", c.GPUMemorySource)
+	return b.String()
+}
 
 // secretConfigKeys defines config keys whose values are encrypted in the database.
 var secretConfigKeys = map[string]bool{
