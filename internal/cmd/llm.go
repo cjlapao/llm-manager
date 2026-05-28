@@ -86,29 +86,14 @@ func (c *LlmCommand) Run(args []string) int {
 
 // ── start ──────────────────────────────────────────────────────────────────
 
-// resolveLatestSlug resolves the "latest" keyword to an actual model slug.
-// Returns the resolved slug, or an error if no latest model is set or the resolved
-// model doesn't exist in the database.
-func resolveLatestSlug(db database.DatabaseManager) (string, error) {
-	configSvc := service.NewConfigService(db)
-	resolved, err := configSvc.GetLatestModel()
-	if err != nil {
-		return "", fmt.Errorf("error resolving latest model: %w", err)
-	}
-	if resolved == "" {
-		return "", fmt.Errorf("no latest model has been set")
-	}
-	if _, err := db.GetModel(resolved); err != nil {
-		return "", fmt.Errorf("resolved model %q is not a known model", resolved)
-	}
-	return resolved, nil
-}
+// ── start ──────────────────────────────────────────────────────────────────
 
 // runStart starts a model container, handling flux/3D special cases.
 func (c *LlmCommand) runStart(args []string) int {
 	slug := args[0]
-	isLatest := slug == "latest"
 
+	// Resolve "latest" to the actual model slug
+	isLatest := slug == "latest"
 	if isLatest {
 		resolved, err := resolveLatestSlug(c.cfg.db)
 		if err != nil {
@@ -188,16 +173,14 @@ func (c *LlmCommand) runStart(args []string) int {
 		fmt.Fprintf(os.Stderr, "Warning: failed to set latest model: %v\n", err)
 	}
 
-	// Health-check polling (only for normal LLM models, not flux/3D)
+	// Optionally wait for health check
 	if wait {
 		fmt.Println("Waiting for container to become healthy...")
 		model, err := c.cfg.db.GetModel(slug)
 		if err == nil && model.Port > 0 {
 			host := "localhost"
 			if c.cfg.cfg.OpenAIAPIURL != "" {
-				stripped := strings.TrimSuffix(c.cfg.cfg.OpenAIAPIURL, "/v1")
-				stripped = strings.TrimSuffix(stripped, "/")
-				if parsed, err := url.Parse(stripped); err == nil && parsed.Host != "" {
+				if parsed, err := url.Parse(c.cfg.cfg.OpenAIAPIURL); err == nil && parsed.Host != "" {
 					host = parsed.Host
 				}
 			}
@@ -561,8 +544,8 @@ func (c *LlmCommand) runLogs(args []string) int {
 			follow = true
 		} else {
 			if n, _ := fmt.Sscanf(args[i], "%d", &lines); n == 0 {
-				fmt.Fprintf(os.Stderr, "Warning: invalid log line count %q, using default 50\n", args[i])
-			}
+			fmt.Fprintf(os.Stderr, "Warning: invalid log line count %q, using default 50\n", args[i])
+		}
 		}
 	}
 
@@ -613,6 +596,24 @@ func (c *LlmCommand) resolveContainer(slug string) (string, error) {
 	return "", fmt.Errorf("unknown service or model: %s", slug)
 }
 
+// resolveLatestSlug resolves the "latest" keyword to an actual model slug.
+// Returns the resolved slug, or an error if no latest model is set or the resolved
+// model doesn't exist in the database.
+func resolveLatestSlug(db database.DatabaseManager) (string, error) {
+	configSvc := service.NewConfigService(db)
+	resolved, err := configSvc.GetLatestModel()
+	if err != nil {
+		return "", fmt.Errorf("error resolving latest model: %w", err)
+	}
+	if resolved == "" {
+		return "", fmt.Errorf("no latest model has been set. Start a model first with 'llm-manager llm start <slug>'")
+	}
+	if _, err := db.GetModel(resolved); err != nil {
+		return "", fmt.Errorf("resolved model %q is not a known model", resolved)
+	}
+	return resolved, nil
+}
+
 // ── help ───────────────────────────────────────────────────────────────────
 
 // PrintHelp prints the llm command help.
@@ -650,13 +651,14 @@ SERVICE ALIASES (for logs):
 
 EXAMPLES:
   llm-manager llm start qwen3_6
-  llm-manager llm start qwen3_6 --allow-multiple
-  llm-manager llm start flux-schnell
   llm-manager llm start latest
+  llm-manager llm start qwen3_6 --allow-multiple
+  llm-manager llm start qwen3_6 --wait
+  llm-manager llm start flux-schnell
   llm-manager llm stop qwen3_6
   llm-manager llm restart qwen3_6
   llm-manager llm swap qwen3_6
-  llm-manager llm status             # shows latest model if set
+  llm-manager llm status
   llm-manager llm status qwen3_6
   llm-manager llm logs qwen3_6 -f
   llm-manager llm logs comfyui 100`)

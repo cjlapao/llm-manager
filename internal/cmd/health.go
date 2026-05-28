@@ -7,10 +7,13 @@ import (
 	"time"
 )
 
-// DefaultStartTimeout is the default timeout for waiting for a container to become healthy.
+// DefaultStartTimeout is the maximum time to wait for a container to become healthy.
 const DefaultStartTimeout = 180 * time.Second
 
+// healthCheckInterval is the time between health check attempts.
 const healthCheckInterval = 3 * time.Second
+
+// healthCheckClientTimeout is the per-request HTTP client timeout.
 const healthCheckClientTimeout = 5 * time.Second
 
 // waitForHealthy polls the /health endpoint of the given URL until it returns 200,
@@ -23,16 +26,13 @@ func waitForHealthy(ctx context.Context, baseURL string) error {
 		return fmt.Errorf("context must have a deadline")
 	}
 
-	// Log the timeout so users know the bound
-	remaining := time.Until(deadline)
-	_ = remaining // used below via the deadline check
-
 	ticker := time.NewTicker(healthCheckInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
+			_ = deadline
 			return fmt.Errorf("health check timed out after waiting for container to become healthy")
 		case <-ticker.C:
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/health", nil)
