@@ -2,11 +2,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
 
+	"github.com/user/llm-manager/internal/database"
 	"github.com/user/llm-manager/internal/service"
 )
 
@@ -88,12 +91,28 @@ func (c *LlmCommand) Run(args []string) int {
 // runStart starts a model container, handling flux/3D special cases.
 func (c *LlmCommand) runStart(args []string) int {
 	slug := args[0]
+
+	// Resolve "latest" to the actual model slug
+	isLatest := slug == "latest"
+	if isLatest {
+		resolved, err := resolveLatestSlug(c.cfg.db)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		slug = resolved
+		fmt.Printf("Resolving 'latest' to model: %s\n", slug)
+	}
+
 	allowMultiple := false
+	wait := false
 	overrides := service.StartOverrides{}
 	for _, arg := range args[1:] {
 		switch arg {
 		case "--allow-multiple", "-m":
 			allowMultiple = true
+		case "--wait", "-w":
+			wait = true
 		case "--max-model-len":
 			// next arg is the value
 		case "--max-num-seqs":
@@ -147,6 +166,43 @@ func (c *LlmCommand) runStart(args []string) int {
 	}
 
 	fmt.Printf("Started container: %s\n", slug)
+
+	// Persist this model as the latest started model
+	configSvc := service.NewConfigService(c.cfg.db)
+	if err := configSvc.SetLatestModel(slug); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to set latest model: %v\n", err)
+	}
+
+	// Optionally wait for health check
+	if wait {
+		fmt.Println("Waiting for container to become healthy...")
+		model, err := c.cfg.db.GetModel(slug)
+		if err == nil && model.Port > 0 {
+			host := "localhost"
+			if c.cfg.cfg.OpenAIAPIURL != "" {
+				if parsed, err := url.Parse(c.cfg.cfg.OpenAIAPIURL); err == nil && parsed.Host != "" {
+					host = parsed.Host
+				}
+			}
+			healthURL := fmt.Sprintf("http://%s:%d", host, model.Port)
+
+			ctx, cancel := context.WithTimeout(context.Background(), DefaultStartTimeout)
+			defer cancel()
+
+			if err := waitForHealthy(ctx, healthURL); err != nil {
+				fmt.Fprintf(os.Stderr, "Health check failed: %v\n", err)
+				fmt.Println("Stopping container...")
+				stopErr := c.svc.StopContainer(slug)
+				if stopErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to stop container after health check failure: %v\n", stopErr)
+				}
+				fmt.Fprintf(os.Stderr, "Error: container %s failed health check and was stopped\n", slug)
+				return 1
+			}
+			fmt.Println("Container is healthy!")
+		}
+	}
+
 	return 0
 }
 
@@ -390,6 +446,19 @@ func (c *LlmCommand) runStatusAll() int {
 		}
 	}
 
+	// Display latest model
+	latestModel, err := c.cfg.db.GetConfig("LLM_MANAGER_LATEST_MODEL")
+	if err == nil && latestModel != nil && latestModel.Value != "" {
+		model, modelErr := c.cfg.db.GetModel(latestModel.Value)
+		if modelErr == nil {
+			fmt.Printf("  Latest model: %s (%s)\n", model.Name, latestModel.Value)
+		} else {
+			fmt.Printf("  Latest model: %s (model not found — may be stale)\n", latestModel.Value)
+		}
+	} else {
+		fmt.Println("  Latest model: none set")
+	}
+
 	return 0
 }
 
@@ -527,6 +596,24 @@ func (c *LlmCommand) resolveContainer(slug string) (string, error) {
 	return "", fmt.Errorf("unknown service or model: %s", slug)
 }
 
+// resolveLatestSlug resolves the "latest" keyword to an actual model slug.
+// Returns the resolved slug, or an error if no latest model is set or the resolved
+// model doesn't exist in the database.
+func resolveLatestSlug(db database.DatabaseManager) (string, error) {
+	configSvc := service.NewConfigService(db)
+	resolved, err := configSvc.GetLatestModel()
+	if err != nil {
+		return "", fmt.Errorf("error resolving latest model: %w", err)
+	}
+	if resolved == "" {
+		return "", fmt.Errorf("no latest model has been set. Start a model first with 'llm-manager llm start <slug>'")
+	}
+	if _, err := db.GetModel(resolved); err != nil {
+		return "", fmt.Errorf("resolved model %q is not a known model", resolved)
+	}
+	return resolved, nil
+}
+
 // ── help ───────────────────────────────────────────────────────────────────
 
 // PrintHelp prints the llm command help.
@@ -537,17 +624,19 @@ USAGE:
   llm-manager llm [SUBCOMMAND] [ARGS]
 
 SUBCOMMANDS:
-  start <slug>        Start a model container (handles flux/3D models)
+  start <slug>        Start a model container (handles flux/3D models). Use 'latest' to start the most recently started model.
   stop <slug>         Stop a model container (handles flux/3D models)
   restart <slug>      Restart a model container
   swap <slug>         GPU-safe model swap (stop all LLMs, drop cache, start target)
-  status [slug]       Show all container status, flux, 3D, and hotspot info
+  status [slug]       Show all container status, flux, 3D, hotspot, and latest model info
   status <slug>       Show status of a specific container/flux/3D model
   logs <slug> [-f] [lines]  Show container logs (-f for follow mode)
 
 FLAGS:
-  --allow-multiple    Only for 'start' and 'swap': don't stop other running
-                      LLM containers before starting
+  --allow-multiple, -m    Only for 'start' and 'swap': don't stop other running
+                          LLM containers before starting
+  --wait, -w              Wait for the container to become healthy before returning
+                          (polls /health endpoint up to 180s, stops container on failure)
 
 SERVICE ALIASES (for logs):
   comfyui, flux   -> comfyui-flux
@@ -562,7 +651,9 @@ SERVICE ALIASES (for logs):
 
 EXAMPLES:
   llm-manager llm start qwen3_6
+  llm-manager llm start latest
   llm-manager llm start qwen3_6 --allow-multiple
+  llm-manager llm start qwen3_6 --wait
   llm-manager llm start flux-schnell
   llm-manager llm stop qwen3_6
   llm-manager llm restart qwen3_6

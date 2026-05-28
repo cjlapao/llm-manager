@@ -163,3 +163,21 @@ func EnsureEncryptionKey(path string) error {
 	fmt.Println("IMPORTANT: Back up this file. Losing it means losing access to all encrypted secrets.")
 	return nil
 }
+
+// GetLatestModel returns the slug of the latest-started model.
+// Returns empty string (not error) when no latest model has been set.
+func (s *ConfigService) GetLatestModel() (string, error) {
+	cfg, err := s.Get("LLM_MANAGER_LATEST_MODEL")
+	if err != nil {
+		return "", err
+	}
+	if cfg == nil {
+		return "", nil
+	}
+	return cfg.Value, nil
+}
+
+// SetLatestModel saves the slug as the latest-started model.
+func (s *ConfigService) SetLatestModel(slug string) error {
+	return s.Set("LLM_MANAGER_LATEST_MODEL", slug)
+}

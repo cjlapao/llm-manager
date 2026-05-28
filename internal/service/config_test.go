@@ -272,3 +272,52 @@ func TestConfigService_HFTOKENVerifyCorrectly(t *testing.T) {
 		t.Error("VerifySecret() expected false for wrong token, got true")
 	}
 }
+
+func TestConfigService_GetLatestModel_NotSet(t *testing.T) {
+	svc, _ := newTestConfigService(t)
+
+	slug, err := svc.GetLatestModel()
+	if err != nil {
+		t.Fatalf("GetLatestModel() returned error: %v", err)
+	}
+	if slug != "" {
+		t.Errorf("GetLatestModel() = %q, want empty string", slug)
+	}
+}
+
+func TestConfigService_SetAndGetLatestModel(t *testing.T) {
+	svc, _ := newTestConfigService(t)
+
+	err := svc.SetLatestModel("qwen3_6")
+	if err != nil {
+		t.Fatalf("SetLatestModel() returned error: %v", err)
+	}
+
+	slug, err := svc.GetLatestModel()
+	if err != nil {
+		t.Fatalf("GetLatestModel() returned error: %v", err)
+	}
+	if slug != "qwen3_6" {
+		t.Errorf("GetLatestModel() = %q, want %q", slug, "qwen3_6")
+	}
+}
+
+func TestConfigService_SetLatestModel_StoredInDB(t *testing.T) {
+	svc, _ := newTestConfigService(t)
+
+	err := svc.SetLatestModel("qwen3_6")
+	if err != nil {
+		t.Fatalf("SetLatestModel() returned error: %v", err)
+	}
+
+	cfg, err := svc.Get("LLM_MANAGER_LATEST_MODEL")
+	if err != nil {
+		t.Fatalf("Get() returned error: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("Get() returned nil — DB row not found")
+	}
+	if cfg.Value != "qwen3_6" {
+		t.Errorf("DB value = %q, want %q", cfg.Value, "qwen3_6")
+	}
+}
