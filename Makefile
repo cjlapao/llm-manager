@@ -118,6 +118,13 @@ docs: ## Generate documentation
 	@echo "Generating documentation..."
 	@$(GO) doc -all . 2>/dev/null || echo "Documentation generation requires goimports"
 
+# Generate Swagger (OpenAPI) documentation
+.PHONY: swagger
+swagger: ## Generate Swagger/OpenAPI docs via swag
+	@echo "Generating Swagger documentation..."
+	@$(GO) generate ./...
+	@echo "Swagger docs generated in docs/"
+
 # Download and tidy dependencies
 .PHONY: deps
 deps: ## Download and tidy dependencies

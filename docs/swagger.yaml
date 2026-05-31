@@ -1,0 +1,10 @@
+basePath: /api
+host: localhost:8080
+info:
+  contact: {}
+  description: A CLI tool and API server for managing LLM resources, containers, and
+    RAG pipelines.
+  title: llm-manager API
+  version: "1.0"
+paths: {}
+swagger: "2.0"
