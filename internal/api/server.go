@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/user/llm-manager/docs"
 )
 
 const defaultShutdownTimeout = 15 * time.Second
@@ -68,6 +69,16 @@ func StartAPIServer(ctx *APIContext, host string, port int, shutdownTimeout time
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}).Methods(http.MethodGet)
+
+	// Swagger UI — embedded docs at /swagger/
+	router.PathPrefix("/swagger/").Handler(SwaggerUIHandler())
+
+	// Swagger/OpenAPI spec at /docs/swagger.json
+	router.Path("/docs/swagger.json").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write([]byte(docs.SwaggerInfo.ReadDoc()))
+	})
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 
