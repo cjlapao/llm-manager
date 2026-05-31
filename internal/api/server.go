@@ -1,3 +1,14 @@
+// Package api provides the HTTP API server for llm-manager.
+//
+// swagger:meta
+//
+// @title llm-manager API
+// @version 1.0
+// @description A CLI tool and API server for managing LLM resources, containers, and RAG pipelines.
+// @host localhost:8080
+// @BasePath /api
+//
+//go:generate swag init --parseDependency --parseInternal --parseDepth 3 -g server.go -o ../../docs
 package api
 
 import (
