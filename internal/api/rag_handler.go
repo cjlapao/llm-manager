@@ -204,12 +204,12 @@ func buildRAGQuery(db *gorm.DB, subType string, opts ODataQuery) (*gorm.DB, int6
 //	@Tags	rag
 //	@Accept	json
 //	@Produce	json
-//	@Param	$filter	query	string	false	"Filter expression (e.g. 'sub_type eq embedding')"	collectionFormat(multi)
-//	@Param	$search	query	string	false	"Free-text search on name and slug"	collectionFormat(multi)
-//	@Param	$sort	query	string	false	"Sort field (e.g. 'name asc')"	collectionFormat(multi)
-//	@Param	$page	query	int	false	"Page number for pagination"	collectionFormat(multi)
-//	@Param	$limit	query	int	false	"Items per page"	collectionFormat(multi)
-//	@Param	$fields	query	string	false	"Comma-separated list of fields to include"	collectionFormat(multi)
+//	@Param	$filter	query	string	false	"Filter expression (e.g. 'sub_type eq embedding')"
+//	@Param	$search	query	string	false	"Free-text search on name and slug"
+//	@Param	$sort	query	string	false	"Sort field (e.g. 'name asc')"
+//	@Param	$page	query	int	false	"Page number for pagination"
+//	@Param	$limit	query	int	false	"Items per page"
+//	@Param	$fields	query	string	false	"Comma-separated list of fields to include"
 //	@Success	200	{object}	RAGListResponse	"List of RAG models with container status"
 //	@Success	200	{object}	ODataListResponse	"OData-wrapped response when OData params present"
 //	@Failure	400	{object}	map[string]string	"Invalid query parameters"
