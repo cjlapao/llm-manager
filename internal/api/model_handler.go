@@ -21,12 +21,12 @@ type ModelHandler struct {
 //	@Tags	models
 //	@Accept	json
 //	@Produce	json
-//	@Param	$filter	query	string	false	"Filter expression (e.g. 'type eq llm')"	collectionFormat(multi)
-//	@Param	$search	query	string	false	"Free-text search on name and slug"	collectionFormat(multi)
-//	@Param	$sort	query	string	false	"Sort field (e.g. 'name asc')"	collectionFormat(multi)
-//	@Param	$page	query	int	false	"Page number for pagination"	collectionFormat(multi)
-//	@Param	$limit	query	int	false	"Items per page"	collectionFormat(multi)
-//	@Param	$fields	query	string	false	"Comma-separated list of fields to include"	collectionFormat(multi)
+//	@Param	$filter	query	string	false	"Filter expression (e.g. 'type eq llm')"
+//	@Param	$search	query	string	false	"Free-text search on name and slug"
+//	@Param	$sort	query	string	false	"Sort field (e.g. 'name asc')"
+//	@Param	$page	query	int	false	"Page number for pagination"
+//	@Param	$limit	query	int	false	"Items per page"
+//	@Param	$fields	query	string	false	"Comma-separated list of fields to include"
 //	@Success	200	{array}	[]models.Model	"Flat array of models (no OData params)"
 //	@Success	200	{object}	ODataListResponse	"OData-wrapped response when OData params present"
 //	@Failure	400	{object}	map[string]string	"Invalid query parameters"
@@ -271,6 +271,16 @@ type ModelInfoResponse struct {
 
 // GetModelInfo handles GET /api/models/{slug}/info — returns model with parsed
 // JSON fields (LiteLLMParams, ModelInfo, Capabilities) as objects.
+//
+//	@Summary	Enriched model details
+//	@Description	Returns an LLM model with its JSON string fields (LiteLLMParams, ModelInfo, Capabilities) parsed into typed objects.
+//	@Tags	models
+//	@Produce	json
+//	@Param	slug	path	string	true	"Model slug"
+//	@Success	200	{object}	ModelInfoResponse	"Enriched model details"
+//	@Failure	404	{object}	map[string]string	"Model not found"
+//	@Failure	500	{object}	map[string]string	"Internal server error"
+//	@Router	/models/{slug}/info [get]
 func (h *ModelHandler) GetModelInfo(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	slug := vars["slug"]
