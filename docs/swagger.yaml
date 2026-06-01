@@ -1,0 +1,770 @@
+basePath: /api
+definitions:
+  api.ModelInfoResponse:
+    description: Returns an LLM model with its JSON string fields (LiteLLMParams,
+      ModelInfo, Capabilities) parsed into typed objects.
+    properties:
+      active_params_b:
+        type: number
+      attention_layers:
+        type: integer
+      cache_creation_input_token_cost:
+        type: number
+      cache_read_input_token_cost:
+        type: number
+      capabilities:
+        items:
+          type: string
+        type: array
+      container:
+        type: string
+      created_at:
+        type: string
+      default:
+        type: boolean
+      default_context:
+        type: integer
+      engine_type:
+        type: string
+      gdn_layers:
+        type: integer
+      head_dim:
+        type: integer
+      hf_repo:
+        type: string
+      input_token_cost:
+        type: number
+      is_moe:
+        type: boolean
+      litellm_params:
+        additionalProperties: true
+        type: object
+      max_context:
+        type: integer
+      max_num_batched_tokens:
+        type: integer
+      max_num_seqs:
+        type: integer
+      model_info:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+      num_kv_heads:
+        type: integer
+      num_speculative_tokens:
+        type: integer
+      output_token_cost:
+        type: number
+      port:
+        type: integer
+      quant_bytes_per_param:
+        type: number
+      slug:
+        type: string
+      speculative_decoding:
+        type: string
+      sub_type:
+        type: string
+      supports_mtp:
+        type: boolean
+      total_params_b:
+        type: number
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  api.ODataListResponse:
+    properties:
+      data: {}
+      meta:
+        $ref: '#/definitions/api.ODataMeta'
+    type: object
+  api.ODataMeta:
+    properties:
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  api.RAGListResponse:
+    properties:
+      embed_models:
+        items:
+          $ref: '#/definitions/api.RAGModelInfo'
+        type: array
+      rerank_models:
+        items:
+          $ref: '#/definitions/api.RAGModelInfo'
+        type: array
+    type: object
+  api.RAGModelInfo:
+    properties:
+      container:
+        type: string
+      name:
+        type: string
+      port:
+        type: integer
+      slug:
+        type: string
+      status:
+        type: string
+    type: object
+  api.StartRAGRequest:
+    properties:
+      embed_slug:
+        type: string
+      rerank_slug:
+        type: string
+    type: object
+  api.StartRAGResponse:
+    properties:
+      started:
+        items:
+          type: string
+        type: array
+    type: object
+  api.StopRAGRequest:
+    properties:
+      embed_slug:
+        type: string
+      rerank_slug:
+        type: string
+    type: object
+  api.StopRAGResponse:
+    properties:
+      stopped:
+        items:
+          type: string
+        type: array
+    type: object
+  api.importRequest:
+    properties:
+      yaml_content:
+        type: string
+    type: object
+  models.Model:
+    description: An LLM model record stored in the database, including configuration,
+      token pricing, engine settings, and variant information.
+    properties:
+      activeParamsB:
+        type: number
+      attentionLayers:
+        type: integer
+      baseImageID:
+        type: string
+      cacheCreationInputTokenCost:
+        type: number
+      cacheReadInputTokenCost:
+        type: number
+      capabilities:
+        type: string
+      commandArgs:
+        type: string
+      container:
+        type: string
+      createdAt:
+        type: string
+      default:
+        type: boolean
+      defaultContext:
+        type: integer
+      engineType:
+        type: string
+      engineVersionSlug:
+        type: string
+      envVars:
+        type: string
+      gdnLayers:
+        type: integer
+      headDim:
+        type: integer
+      hfrepo:
+        type: string
+      id:
+        type: string
+      inputTokenCost:
+        type: number
+      isMoe:
+        type: boolean
+      liteLLMParams:
+        type: string
+      litellmActiveAliases:
+        type: string
+      litellmModelID:
+        type: string
+      litellmVariantIDs:
+        type: string
+      maxContext:
+        type: integer
+      maxNumBatchedTokens:
+        type: integer
+      maxNumSeqs:
+        type: integer
+      modelInfo:
+        type: string
+      name:
+        type: string
+      numKvHeads:
+        type: integer
+      numSpeculativeTokens:
+        type: integer
+      outputTokenCost:
+        type: number
+      port:
+        type: integer
+      quantBytesPerParam:
+        type: number
+      slug:
+        type: string
+      speculativeDecoding:
+        type: string
+      subType:
+        type: string
+      supportsMtp:
+        type: boolean
+      totalParamsB:
+        type: number
+      type:
+        type: string
+      updatedAt:
+        type: string
+      yml:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: A CLI tool and API server for managing LLM resources, containers, and
+    RAG pipelines.
+  title: llm-manager API
+  version: "1.0"
+paths:
+  /models:
+    get:
+      consumes:
+      - application/json
+      description: Returns all LLM models. When OData query parameters are present
+        ($filter, $search, $sort, $page, $limit, $fields), returns a wrapped OData
+        response with pagination metadata. Without OData params, returns a flat JSON
+        array for backward compatibility.
+      parameters:
+      - description: Filter expression (e.g. 'type eq llm')
+        in: query
+        name: $filter
+        type: string
+      - description: Free-text search on name and slug
+        in: query
+        name: $search
+        type: string
+      - description: Sort field (e.g. 'name asc')
+        in: query
+        name: $sort
+        type: string
+      - description: Page number for pagination
+        in: query
+        name: $page
+        type: integer
+      - description: Items per page
+        in: query
+        name: $limit
+        type: integer
+      - description: Comma-separated list of fields to include
+        in: query
+        name: $fields
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OData-wrapped response when OData params present
+          schema:
+            $ref: '#/definitions/api.ODataListResponse'
+        "400":
+          description: Invalid query parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List all models
+      tags:
+      - models
+    post:
+      consumes:
+      - application/json
+      description: Creates a new LLM model from a JSON body. The model slug must be
+        unique.
+      parameters:
+      - description: Model object
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.Model'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created model
+          schema:
+            $ref: '#/definitions/models.Model'
+        "400":
+          description: Malformed JSON body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new model
+      tags:
+      - models
+  /models/{slug}:
+    delete:
+      consumes:
+      - application/json
+      description: Deletes an LLM model identified by its slug. This is irreversible.
+      parameters:
+      - description: Model slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content" "Model deleted
+        "400":
+          description: Missing slug
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Model not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete a model
+      tags:
+      - models
+    get:
+      consumes:
+      - application/json
+      description: Returns a single LLM model identified by its slug.
+      parameters:
+      - description: Model slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Model found
+          schema:
+            $ref: '#/definitions/models.Model'
+        "404":
+          description: Model not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get a model by slug
+      tags:
+      - models
+    put:
+      consumes:
+      - application/json
+      description: Performs a partial update of an existing model identified by its
+        slug. Accepts a JSON map of field names to new values.
+      parameters:
+      - description: Model slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Partial update fields
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated model
+          schema:
+            $ref: '#/definitions/models.Model'
+        "400":
+          description: Malformed JSON body or missing slug
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Model not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update a model
+      tags:
+      - models
+  /models/{slug}/cache:
+    delete:
+      consumes:
+      - application/json
+      description: Removes the HuggingFace model weights cache directory for the specified
+        model. This frees disk space but requires re-downloading on next use.
+      parameters:
+      - description: Model slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: "No Content\"\t\"Cache cleared"
+        "400":
+          description: Missing slug or model has no HF repo
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Model not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to remove cache directory
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Clear HuggingFace model cache
+      tags:
+      - models-utilities
+  /models/{slug}/compose:
+    get:
+      description: Generates a Docker Compose YAML configuration for the specified
+        LLM model, including container settings, resource allocation, and vLLM engine
+        configuration.
+      parameters:
+      - description: Model slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - text/x-yaml
+      responses:
+        "200":
+          description: Generated docker-compose YAML
+          schema:
+            type: file
+        "400":
+          description: Missing slug
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Model not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Compose generation failed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Generate docker-compose for a model
+      tags:
+      - models-utilities
+  /models/{slug}/export:
+    get:
+      description: Exports an LLM model from the database as a YAML document suitable
+        for re-import to another instance.
+      parameters:
+      - description: Model slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - text/x-yaml
+      responses:
+        "200":
+          description: YAML export document
+          schema:
+            type: file
+        "400":
+          description: Missing slug
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Model not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Export or serialization failed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Export a model to YAML
+      tags:
+      - models-utilities
+  /models/{slug}/info:
+    get:
+      description: Returns an LLM model with its JSON string fields (LiteLLMParams,
+        ModelInfo, Capabilities) parsed into typed objects.
+      parameters:
+      - description: Model slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Enriched model details
+          schema:
+            $ref: '#/definitions/api.ModelInfoResponse'
+        "404":
+          description: Model not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Enriched model details
+      tags:
+      - models
+  /models/import:
+    post:
+      consumes:
+      - application/json
+      - multipart/form-data
+      description: Imports an LLM model definition from a YAML file or YAML content.
+        Accepts multipart/form-data (file upload) or JSON body with a yaml_content
+        field.
+      parameters:
+      - description: YAML content for import
+        in: body
+        name: yaml_content
+        schema:
+          $ref: '#/definitions/api.importRequest'
+      - description: YAML file to upload
+        in: formData
+        name: file
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Imported model
+          schema:
+            $ref: '#/definitions/models.Model'
+        "400":
+          description: Malformed request or invalid file
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Import a model from YAML
+      tags:
+      - models-utilities
+  /rag:
+    get:
+      consumes:
+      - application/json
+      description: Lists all RAG models (embedding and reranker) with their container
+        status. When OData query parameters are present, returns a wrapped OData response
+        with pagination metadata.
+      parameters:
+      - description: Filter expression (e.g. 'sub_type eq embedding')
+        in: query
+        name: $filter
+        type: string
+      - description: Free-text search on name and slug
+        in: query
+        name: $search
+        type: string
+      - description: Sort field (e.g. 'name asc')
+        in: query
+        name: $sort
+        type: string
+      - description: Page number for pagination
+        in: query
+        name: $page
+        type: integer
+      - description: Items per page
+        in: query
+        name: $limit
+        type: integer
+      - description: Comma-separated list of fields to include
+        in: query
+        name: $fields
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OData-wrapped response when OData params present
+          schema:
+            $ref: '#/definitions/api.ODataListResponse'
+        "400":
+          description: Invalid query parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List RAG models
+      tags:
+      - rag
+  /rag/start:
+    post:
+      consumes:
+      - application/json
+      description: Starts the embedding and/or reranker container(s) for RAG pipelines.
+        If slugs are omitted, starts the first available model of each type.
+      parameters:
+      - description: Request with embed_slug and/or rerank_slug
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.StartRAGRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of started model slugs
+          schema:
+            $ref: '#/definitions/api.StartRAGResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: No models available or model not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to start container
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Start RAG containers
+      tags:
+      - rag
+  /rag/stop:
+    post:
+      consumes:
+      - application/json
+      description: Stops the embedding and/or reranker container(s) for RAG pipelines.
+        If both slugs are omitted, stops all running RAG containers.
+      parameters:
+      - description: Request with embed_slug and/or rerank_slug
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.StopRAGRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of stopped model slugs
+          schema:
+            $ref: '#/definitions/api.StopRAGResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to stop container
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Stop RAG containers
+      tags:
+      - rag
+swagger: "2.0"

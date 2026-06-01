@@ -17,6 +17,8 @@ type RAGHandler struct {
 }
 
 // RAGModelInfo represents a RAG model with its container status.
+//
+//	swag:responseModel
 type RAGModelInfo struct {
 	Slug      string `json:"slug"`
 	Name      string `json:"name"`
@@ -26,18 +28,24 @@ type RAGModelInfo struct {
 }
 
 // RAGListResponse is the response shape for GET /api/rag.
+//
+//	swag:responseModel
 type RAGListResponse struct {
 	EmbedModels  []RAGModelInfo `json:"embed_models"`
 	RerankModels []RAGModelInfo `json:"rerank_models"`
 }
 
 // ODataListResponse is the wrapped response shape for OData-enabled list endpoints.
+//
+//	swag:responseModel
 type ODataListResponse struct {
 	Data interface{} `json:"data"`
 	Meta ODataMeta   `json:"meta"`
 }
 
 // ODataMeta contains pagination metadata.
+//
+//	swag:responseModel
 type ODataMeta struct {
 	Total      int `json:"total"`
 	Page       int `json:"page"`
@@ -46,23 +54,31 @@ type ODataMeta struct {
 }
 
 // StartRAGRequest is the request body for POST /api/rag/start.
+//
+//	swag:responseModel
 type StartRAGRequest struct {
 	EmbedSlug  string `json:"embed_slug"`
 	RerankSlug string `json:"rerank_slug"`
 }
 
 // StopRAGRequest is the request body for POST /api/rag/stop.
+//
+//	swag:responseModel
 type StopRAGRequest struct {
 	EmbedSlug  string `json:"embed_slug"`
 	RerankSlug string `json:"rerank_slug"`
 }
 
 // StartRAGResponse is the response body for POST /api/rag/start.
+//
+//	swag:responseModel
 type StartRAGResponse struct {
 	Started []string `json:"started"`
 }
 
 // StopRAGResponse is the response body for POST /api/rag/stop.
+//
+//	swag:responseModel
 type StopRAGResponse struct {
 	Stopped []string `json:"stopped"`
 }
@@ -181,6 +197,24 @@ func buildRAGQuery(db *gorm.DB, subType string, opts ODataQuery) (*gorm.DB, int6
 // ListRAG lists all RAG models (embedding and reranker) with their container status.
 //
 // GET /api/rag
+//
+//	swag:response
+//	@Summary	List RAG models
+//	@Description	Lists all RAG models (embedding and reranker) with their container status. When OData query parameters are present, returns a wrapped OData response with pagination metadata.
+//	@Tags	rag
+//	@Accept	json
+//	@Produce	json
+//	@Param	$filter	query	string	false	"Filter expression (e.g. 'sub_type eq embedding')"
+//	@Param	$search	query	string	false	"Free-text search on name and slug"
+//	@Param	$sort	query	string	false	"Sort field (e.g. 'name asc')"
+//	@Param	$page	query	int	false	"Page number for pagination"
+//	@Param	$limit	query	int	false	"Items per page"
+//	@Param	$fields	query	string	false	"Comma-separated list of fields to include"
+//	@Success	200	{object}	RAGListResponse	"List of RAG models with container status"
+//	@Success	200	{object}	ODataListResponse	"OData-wrapped response when OData params present"
+//	@Failure	400	{object}	map[string]string	"Invalid query parameters"
+//	@Failure	500	{object}	map[string]string	"Internal server error"
+//	@Router	/rag [get]
 func (h *RAGHandler) ListRAG(w http.ResponseWriter, r *http.Request) {
 	// Parse OData query parameters
 	opts, err := ParseODataQuery(r)
@@ -293,6 +327,18 @@ func (h *RAGHandler) ListRAG(w http.ResponseWriter, r *http.Request) {
 // StartRAG starts RAG model containers based on the request slugs.
 //
 // POST /api/rag/start
+//
+//	@Summary	Start RAG containers
+//	@Description	Starts the embedding and/or reranker container(s) for RAG pipelines. If slugs are omitted, starts the first available model of each type.
+//	@Tags	rag
+//	@Accept	json
+//	@Produce	json
+//	@Param	body	body	StartRAGRequest	true	"Request with embed_slug and/or rerank_slug"
+//	@Success	200	{object}	StartRAGResponse	"List of started model slugs"
+//	@Failure	400	{object}	map[string]string	"Invalid request body"
+//	@Failure	404	{object}	map[string]string	"No models available or model not found"
+//	@Failure	500	{object}	map[string]string	"Failed to start container"
+//	@Router	/rag/start [post]
 func (h *RAGHandler) StartRAG(w http.ResponseWriter, r *http.Request) {
 	var req StartRAGRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -361,6 +407,17 @@ func (h *RAGHandler) StartRAG(w http.ResponseWriter, r *http.Request) {
 // StopRAG stops RAG model containers based on the request slugs.
 //
 // POST /api/rag/stop
+//
+//	@Summary	Stop RAG containers
+//	@Description	Stops the embedding and/or reranker container(s) for RAG pipelines. If both slugs are omitted, stops all running RAG containers.
+//	@Tags	rag
+//	@Accept	json
+//	@Produce	json
+//	@Param	body	body	StopRAGRequest	true	"Request with embed_slug and/or rerank_slug"
+//	@Success	200	{object}	StopRAGResponse	"List of stopped model slugs"
+//	@Failure	400	{object}	map[string]string	"Invalid request body"
+//	@Failure	500	{object}	map[string]string	"Failed to stop container"
+//	@Router	/rag/stop [post]
 func (h *RAGHandler) StopRAG(w http.ResponseWriter, r *http.Request) {
 	var req StopRAGRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
