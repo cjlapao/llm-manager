@@ -284,20 +284,20 @@ func TestIntegration_ImportOverride(t *testing.T) {
 	// Second import WITHOUT override should fail (duplicate)
 	_, err = modelSvc.ImportModel(modelPath, service.ImportOverrides{})
 	if err == nil {
-		t.Error("expected error for duplicate import without --override")
+		t.Error("expected error for duplicate import without --overwrite")
 	}
 
 	// Third import WITH override should succeed
 	_, err = modelSvc.ImportModel(modelPath, service.ImportOverrides{Override: true})
 	if err != nil {
-		t.Fatalf("Import with --override should succeed: %v", err)
+		t.Fatalf("Import with --overwrite should succeed: %v", err)
 	}
 
-	// Fourth import of different model with --override should also succeed
+	// Fourth import of different model with --overwrite should also succeed
 	dupPath := writeFile(t, dir, "dup.yml", duplicateModelYAML)
 	_, err = modelSvc.ImportModel(dupPath, service.ImportOverrides{Override: true})
 	if err != nil {
-		t.Fatalf("Import different model with --override should succeed: %v", err)
+		t.Fatalf("Import different model with --overwrite should succeed: %v", err)
 	}
 }
 
@@ -618,7 +618,7 @@ command: ["--model"]
 	// Second import without override
 	_, err = modelSvc.ImportModel(path3, service.ImportOverrides{})
 	if err == nil {
-		t.Error("expected error for duplicate without --override")
+		t.Error("expected error for duplicate without --overwrite")
 	}
 }
 

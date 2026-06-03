@@ -31,6 +31,9 @@ func NewRootCommand() *RootCommand {
 
 // ParseGlobalFlags parses global flags that appear before any subcommand.
 // Supported flags: --api-port, --api-host
+// Environment variables (used when flags are not provided):
+//   LLM_MANAGER_API_PORT  (default: 8780)
+//   LLM_MANAGER_API_HOST  (default: 0.0.0.0)
 func (c *RootCommand) ParseGlobalFlags(args []string) []string {
 	remaining := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
@@ -61,6 +64,25 @@ func (c *RootCommand) ParseGlobalFlags(args []string) []string {
 			remaining = append(remaining, arg)
 		}
 	}
+
+	// Apply defaults if flags were not set, falling back to environment variables.
+	if c.apiPort <= 0 {
+		if val := os.Getenv("LLM_MANAGER_API_PORT"); val != "" {
+			if port, err := strconv.Atoi(val); err == nil {
+				c.apiPort = port
+			}
+		}
+		if c.apiPort <= 0 {
+			c.apiPort = 8780
+		}
+	}
+	if c.apiHost == "" {
+		c.apiHost = os.Getenv("LLM_MANAGER_API_HOST")
+	}
+	if c.apiHost == "" {
+		c.apiHost = "0.0.0.0"
+	}
+
 	return remaining
 }
 
@@ -76,9 +98,6 @@ func (c *RootCommand) Run(args []string) int {
 
 	// Check if API mode is requested
 	if c.apiPort > 0 {
-		if c.apiHost == "" {
-			c.apiHost = "127.0.0.1"
-		}
 
 		// Open database connection for the API server
 		db, err := database.NewDatabaseManager(c.cfg.DatabaseURL)
@@ -206,20 +225,16 @@ COMMANDS:
   llm         Manage LLM model containers (start, stop, restart, swap, status, logs)
   container   Low-level Docker container operations (list, logs, status refresh)
   service     Manage LLM services (high-level orchestration)
-  hotspot     Manage the most recently used model
   logs        View container logs for a model
   update      Check for and install updates
   mem         Show system memory and disk usage
   uninstall   Uninstall a model (stop container, delete YAML, clear cache, remove from LiteLLM and DB)
   comfyui     Manage ComfyUI (start, stop)
-  embed       Manage embed container (start, stop)
-  rerank      Manage rerank container (start, stop)
-  rag         Manage RAG services - embed + rerank (start, stop)
   speech      Manage speech services - whisper + kokoro (start, stop)
 
 GLOBAL OPTIONS:
-  --api-port <port>     Start API server on the given port (e.g., --api-port 8080)
-  --api-host <host>     Host to bind the API server to (default: 127.0.0.1)
+  --api-port <port>     Start API server on the given port (default: 8780)
+  --api-host <host>     Host to bind the API server to (default: 0.0.0.0)
 
 ENVIRONMENT VARIABLES:
   LLM_MANAGER_VERBOSE       Set to "true" or "1" to enable verbose output
@@ -227,6 +242,8 @@ ENVIRONMENT VARIABLES:
   LLM_MANAGER_DATA_DIR      Path to data directory
   LLM_MANAGER_LOG_DIR       Path to log directory
   LLM_MANAGER_DATABASE_URL  Path to SQLite database file
+  LLM_MANAGER_API_PORT      Port for the API server (overrides --api-port default)
+  LLM_MANAGER_API_HOST      Host for the API server (overrides --api-host default)
 
 EXAMPLES:
   llm-manager version
@@ -237,9 +254,7 @@ EXAMPLES:
   llm-manager llm start qwen3_6
   llm-manager llm start latest
   llm-manager llm swap qwen3_6
-  llm-manager hotspot restart
   llm-manager comfyui start
-  llm-manager rag start
   llm-manager speech stop
   LLM_MANAGER_VERBOSE=true llm-manager
 
@@ -275,10 +290,6 @@ func PlatformInfo() string {
 var ServiceAliases = map[string]string{
 	"comfyui":    "comfyui-flux",
 	"flux":       "comfyui-flux",
-	"embed":      "llm-embed",
-	"embedding":  "llm-embed",
-	"rerank":     "llm-rerank",
-	"reranker":   "llm-rerank",
 	"whisper":    "whisper-stt",
 	"kokoro":     "kokoro-tts",
 	"litellm":    "litellm",

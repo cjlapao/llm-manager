@@ -20,6 +20,7 @@ import (
 type OpenCodeModelEntry struct {
 	Name       string                 `json:"name,omitempty"`
 	Limit      *OpenCodeLimit         `json:"limit,omitempty"`
+	Cost       *OpenCodeCost          `json:"cost,omitempty"`
 	Options    map[string]interface{} `json:"options,omitempty"`
 	Variants   map[string]interface{} `json:"variants,omitempty"`
 	Modalities map[string][]string    `json:"modalities,omitempty"`
@@ -27,13 +28,12 @@ type OpenCodeModelEntry struct {
 
 // OpenCodeLimit represents context and output token limits.
 type OpenCodeLimit struct {
-	Context int     `json:"context"`
-	Output  int     `json:"output"`
-	Price   *Price  `json:"price,omitempty"`
+	Context int `json:"context"`
+	Output  int `json:"output"`
 }
 
-// Price represents input/output token pricing.
-type Price struct {
+// OpenCodeCost represents per-1-million-tokens pricing.
+type OpenCodeCost struct {
 	Input  *float64 `json:"input,omitempty"`
 	Output *float64 `json:"output,omitempty"`
 }
@@ -161,6 +161,12 @@ func (s *ModelService) UpdateModelWithYAML(slug string, yamlPath string) (*model
 	if y.OutputTokenCost != nil {
 		updates["output_token_cost"] = *y.OutputTokenCost
 	}
+	if y.CacheCreationInputTokenCost != nil {
+		updates["cache_creation_input_token_cost"] = *y.CacheCreationInputTokenCost
+	}
+	if y.CacheReadInputTokenCost != nil {
+		updates["cache_read_input_token_cost"] = *y.CacheReadInputTokenCost
+	}
 
 	if len(updates) == 0 {
 		return nil, fmt.Errorf("no fields to update from YAML")
@@ -250,13 +256,16 @@ func (s *ModelService) buildOpenCodeEntry(m *models.Model) *OpenCodeModelEntry {
 		Output:  int(outputLimit),
 	}
 
+	// Cost: per-1-million-tokens pricing (multiply raw per-token cost by 1,000,000)
 	if m.InputTokenCost > 0 || m.OutputTokenCost > 0 {
-		oc.Limit.Price = &Price{}
+		oc.Cost = &OpenCodeCost{}
 		if m.InputTokenCost > 0 {
-			oc.Limit.Price.Input = &m.InputTokenCost
+			inputCostPerM := m.InputTokenCost * 1_000_000
+			oc.Cost.Input = &inputCostPerM
 		}
 		if m.OutputTokenCost > 0 {
-			oc.Limit.Price.Output = &m.OutputTokenCost
+			outputCostPerM := m.OutputTokenCost * 1_000_000
+			oc.Cost.Output = &outputCostPerM
 		}
 	}
 
@@ -1130,68 +1139,6 @@ func (s *ContainerService) StopComfyUI() error {
 	return nil
 }
 
-// StartEmbed starts the first available embed model container.
-// It delegates to StartModelBySlug after resolving the model from the database.
-// Backward-compatible: same signature, returns error on failure.
-func (s *ContainerService) StartEmbed() error {
-	models, err := s.db.ListModelsByTypeSubType("rag", "embedding")
-	if err != nil {
-		return fmt.Errorf("failed to list embedding models: %w", err)
-	}
-	if len(models) == 0 {
-		return fmt.Errorf("no embedding models found")
-	}
-	// Use StartModelBySlugWithAllow with allowMultiple=false so that
-	// starting an embed model stops any other running embed containers
-	// in the same type+subtype group (per-subtype isolation).
-	return s.StartModelBySlugWithAllow(models[0].Slug, false)
-}
-
-// StopEmbed stops the first available embed model container.
-// It delegates to StopModelBySlug after resolving the model from the database.
-// Backward-compatible: same signature, returns error on failure.
-func (s *ContainerService) StopEmbed() error {
-	models, err := s.db.ListModelsByTypeSubType("rag", "embedding")
-	if err != nil {
-		return fmt.Errorf("failed to list embedding models: %w", err)
-	}
-	if len(models) == 0 {
-		return nil
-	}
-	return s.StopModelBySlug(models[0].Slug)
-}
-
-// StartRerank starts the first available rerank model container.
-// It delegates to StartModelBySlug after resolving the model from the database.
-// Backward-compatible: same signature, returns error on failure.
-func (s *ContainerService) StartRerank() error {
-	models, err := s.db.ListModelsByTypeSubType("rag", "reranker")
-	if err != nil {
-		return fmt.Errorf("failed to list reranker models: %w", err)
-	}
-	if len(models) == 0 {
-		return fmt.Errorf("no reranker models found")
-	}
-	// Use StartModelBySlugWithAllow with allowMultiple=false so that
-	// starting a rerank model stops any other running rerank containers
-	// in the same type+subtype group (per-subtype isolation).
-	return s.StartModelBySlugWithAllow(models[0].Slug, false)
-}
-
-// StopRerank stops the first available rerank model container.
-// It delegates to StopModelBySlug after resolving the model from the database.
-// Backward-compatible: same signature, returns error on failure.
-func (s *ContainerService) StopRerank() error {
-	models, err := s.db.ListModelsByTypeSubType("rag", "reranker")
-	if err != nil {
-		return fmt.Errorf("failed to list reranker models: %w", err)
-	}
-	if len(models) == 0 {
-		return nil
-	}
-	return s.StopModelBySlug(models[0].Slug)
-}
-
 // StartSpeech starts whisper-stt and kokoro-tts via profile-based docker compose.
 func (s *ContainerService) StartSpeech() error {
 	composePath := filepath.Join(s.cfg.InstallDir, "docker-compose.yml")
@@ -1436,111 +1383,6 @@ func (s *ContainerService) EstimateMemory(slug string) (*MemoryResult, error) {
 	}
 	return EstimateMemory(model)
 }
-// HotspotService handles hotspot (most recent model) operations.
-type HotspotService struct {
-	db  database.DatabaseManager
-	cfg *config.Config
-	mu  sync.Mutex
-}
-
-// NewHotspotService creates a new HotspotService.
-func NewHotspotService(db database.DatabaseManager) *HotspotService {
-	return &HotspotService{db: db}
-}
-
-// NewHotspotServiceWithConfig creates a new HotspotService with config.
-func NewHotspotServiceWithConfig(db database.DatabaseManager, cfg *config.Config) *HotspotService {
-	return &HotspotService{db: db, cfg: cfg}
-}
-
-// GetCurrentHotspot returns the active hotspot model slug.
-func (s *HotspotService) GetCurrentHotspot() (*models.Hotspot, error) {
-	return s.db.GetHotspot()
-}
-
-// SetHotspot sets the active hotspot model.
-func (s *HotspotService) SetHotspot(slug string) error {
-	// Verify model exists
-	if _, err := s.db.GetModel(slug); err != nil {
-		return fmt.Errorf("model %s not found: %w", slug, err)
-	}
-
-	return s.db.SetHotspot(slug)
-}
-
-// ClearHotspot removes the active hotspot.
-func (s *HotspotService) ClearHotspot() error {
-	return s.db.ClearHotspot()
-}
-
-// StopHotspot stops the hotspot container and clears the hotspot.
-func (s *HotspotService) StopHotspot() error {
-	hotspot, err := s.db.GetHotspot()
-	if err != nil {
-		return fmt.Errorf("failed to get hotspot: %w", err)
-	}
-	if hotspot == nil {
-		return fmt.Errorf("no active hotspot model")
-	}
-
-	model, err := s.db.GetModel(hotspot.ModelSlug)
-	if err != nil {
-		return fmt.Errorf("hotspot model not found: %w", err)
-	}
-
-	composeFile := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
-
-	cmd := exec.Command("docker", "compose", "-f", composeFile, "down")
-	cmd.Dir = s.cfg.LLMDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		// Non-fatal: container may already be stopped
-		_ = output
-	}
-
-	if err := s.db.ClearHotspot(); err != nil {
-		return fmt.Errorf("failed to clear hotspot: %w", err)
-	}
-
-	return nil
-}
-
-// RestartHotspot restarts the hotspot container in-place.
-func (s *HotspotService) RestartHotspot() error {
-	hotspot, err := s.db.GetHotspot()
-	if err != nil {
-		return fmt.Errorf("failed to get hotspot: %w", err)
-	}
-	if hotspot == nil {
-		return fmt.Errorf("no active hotspot model")
-	}
-
-	model, err := s.db.GetModel(hotspot.ModelSlug)
-	if err != nil {
-		return fmt.Errorf("hotspot model not found: %w", err)
-	}
-
-	composeFile := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
-
-	// Stop the container
-	stopCmd := exec.Command("docker", "compose", "-f", composeFile, "down")
-	stopCmd.Dir = s.cfg.LLMDir
-	if output, err := stopCmd.CombinedOutput(); err != nil {
-		fmt.Fprintf(os.Stderr, "  Warning: failed to stop hotspot container: %s\n", strings.TrimSpace(string(output)))
-	}
-
-	// Start the container
-	startCmd := exec.Command("docker", "compose", "-f", composeFile, "up", "-d")
-	startCmd.Dir = s.cfg.LLMDir
-	if output, err := startCmd.CombinedOutput(); err != nil {
-		// Start failed — keep the hotspot but warn
-		fmt.Fprintf(os.Stderr, "  Warning: failed to restart hotspot container: %s\n", strings.TrimSpace(string(output)))
-		fmt.Fprintf(os.Stderr, "  Hotspot model %s still set as active (container not running)\n", hotspot.ModelSlug)
-		return fmt.Errorf("failed to restart hotspot container: %s", strings.TrimSpace(string(output)))
-	}
-
-	return nil
-}
-
 // ServiceService provides high-level service orchestration.
 type ServiceService struct {
 	db        database.DatabaseManager

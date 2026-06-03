@@ -103,6 +103,9 @@ type ModelYAML struct {
 	CommandArgs     []string          `yaml:"command"`
 	InputTokenCost  *float64          `yaml:"input_token_cost"`
 	OutputTokenCost *float64          `yaml:"output_token_cost"`
+	// Cache-aware pricing fields (LiteLLM style)
+	CacheCreationInputTokenCost *float64 `yaml:"cache_creation_input_token_cost"`
+	CacheReadInputTokenCost     *float64 `yaml:"cache_read_input_token_cost"`
 	Capabilities    []string          `yaml:"capabilities"`
 	// LiteLLM parameters - optional, supports mixed types (float, int, string, bool, nested maps, arrays).
 	// The system will auto-construct api_base (from config URL + port) and model (from slug) during import.

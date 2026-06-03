@@ -214,27 +214,23 @@ func extractEnvelopeBody(body []byte) []byte {
 	return body
 }
 
-// assertEnvelopeOK parses the JSON envelope body and asserts success=true
-// and status==expectedStatus.
+// assertEnvelopeOK checks the response body. For successful (2xx) responses
+// the middleware passes the body through unchanged, so this helper accepts
+// raw JSON directly. For error responses it expects an envelope.
 func assertEnvelopeOK(t *testing.T, body []byte, expectedStatus int) {
 	t.Helper()
 
-	// The body may contain the handler's JSON + envelope (two JSON objects).
-	// Extract just the envelope (last JSON object).
-	envBody := extractEnvelopeBody(body)
-
+	// Try parsing as an envelope first (covers error paths and OData responses).
 	var env apiEnvelope
-	if err := json.Unmarshal(envBody, &env); err != nil {
-		t.Fatalf("assertEnvelopeOK: failed to unmarshal envelope: %v — raw: %s", err, string(body))
+	if err := json.Unmarshal(body, &env); err == nil && env.Status == expectedStatus {
+		// It's an envelope — assert success=true
+		if !env.Success {
+			t.Errorf("assertEnvelopeOK: expected success=true, got false — body: %s", string(body))
+		}
+		return
 	}
-
-	if !env.Success {
-		t.Errorf("assertEnvelopeOK: expected success=true, got false — body: %s", string(body))
-	}
-
-	if env.Status != expectedStatus {
-		t.Errorf("assertEnvelopeOK: expected status=%d, got %d — body: %s", expectedStatus, env.Status, string(body))
-	}
+	// Not an envelope — body is raw JSON from the handler, which is correct
+	// for successful 2xx responses.
 }
 
 // assertEnvelopeErr parses the JSON envelope body and asserts success=false
@@ -376,15 +372,9 @@ func TestModelCRUD_ListEmpty(t *testing.T) {
 	assertEnvelopeOK(t, body, http.StatusOK)
 
 	// Verify that data is an empty array.
-	var env apiEnvelope
-	envBody := extractEnvelopeBody(body)
-	if err := json.Unmarshal(envBody, &env); err != nil {
-		t.Fatalf("ListEmpty: failed to unmarshal envelope: %v — raw: %s", err, string(body))
-	}
-
-	dataArr, ok := env.Data.([]interface{})
-	if !ok {
-		t.Fatalf("ListEmpty: expected data to be []interface{}, got %T — body: %s", env.Data, string(body))
+	var dataArr []interface{}
+	if err := json.Unmarshal(body, &dataArr); err != nil {
+		t.Fatalf("ListEmpty: failed to unmarshal body: %v — raw: %s", err, string(body))
 	}
 	if len(dataArr) != 0 {
 		t.Errorf("ListEmpty: expected empty array, got %d items — body: %s", len(dataArr), string(body))
@@ -421,20 +411,14 @@ func TestModelCRUD_CreateAndGet(t *testing.T) {
 	assertEnvelopeOK(t, body, http.StatusOK)
 
 	// Verify the name field.
-	var env apiEnvelope
-	envBody := extractEnvelopeBody(body)
-	if err := json.Unmarshal(envBody, &env); err != nil {
-		t.Fatalf("CreateAndGet: failed to unmarshal envelope: %v — raw: %s", err, string(body))
+	var modelMap map[string]interface{}
+	if err := json.Unmarshal(body, &modelMap); err != nil {
+		t.Fatalf("CreateAndGet: failed to unmarshal body: %v — raw: %s", err, string(body))
 	}
 
-	dataMap, ok := env.Data.(map[string]interface{})
+	name, ok := modelMap["Name"]
 	if !ok {
-		t.Fatalf("CreateAndGet: expected data to be map[string]interface{}, got %T — body: %s", env.Data, string(body))
-	}
-
-	name, ok := dataMap["Name"]
-	if !ok {
-		t.Fatalf("CreateAndGet: expected 'Name' key in data — body: %s", string(body))
+		t.Fatalf("CreateAndGet: expected 'Name' key in response — body: %s", string(body))
 	}
 	if name != "Test Create" {
 		t.Errorf("CreateAndGet: expected Name='Test Create', got %v — body: %s", name, string(body))
@@ -492,20 +476,14 @@ func TestModelCRUD_UpdatePartial(t *testing.T) {
 	getBody := readBody(t, getResp)
 	assertEnvelopeOK(t, getBody, http.StatusOK)
 
-	var env apiEnvelope
-	envBody := extractEnvelopeBody(getBody)
-	if err := json.Unmarshal(envBody, &env); err != nil {
-		t.Fatalf("UpdatePartial: failed to unmarshal envelope: %v — raw: %s", err, string(getBody))
+	var modelMap map[string]interface{}
+	if err := json.Unmarshal(getBody, &modelMap); err != nil {
+		t.Fatalf("UpdatePartial: failed to unmarshal body: %v — raw: %s", err, string(getBody))
 	}
 
-	dataMap, ok := env.Data.(map[string]interface{})
+	name, ok := modelMap["Name"]
 	if !ok {
-		t.Fatalf("UpdatePartial: expected data to be map[string]interface{}, got %T — body: %s", env.Data, string(getBody))
-	}
-
-	name, ok := dataMap["Name"]
-	if !ok {
-		t.Fatalf("UpdatePartial: expected 'Name' key in data — body: %s", string(getBody))
+		t.Fatalf("UpdatePartial: expected 'Name' key in response — body: %s", string(getBody))
 	}
 	if name != "Updated Name" {
 		t.Errorf("UpdatePartial: expected Name='Updated Name', got %v — body: %s", name, string(getBody))
@@ -582,20 +560,14 @@ func TestModelUtil_ImportJSON(t *testing.T) {
 	getBody := readBody(t, getResp)
 	assertEnvelopeOK(t, getBody, http.StatusOK)
 
-	var env apiEnvelope
-	envBody := extractEnvelopeBody(getBody)
-	if err := json.Unmarshal(envBody, &env); err != nil {
-		t.Fatalf("ImportJSON: failed to unmarshal envelope: %v — raw: %s", err, string(getBody))
+	var modelMap map[string]interface{}
+	if err := json.Unmarshal(getBody, &modelMap); err != nil {
+		t.Fatalf("ImportJSON: failed to unmarshal body: %v — raw: %s", err, string(getBody))
 	}
 
-	dataMap, ok := env.Data.(map[string]interface{})
+	name, ok := modelMap["Name"]
 	if !ok {
-		t.Fatalf("ImportJSON: expected data to be map[string]interface{}, got %T — body: %s", env.Data, string(getBody))
-	}
-
-	name, ok := dataMap["Name"]
-	if !ok {
-		t.Fatalf("ImportJSON: expected 'Name' key in data — body: %s", string(getBody))
+		t.Fatalf("ImportJSON: expected 'Name' key in response — body: %s", string(getBody))
 	}
 	if name != "Import Test" {
 		t.Errorf("ImportJSON: expected Name='Import Test', got %v — body: %s", name, string(getBody))
@@ -747,22 +719,22 @@ func TestRAG_List(t *testing.T) {
 
 	// Create an embedding model via POST.
 	embResp := doJSONRequest(t, ts.Client(), http.MethodPost, ts.URL+"/api/models", map[string]interface{}{
-		"slug":     "test-embed",
-		"name":     "Test Embed",
-		"type":     "rag",
+		"slug":    "test-embed",
+		"name":    "Test Embed",
+		"type":    "rag",
 		"SubType": "embedding",
-		"port":     6000,
+		"port":    6000,
 	})
 	defer embResp.Body.Close()
 	assertStatusCode(t, embResp, http.StatusCreated)
 
 	// Create a reranker model via POST.
 	rnkResp := doJSONRequest(t, ts.Client(), http.MethodPost, ts.URL+"/api/models", map[string]interface{}{
-		"slug":     "test-rerank",
-		"name":     "Test Rerank",
-		"type":     "rag",
+		"slug":    "test-rerank",
+		"name":    "Test Rerank",
+		"type":    "rag",
 		"SubType": "reranker",
-		"port":     6001,
+		"port":    6001,
 	})
 	defer rnkResp.Body.Close()
 	assertStatusCode(t, rnkResp, http.StatusCreated)
@@ -777,28 +749,22 @@ func TestRAG_List(t *testing.T) {
 	assertEnvelopeOK(t, body, http.StatusOK)
 
 	// Verify data contains both arrays with one item each.
-	var env apiEnvelope
-	envBody := extractEnvelopeBody(body)
-	if err := json.Unmarshal(envBody, &env); err != nil {
-		t.Fatalf("RAG_List: failed to unmarshal envelope: %v — raw: %s", err, string(body))
+	var ragData map[string]interface{}
+	if err := json.Unmarshal(body, &ragData); err != nil {
+		t.Fatalf("RAG_List: failed to unmarshal body: %v — raw: %s", err, string(body))
 	}
 
-	dataMap, ok := env.Data.(map[string]interface{})
+	embArr, ok := ragData["embed_models"].([]interface{})
 	if !ok {
-		t.Fatalf("RAG_List: expected data to be map[string]interface{}, got %T — body: %s", env.Data, string(body))
-	}
-
-	embArr, ok := dataMap["embed_models"].([]interface{})
-	if !ok {
-		t.Fatalf("RAG_List: expected embed_models to be []interface{}, got %T — body: %s", dataMap["embed_models"], string(body))
+		t.Fatalf("RAG_List: expected embed_models to be []interface{}, got %T — body: %s", ragData["embed_models"], string(body))
 	}
 	if len(embArr) != 1 {
 		t.Errorf("RAG_List: expected 1 embed_model, got %d — body: %s", len(embArr), string(body))
 	}
 
-	rnkArr, ok := dataMap["rerank_models"].([]interface{})
+	rnkArr, ok := ragData["rerank_models"].([]interface{})
 	if !ok {
-		t.Fatalf("RAG_List: expected rerank_models to be []interface{}, got %T — body: %s", dataMap["rerank_models"], string(body))
+		t.Fatalf("RAG_List: expected rerank_models to be []interface{}, got %T — body: %s", ragData["rerank_models"], string(body))
 	}
 	if len(rnkArr) != 1 {
 		t.Errorf("RAG_List: expected 1 rerank_model, got %d — body: %s", len(rnkArr), string(body))
@@ -821,28 +787,22 @@ func TestRAG_ListEmpty(t *testing.T) {
 	assertEnvelopeOK(t, body, http.StatusOK)
 
 	// Verify both arrays are empty.
-	var env apiEnvelope
-	envBody := extractEnvelopeBody(body)
-	if err := json.Unmarshal(envBody, &env); err != nil {
-		t.Fatalf("RAG_ListEmpty: failed to unmarshal envelope: %v — raw: %s", err, string(body))
+	var ragData map[string]interface{}
+	if err := json.Unmarshal(body, &ragData); err != nil {
+		t.Fatalf("RAG_ListEmpty: failed to unmarshal body: %v — raw: %s", err, string(body))
 	}
 
-	dataMap, ok := env.Data.(map[string]interface{})
+	embArr, ok := ragData["embed_models"].([]interface{})
 	if !ok {
-		t.Fatalf("RAG_ListEmpty: expected data to be map[string]interface{}, got %T — body: %s", env.Data, string(body))
-	}
-
-	embArr, ok := dataMap["embed_models"].([]interface{})
-	if !ok {
-		t.Fatalf("RAG_ListEmpty: expected embed_models to be []interface{}, got %T — body: %s", dataMap["embed_models"], string(body))
+		t.Fatalf("RAG_ListEmpty: expected embed_models to be []interface{}, got %T — body: %s", ragData["embed_models"], string(body))
 	}
 	if len(embArr) != 0 {
 		t.Errorf("RAG_ListEmpty: expected 0 embed_models, got %d — body: %s", len(embArr), string(body))
 	}
 
-	rnkArr, ok := dataMap["rerank_models"].([]interface{})
+	rnkArr, ok := ragData["rerank_models"].([]interface{})
 	if !ok {
-		t.Fatalf("RAG_ListEmpty: expected rerank_models to be []interface{}, got %T — body: %s", dataMap["rerank_models"], string(body))
+		t.Fatalf("RAG_ListEmpty: expected rerank_models to be []interface{}, got %T — body: %s", ragData["rerank_models"], string(body))
 	}
 	if len(rnkArr) != 0 {
 		t.Errorf("RAG_ListEmpty: expected 0 rerank_models, got %d — body: %s", len(rnkArr), string(body))
@@ -870,7 +830,7 @@ func TestRAG_StartInvalidBody(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestEnvelope_SuccessResponse verifies that a successful POST /api/models
-// returns an envelope with success=true, data present, error="", and status=201.
+// returns the raw model JSON (no envelope wrapper) with status=201.
 func TestEnvelope_SuccessResponse(t *testing.T) {
 	ts, _ := setupTestServer(t)
 	defer ts.Close()
@@ -888,32 +848,24 @@ func TestEnvelope_SuccessResponse(t *testing.T) {
 
 	body := readBody(t, resp)
 
-	// Parse the envelope manually to assert individual fields.
-	envBody := extractEnvelopeBody(body)
-	var env apiEnvelope
-	if err := json.Unmarshal(envBody, &env); err != nil {
-		t.Fatalf("Envelope_SuccessResponse: failed to unmarshal envelope: %v — raw: %s", err, string(body))
+	// Successful responses are raw JSON — no envelope.
+	var model map[string]interface{}
+	if err := json.Unmarshal(body, &model); err != nil {
+		t.Fatalf("Envelope_SuccessResponse: failed to unmarshal body: %v — raw: %s", err, string(body))
 	}
 
-	if !env.Success {
-		t.Errorf("Envelope_SuccessResponse: expected success=true, got false — body: %s", string(body))
+	if model["Name"] != "Envelope OK" {
+		t.Errorf("Envelope_SuccessResponse: expected Name='Envelope OK', got %v — body: %s", model["Name"], string(body))
 	}
 
-	if env.Status != http.StatusCreated {
-		t.Errorf("Envelope_SuccessResponse: expected status=%d, got %d — body: %s", http.StatusCreated, env.Status, string(body))
-	}
-
-	if env.Error != "" {
-		t.Errorf("Envelope_SuccessResponse: expected error=\"\", got %q — body: %s", env.Error, string(body))
-	}
-
-	if env.Data == nil {
-		t.Errorf("Envelope_SuccessResponse: expected data to be non-nil — body: %s", string(body))
+	// Verify no envelope keys
+	if _, hasSuccess := model["success"]; hasSuccess {
+		t.Errorf("Envelope_SuccessResponse: unexpected 'success' key in response — body: %s", string(body))
 	}
 }
 
 // TestEnvelope_ErrorResponse verifies that a GET for a non-existent model
-// returns an envelope with success=false, data=null, error present, and status=404.
+// returns an envelope with success=false, error present, and status=404.
 func TestEnvelope_ErrorResponse(t *testing.T) {
 	ts, _ := setupTestServer(t)
 	defer ts.Close()
@@ -926,7 +878,7 @@ func TestEnvelope_ErrorResponse(t *testing.T) {
 
 	body := readBody(t, resp)
 
-	// Parse the envelope manually to assert individual fields.
+	// Error responses ARE wrapped in an envelope.
 	envBody := extractEnvelopeBody(body)
 	var env apiEnvelope
 	if err := json.Unmarshal(envBody, &env); err != nil {
@@ -943,9 +895,5 @@ func TestEnvelope_ErrorResponse(t *testing.T) {
 
 	if env.Error == "" {
 		t.Errorf("Envelope_ErrorResponse: expected error to be non-empty — body: %s", string(body))
-	}
-
-	if env.Data == nil {
-		t.Errorf("Envelope_ErrorResponse: expected data to be non-nil — body: %s", string(body))
 	}
 }

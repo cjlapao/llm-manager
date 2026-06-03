@@ -20,7 +20,7 @@ LDFLAGS        := -s -w
 BUILD_LDFLAGS  := -ldflags "$(LDFLAGS) -X $(MODULE_PATH)/internal/version.version=$(VERSION) -X $(MODULE_PATH)/internal/version.commit=$(COMMIT) -X $(MODULE_PATH)/internal/version.date=$(DATE)"
 
 # Go settings
-GO             := go
+GO             := $(shell command -v go 2>/dev/null || echo "go")
 GOLANGCI_LINT  := golangci-lint
 BUILD_TARGET   := ./cmd/$(APP_NAME)
 
@@ -122,7 +122,14 @@ docs: ## Generate documentation
 .PHONY: swagger
 swagger: ## Generate Swagger/OpenAPI docs via swag
 	@echo "Generating Swagger documentation..."
-	@$(GO) generate ./...
+	@SWAG=$$(command -v swag 2>/dev/null || echo "$$HOME/go/bin/swag"); \
+	if [ -x "$$SWAG" ]; then \
+		$$SWAG init --parseDependency --parseInternal --parseDepth 3 -g internal/api/server.go -o docs; \
+	else \
+		echo "swag not found. Install with: go install github.com/swaggo/swag/cmd/swag@latest"; \
+		echo "Then add $$HOME/go/bin to your PATH"; \
+		exit 1; \
+	fi
 	@echo "Swagger docs generated in docs/"
 
 # Download and tidy dependencies

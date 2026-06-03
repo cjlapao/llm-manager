@@ -9,9 +9,9 @@ import (
 
 // APIContext holds the shared dependencies injected into all API handlers.
 type APIContext struct {
-	DB          database.DatabaseManager
-	Config      *config.Config
-	ModelService *service.ModelService
+	DB               database.DatabaseManager
+	Config           *config.Config
+	ModelService     *service.ModelService
 	ContainerService *service.ContainerService
 }
 

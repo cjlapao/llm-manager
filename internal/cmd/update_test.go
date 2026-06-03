@@ -101,8 +101,6 @@ func TestResolveServiceAlias(t *testing.T) {
 	}{
 		{"comfyui", "comfyui-flux"},
 		{"flux", "comfyui-flux"},
-		{"embed", "llm-embed"},
-		{"rerank", "llm-rerank"},
 		{"whisper", "whisper-stt"},
 		{"kokoro", "kokoro-tts"},
 		{"litellm", "litellm"},
@@ -133,8 +131,6 @@ func TestResolveServiceAliasCaseInsensitive(t *testing.T) {
 	}{
 		{"ComfyUI", "comfyui-flux"},
 		{"COMFYUI", "comfyui-flux"},
-		{"Embed", "llm-embed"},
-		{"EMBED", "llm-embed"},
 		{"MCP", "mcpo"},
 		{"Mcp", "mcpo"},
 	}

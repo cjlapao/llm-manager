@@ -190,8 +190,10 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		Port:              y.Port,
 		EngineType:        "vllm", // default engine
 		EngineVersionSlug: "",     // resolved by engine service
-		InputTokenCost:    0.0,
-		OutputTokenCost:   0.0,
+		InputTokenCost:             0.0,
+		OutputTokenCost:            0.0,
+		CacheCreationInputTokenCost: 0.0,
+		CacheReadInputTokenCost:     0.0,
 		Capabilities:      "",
 		EnvVars:           "",
 		CommandArgs:       "",
@@ -229,6 +231,12 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	}
 	if y.OutputTokenCost != nil {
 		model.OutputTokenCost = *y.OutputTokenCost
+	}
+	if y.CacheCreationInputTokenCost != nil {
+		model.CacheCreationInputTokenCost = *y.CacheCreationInputTokenCost
+	}
+	if y.CacheReadInputTokenCost != nil {
+		model.CacheReadInputTokenCost = *y.CacheReadInputTokenCost
 	}
 	if len(y.Capabilities) > 0 {
 		b, err := json.Marshal(y.Capabilities)
@@ -513,6 +521,12 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 	}
 	if model.OutputTokenCost > 0 {
 		y.OutputTokenCost = &model.OutputTokenCost
+	}
+	if model.CacheCreationInputTokenCost > 0 {
+		y.CacheCreationInputTokenCost = &model.CacheCreationInputTokenCost
+	}
+	if model.CacheReadInputTokenCost > 0 {
+		y.CacheReadInputTokenCost = &model.CacheReadInputTokenCost
 	}
 
 	// Export profile fields

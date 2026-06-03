@@ -67,8 +67,6 @@ ARGUMENTS:
 
 SERVICE ALIASES:
   comfyui, flux   -> comfyui-flux
-  embed           -> llm-embed
-  rerank          -> llm-rerank
   whisper         -> whisper-stt
   kokoro          -> kokoro-tts
   litellm         -> litellm
@@ -79,9 +77,8 @@ SERVICE ALIASES:
 EXAMPLES:
   llm-manager container logs qwen3_6
   llm-manager container logs qwen3_6 200
-  llm-manager container logs qwen3_6 -f
   llm-manager container logs comfyui -f
-  llm-manager container logs embed 100`)
+  llm-manager container logs qwen3_6 100`)
 			return 0
 		}
 		lines := 50
@@ -133,7 +130,7 @@ func (c *ContainerCommand) runList() int {
 	return 0
 }
 
-// runStatusAll shows a comprehensive status overview of all containers, flux, 3D, and hotspot.
+// runStatusAll shows a comprehensive status overview of all containers, flux, and 3D.
 func (c *ContainerCommand) runStatusAll() int {
 	fmt.Println("=== Docker Containers ===")
 
@@ -170,16 +167,6 @@ func (c *ContainerCommand) runStatusAll() int {
 	active3D := readActiveFile(threeDActiveFilePath(c.cfg.cfg.InstallDir))
 	if active3D != "" {
 		fmt.Printf("  Active 3D model: %s\n", active3D)
-	}
-
-	hotspot, err := c.cfg.db.GetHotspot()
-	if err == nil && hotspot != nil {
-		model, modelErr := c.cfg.db.GetModel(hotspot.ModelSlug)
-		if modelErr == nil {
-			fmt.Printf("  Active hotspot model: %s (%s)\n", model.Name, hotspot.ModelSlug)
-		} else {
-			fmt.Printf("  Active hotspot model: %s\n", hotspot.ModelSlug)
-		}
 	}
 
 	return 0
@@ -349,14 +336,12 @@ USAGE:
 
 SUBCOMMANDS:
   list, ls          List all containers
-  status [slug]     Show all container status, flux, 3D, and hotspot info
+  status [slug]     Show all container status, flux, and 3D info
   status refresh    Refresh status for all containers
   logs <slug> [-f] [lines]  Show container logs (-f for follow mode)
 
 SERVICE ALIASES (for logs):
   comfyui, flux   -> comfyui-flux
-  embed           -> llm-embed
-  rerank          -> llm-rerank
   whisper         -> whisper-stt
   kokoro          -> kokoro-tts
   litellm         -> litellm

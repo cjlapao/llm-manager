@@ -50,14 +50,14 @@ func (c *ImportCommand) Run(args []string) int {
 		}
 	}
 
-	// Parse flags: --override and --folder supported
-	var override bool
+	// Parse flags: --overwrite and --folder supported
+	var overwrite bool
 	var folderPath string
 	filePaths := []string{}
 
 	for _, arg := range args {
-		if arg == "--override" {
-			override = true
+		if arg == "--overwrite" {
+			overwrite = true
 		} else if strings.HasPrefix(arg, "--folder") {
 			// --folder=<path> or --folder <path>
 			eqIdx := strings.Index(arg, "=")
@@ -68,7 +68,7 @@ func (c *ImportCommand) Run(args []string) int {
 				return 1
 			}
 		} else if strings.HasPrefix(arg, "--") {
-			fmt.Fprintf(os.Stderr, "Error: unknown flag %s (supported: --override, --folder)\n", arg)
+			fmt.Fprintf(os.Stderr, "Error: unknown flag %s (supported: --overwrite, --folder)\n", arg)
 			return 1
 		} else {
 			filePaths = append(filePaths, arg)
@@ -81,13 +81,13 @@ func (c *ImportCommand) Run(args []string) int {
 	}
 
 	if folderPath != "" {
-		return c.runImportFolder(folderPath, override)
+		return c.runImportFolder(folderPath, overwrite)
 	}
 
 	if len(filePaths) > 0 {
 		// Import each file individually
 		for _, path := range filePaths {
-			if exitCode := c.runImportFile(path, override); exitCode != 0 {
+			if exitCode := c.runImportFile(path, overwrite); exitCode != 0 {
 				return exitCode
 			}
 		}
@@ -101,7 +101,7 @@ func (c *ImportCommand) Run(args []string) int {
 
 // runImportFolder imports all YAML files from a directory.
 // Recognized engine and model files are imported; unrecognized files are skipped with a warning.
-func (c *ImportCommand) runImportFolder(folderPath string, override bool) int {
+func (c *ImportCommand) runImportFolder(folderPath string, overwrite bool) int {
 	entries, err := os.ReadDir(folderPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading directory %s: %v\n", folderPath, err)
@@ -150,7 +150,7 @@ func (c *ImportCommand) runImportFolder(folderPath string, override bool) int {
 			imported++
 		} else {
 			// Try model import — if it fails validation, skip silently
-			err = c.tryImportModel(path, override)
+			err = c.tryImportModel(path, overwrite)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  ✗ %s — skipped: %v\n", filepath.Base(path), err)
 				skipped++
@@ -168,7 +168,7 @@ func (c *ImportCommand) runImportFolder(folderPath string, override bool) int {
 
 // tryImportModel attempts to import a model YAML file.
 // Returns nil on success, or an error describing why it was skipped.
-func (c *ImportCommand) tryImportModel(yamlPath string, override bool) error {
+func (c *ImportCommand) tryImportModel(yamlPath string, overwrite bool) error {
 	// Quick check: does this look like a model YAML?
 	// We peek at the raw bytes to avoid full parse cost.
 	data, err := os.ReadFile(yamlPath)
@@ -186,7 +186,7 @@ func (c *ImportCommand) tryImportModel(yamlPath string, override bool) error {
 	}
 
 	overrides := service.ImportOverrides{
-		Override: override,
+		Override: overwrite,
 	}
 	_, err = c.svc.ImportModel(yamlPath, overrides)
 	if err != nil {
@@ -198,7 +198,7 @@ func (c *ImportCommand) tryImportModel(yamlPath string, override bool) error {
 }
 
 // runImportFile imports a single YAML file (auto-detects engine vs model).
-func (c *ImportCommand) runImportFile(yamlPath string, override bool) int {
+func (c *ImportCommand) runImportFile(yamlPath string, overwrite bool) int {
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", yamlPath, err)
@@ -209,7 +209,7 @@ func (c *ImportCommand) runImportFile(yamlPath string, override bool) int {
 		return c.runEngineImport(yamlPath)
 	}
 
-	return c.runModelImport(yamlPath, override)
+	return c.runModelImport(yamlPath, overwrite)
 }
 
 // runEngineImport imports an engine configuration from a YAML file.
@@ -227,9 +227,9 @@ func (c *ImportCommand) runEngineImport(yamlPath string) int {
 }
 
 // runModelImport imports a model from a YAML file.
-func (c *ImportCommand) runModelImport(yamlPath string, override bool) int {
+func (c *ImportCommand) runModelImport(yamlPath string, overwrite bool) int {
 	overrides := service.ImportOverrides{
-		Override: override,
+		Override: overwrite,
 	}
 
 	model, err := c.svc.ImportModel(yamlPath, overrides)
@@ -254,8 +254,8 @@ func (c *ImportCommand) PrintHelp() {
 	fmt.Print(`import - Import a model or engine from a YAML file.
 
 USAGE:
-  llm-manager import <file.yml> [--override]
-  llm-manager import --folder <directory> [--override]
+  llm-manager import <file.yml> [--overwrite]
+  llm-manager import --folder <directory> [--overwrite]
 
 DESCRIPTION:
   Auto-detects whether the YAML file contains an engine configuration or a
@@ -269,15 +269,15 @@ ARGUMENTS:
   --folder      Import all .yml/.yaml files from a directory
 
 OPTIONS:
-  --override    Delete existing DB + LiteLLM records before re-importing
+  --overwrite    Delete existing DB + LiteLLM records before re-importing
                 (model import only; silently ignored for engine import)
 
 EXAMPLES:
   llm-manager import model.yaml
-  llm-manager import model.yaml --override
+  llm-manager import model.yaml --overwrite
   llm-manager import ./engines/vllm.yml
   llm-manager import --folder ./models/
-  llm-manager import --folder ./models/ --override
+  llm-manager import --folder ./models/ --overwrite
   llm-manager engine import ./engines/vllm.yml    (pre-validates engine type)
 `)
 }

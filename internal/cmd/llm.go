@@ -40,10 +40,6 @@ func (c *LlmCommand) Run(args []string) int {
 
 	switch args[0] {
 	case "start":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Error: 'start' requires a model slug\n")
-			return 1
-		}
 		return c.runStart(args[1:])
 	case "stop":
 		if len(args) < 2 {
@@ -90,18 +86,25 @@ func (c *LlmCommand) Run(args []string) int {
 
 // runStart starts a model container, handling flux/3D special cases.
 func (c *LlmCommand) runStart(args []string) int {
-	slug := args[0]
+	slug := ""
+	if len(args) > 0 {
+		slug = args[0]
+	}
 
 	// Resolve "latest" to the actual model slug
 	isLatest := slug == "latest"
-	if isLatest {
+	if slug == "" || isLatest {
 		resolved, err := resolveLatestSlug(c.cfg.db)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			return 1
 		}
 		slug = resolved
-		fmt.Printf("Resolving 'latest' to model: %s\n", slug)
+		if isLatest {
+			fmt.Printf("Resolving 'latest' to model: %s\n", slug)
+		} else {
+			fmt.Printf("Using latest model: %s\n", slug)
+		}
 	}
 
 	allowMultiple := false
@@ -624,11 +627,11 @@ USAGE:
   llm-manager llm [SUBCOMMAND] [ARGS]
 
 SUBCOMMANDS:
-  start <slug>        Start a model container (handles flux/3D models). Use 'latest' to start the most recently started model.
+  start [<slug>]        Start a model container (handles flux/3D models).
   stop <slug>         Stop a model container (handles flux/3D models)
   restart <slug>      Restart a model container
   swap <slug>         GPU-safe model swap (stop all LLMs, drop cache, start target)
-  status [slug]       Show all container status, flux, 3D, hotspot, and latest model info
+  status [slug]       Show all container status, flux, 3D, and latest model info
   status <slug>       Show status of a specific container/flux/3D model
   logs <slug> [-f] [lines]  Show container logs (-f for follow mode)
 
@@ -640,8 +643,6 @@ FLAGS:
 
 SERVICE ALIASES (for logs):
   comfyui, flux   -> comfyui-flux
-  embed           -> llm-embed
-  rerank          -> llm-rerank
   whisper         -> whisper-stt
   kokoro          -> kokoro-tts
   litellm         -> litellm
@@ -650,6 +651,7 @@ SERVICE ALIASES (for logs):
   mcp             -> mcpo
 
 EXAMPLES:
+  llm-manager llm start                   Start using the latest model
   llm-manager llm start qwen3_6
   llm-manager llm start latest
   llm-manager llm start qwen3_6 --allow-multiple

@@ -31,25 +31,25 @@ func (e *EngineType) BeforeCreate(tx *gorm.DB) error {
 
 // EngineVersion represents a specific version of an inference engine with its Docker recipe.
 type EngineVersion struct {
-	ID                  uuid.UUID `gorm:"type:uuid;primaryKey"`
-	Slug                string    `gorm:"size:128;not null;column:slug"`
-	EngineTypeSlug      string    `gorm:"size:128;not null;column:engine_type_slug;uniqueIndex:idx_engine_version_type_slug_unique"`
-	Version             string    `gorm:"size:32;not null;column:version;uniqueIndex:idx_engine_version_type_slug_unique"`
-	ContainerName       string    `gorm:"size:128;column:container_name"`
-	Image               string    `gorm:"size:500;not null;column:image"`
-	Entrypoint          string    `gorm:"type:text;default:'';column:entrypoint"`
-	IsDefault           bool      `gorm:"type:boolean;default:false;column:is_default"`
-	IsLatest            bool      `gorm:"type:boolean;default:true;column:is_latest"`
-	EnvironmentJSON     string    `gorm:"type:text;column:environment_json"`
-	VolumesJSON         string    `gorm:"type:text;column:volumes_json"`
-	EnableLogging       bool      `gorm:"type:boolean;default:false;column:enable_logging"`
-	SyslogAddress       string    `gorm:"size:255;default:'';column:syslog_address"`
-	SyslogFacility      string    `gorm:"size:64;default:'local3';column:syslog_facility"`
-	DeployEnableNvidia  bool      `gorm:"type:boolean;default:false;column:deploy_enable_nvidia"`
-	DeployGPUCount      string    `gorm:"size:16;default:'';column:deploy_gpu_count"`
-	CommandArgs         string    `gorm:"type:text;default:'';column:command_args"`
-	CreatedAt           time.Time `gorm:"autoCreateTime;column:created_at"`
-	UpdatedAt           time.Time `gorm:"autoUpdateTime;column:updated_at"`
+	ID                 uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Slug               string    `gorm:"size:128;not null;column:slug"`
+	EngineTypeSlug     string    `gorm:"size:128;not null;column:engine_type_slug;uniqueIndex:idx_engine_version_type_slug_unique"`
+	Version            string    `gorm:"size:32;not null;column:version;uniqueIndex:idx_engine_version_type_slug_unique"`
+	ContainerName      string    `gorm:"size:128;column:container_name"`
+	Image              string    `gorm:"size:500;not null;column:image"`
+	Entrypoint         string    `gorm:"type:text;default:'';column:entrypoint"`
+	IsDefault          bool      `gorm:"type:boolean;default:false;column:is_default"`
+	IsLatest           bool      `gorm:"type:boolean;default:true;column:is_latest"`
+	EnvironmentJSON    string    `gorm:"type:text;column:environment_json"`
+	VolumesJSON        string    `gorm:"type:text;column:volumes_json"`
+	EnableLogging      bool      `gorm:"type:boolean;default:false;column:enable_logging"`
+	SyslogAddress      string    `gorm:"size:255;default:'';column:syslog_address"`
+	SyslogFacility     string    `gorm:"size:64;default:'local3';column:syslog_facility"`
+	DeployEnableNvidia bool      `gorm:"type:boolean;default:false;column:deploy_enable_nvidia"`
+	DeployGPUCount     string    `gorm:"size:16;default:'';column:deploy_gpu_count"`
+	CommandArgs        string    `gorm:"type:text;default:'';column:command_args"`
+	CreatedAt          time.Time `gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt          time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }
 
 // TableName returns the database table name for EngineVersion.

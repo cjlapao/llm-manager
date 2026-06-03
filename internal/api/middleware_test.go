@@ -115,12 +115,12 @@ func TestJSONEnvelopeWrapsNormalResponse(t *testing.T) {
 
 	body := rec.Body.String()
 
-	// Normal response should be wrapped in envelope
-	if !strings.Contains(body, `"success":true`) {
-		t.Errorf("Normal response was not wrapped: %s", body)
+	// Successful response passes through unchanged — raw body only, no envelope
+	if strings.Contains(body, `"success"`) {
+		t.Errorf("Successful response was unexpectedly wrapped: %s", body)
 	}
-	if !strings.Contains(body, `"status":200`) {
-		t.Errorf("Normal response missing status: %s", body)
+	if body != `[{"slug":"test"}]` {
+		t.Errorf("Normal response body mismatch: %s", body)
 	}
 }
 

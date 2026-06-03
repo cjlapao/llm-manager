@@ -114,6 +114,8 @@ func (m *sqliteManager) ensureLegacyColumns() error {
 		{"models", "command_args", "TEXT"},
 		{"models", "input_token_cost", "REAL DEFAULT 0"},
 		{"models", "output_token_cost", "REAL DEFAULT 0"},
+		{"models", "cache_creation_input_token_cost", "REAL DEFAULT 0"},
+		{"models", "cache_read_input_token_cost", "REAL DEFAULT 0"},
 		{"models", "capabilities", "TEXT"},
 		{"models", "lite_llm_params", "TEXT"},
 		{"models", "model_info", "TEXT"},

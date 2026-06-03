@@ -265,6 +265,14 @@ func ReadFreeGPUMemory() int {
 	return val
 }
 
+// SetGPUMemorySource sets the source for GPU memory queries.
+// Currently a no-op — the service always uses nvidia-smi.
+// Accepted values: "free" (system free command), "nvidia-smi".
+func SetGPUMemorySource(source string) {
+	// TODO: implement switching between "free" and "nvidia-smi" query methods
+	_ = source
+}
+
 // EstimateMemory returns a MemoryResult for a model based on its profile data.
 // Returns nil and no error if the model has no profile data.
 func EstimateMemory(model *models.Model) (*MemoryResult, error) {

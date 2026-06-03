@@ -239,7 +239,7 @@ func TestImportCommand_WithOverrides(t *testing.T) {
 		t.Fatalf("AutoMigrate() error: %v", err)
 	}
 
-	// Create existing model so --override has something to work on
+	// Create existing model so --overwrite has something to work on
 	cfg := config.DefaultConfig()
 	cfg.OpenAIAPIURL = "http://localhost:8000"
 	root := &RootCommand{cfg: cfg, db: db}
@@ -279,7 +279,7 @@ capabilities:
 		t.Fatalf("first import failed: %d", exitCode)
 	}
 
-	// Then re-import with --override to replace it
+	// Then re-import with --overwrite to replace it
 	yamlContent2 := `slug: override-model
 name: "Override Model Updated"
 type: llm
@@ -307,7 +307,7 @@ capabilities:
 		t.Fatalf("failed to write test YAML: %v", err)
 	}
 
-	exitCode = cmd.Run([]string{yamlPath2, "--override"})
+	exitCode = cmd.Run([]string{yamlPath2, "--overwrite"})
 	if exitCode != 0 {
 		t.Errorf("import with override returned non-zero: %d", exitCode)
 	}

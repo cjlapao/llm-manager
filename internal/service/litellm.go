@@ -546,7 +546,7 @@ func setThinkingConfig(params map[string]interface{}, enableThinking, preserveTh
 // deployment with base properties overridden by variant-specific values.
 func buildDeploymentSpecs(params, minfo map[string]interface{},
 	slug string, hasThinking bool, variants interface{},
-	inputCost, outputCost float64, subType string, openAIAURL string, port int) ([]DeploymentSpec, error) {
+	inputCost, outputCost, cacheCreationCost, cacheReadCost float64, subType string, openAIAURL string, port int) ([]DeploymentSpec, error) {
 	var specs []DeploymentSpec
 
 	// Build base params: root properties only, excluding "variants"
@@ -563,6 +563,12 @@ func buildDeploymentSpecs(params, minfo map[string]interface{},
 	}
 	if outputCost > 0 {
 		baseParams["output_cost_per_token"] = outputCost
+	}
+	if cacheCreationCost > 0 {
+		baseParams["cache_creation_input_token_cost"] = cacheCreationCost
+	}
+	if cacheReadCost > 0 {
+		baseParams["cache_read_input_token_cost"] = cacheReadCost
 	}
 
 	// RAG models: only create the alias, no base deployment.
@@ -932,7 +938,7 @@ func (s *LiteLLMService) AddModel(slug string) error {
 	// │ STAGE 1: COLLECT — build specs purely   │
 	// │             from in-memory state        │
 	// └─────────────────────────────────────────┘
-	specs, err := buildDeploymentSpecs(litellmParams, modelInfo, slug, dbModel.HasThinkingCapability(), litellmParams["variants"], dbModel.InputTokenCost, dbModel.OutputTokenCost, dbModel.SubType, s.cfg.OpenAIAPIURL, dbModel.Port)
+	specs, err := buildDeploymentSpecs(litellmParams, modelInfo, slug, dbModel.HasThinkingCapability(), litellmParams["variants"], dbModel.InputTokenCost, dbModel.OutputTokenCost, dbModel.CacheCreationInputTokenCost, dbModel.CacheReadInputTokenCost, dbModel.SubType, s.cfg.OpenAIAPIURL, dbModel.Port)
 	if err != nil {
 		return fmt.Errorf("stage 1 collect: %w", err)
 	}
@@ -1010,7 +1016,7 @@ func (s *LiteLLMService) UpdateModel(slug string) error {
 	// ┌─────────────────────────────────────────┐
 	// │ STAGE 1: COLLECT                        │
 	// └─────────────────────────────────────────┘
-	specs, err := buildDeploymentSpecs(litellmParams, modelInfo, slug, dbModel.HasThinkingCapability(), litellmParams["variants"], dbModel.InputTokenCost, dbModel.OutputTokenCost, dbModel.SubType, s.cfg.OpenAIAPIURL, dbModel.Port)
+	specs, err := buildDeploymentSpecs(litellmParams, modelInfo, slug, dbModel.HasThinkingCapability(), litellmParams["variants"], dbModel.InputTokenCost, dbModel.OutputTokenCost, dbModel.CacheCreationInputTokenCost, dbModel.CacheReadInputTokenCost, dbModel.SubType, s.cfg.OpenAIAPIURL, dbModel.Port)
 	if err != nil {
 		return fmt.Errorf("stage 1 collect: %w", err)
 	}

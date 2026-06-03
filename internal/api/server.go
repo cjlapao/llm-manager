@@ -5,7 +5,7 @@
 // @title llm-manager API
 // @version 1.0
 // @description A CLI tool and API server for managing LLM resources, containers, and RAG pipelines.
-// @host localhost:8080
+// @host PLACEHOLDER_HOST
 // @BasePath /api
 //
 //go:generate swag init --parseDependency --parseInternal --parseDepth 3 -g server.go -o ../../docs
@@ -71,12 +71,21 @@ func StartAPIServer(ctx *APIContext, host string, port int, shutdownTimeout time
 	}).Methods(http.MethodGet)
 
 	// Swagger UI — embedded docs at /swagger/
+	// Handle /swagger (no trailing slash) with redirect, /swagger/* with handler
+	router.Path("/swagger").Handler(http.RedirectHandler("/swagger/", http.StatusFound))
 	router.PathPrefix("/swagger/").Handler(SwaggerUIHandler())
 
 	// Swagger/OpenAPI spec at /docs/swagger.json
 	router.Path("/docs/swagger.json").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "public, max-age=3600")
+		// Use the request's Host header so "Try it out" targets the address the client actually used
+		// (e.g. 10.0.4.4:8080 instead of 127.0.0.1:8080)
+		reqHost := r.Host
+		if reqHost == "" {
+			reqHost = fmt.Sprintf("%s:%d", host, port)
+		}
+		docs.SwaggerInfo.Host = reqHost
 		w.Write([]byte(docs.SwaggerInfo.ReadDoc()))
 	})
 

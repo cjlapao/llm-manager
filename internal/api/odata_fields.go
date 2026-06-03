@@ -23,7 +23,7 @@ var FieldWhiteLists = map[string]FieldWhiteList{
 		Columns: []string{
 			"id", "slug", "type", "sub_type", "name", "hf_repo", "yml",
 			"container", "port", "engine_type", "env_vars", "command_args",
-			"input_token_cost", "output_token_cost", "capabilities",
+			"input_token_cost", "output_token_cost", "cache_creation_input_token_cost", "cache_read_input_token_cost", "capabilities",
 			"lite_llm_params", "model_info", "litellm_model_id",
 			"litellm_active_aliases", "litellm_variant_ids", "default",
 			"base_image_id", "engine_version_slug", "total_params_b",
