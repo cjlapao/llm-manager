@@ -11,9 +11,13 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/user/llm-manager/internal/config"
+	"github.com/user/llm-manager/internal/database/models"
 	"github.com/user/llm-manager/internal/service"
 	"gopkg.in/yaml.v3"
 )
+
+// Ensure models type is referenced for swag resolution.
+var _ *models.Model
 
 // ModelUtilHandler provides HTTP handlers for model utility operations:
 // import, export, compose generation, and HF cache clearing.

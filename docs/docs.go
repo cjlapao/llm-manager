@@ -70,7 +70,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OData-wrapped response when OData params present",
                         "schema": {
-                            "$ref": "#/definitions/api.ODataListResponse"
+                            "$ref": "#/definitions/internal_api.ODataListResponse"
                         }
                     },
                     "400": {
@@ -112,7 +112,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.Model"
+                            "$ref": "#/definitions/github_com_user_llm-manager_internal_database_models.Model"
                         }
                     }
                 ],
@@ -120,7 +120,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created model",
                         "schema": {
-                            "$ref": "#/definitions/models.Model"
+                            "$ref": "#/definitions/github_com_user_llm-manager_internal_database_models.Model"
                         }
                     },
                     "400": {
@@ -164,7 +164,7 @@ const docTemplate = `{
                         "name": "yaml_content",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/api.importRequest"
+                            "$ref": "#/definitions/internal_api.importRequest"
                         }
                     },
                     {
@@ -178,7 +178,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Imported model",
                         "schema": {
-                            "$ref": "#/definitions/models.Model"
+                            "$ref": "#/definitions/github_com_user_llm-manager_internal_database_models.Model"
                         }
                     },
                     "400": {
@@ -228,7 +228,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Model found",
                         "schema": {
-                            "$ref": "#/definitions/models.Model"
+                            "$ref": "#/definitions/github_com_user_llm-manager_internal_database_models.Model"
                         }
                     },
                     "404": {
@@ -286,7 +286,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Updated model",
                         "schema": {
-                            "$ref": "#/definitions/models.Model"
+                            "$ref": "#/definitions/github_com_user_llm-manager_internal_database_models.Model"
                         }
                     },
                     "400": {
@@ -564,7 +564,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Enriched model details",
                         "schema": {
-                            "$ref": "#/definitions/api.ModelInfoResponse"
+                            "$ref": "#/definitions/internal_api.ModelInfoResponse"
                         }
                     },
                     "404": {
@@ -643,7 +643,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OData-wrapped response when OData params present",
                         "schema": {
-                            "$ref": "#/definitions/api.ODataListResponse"
+                            "$ref": "#/definitions/internal_api.ODataListResponse"
                         }
                     },
                     "400": {
@@ -687,7 +687,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.StartRAGRequest"
+                            "$ref": "#/definitions/internal_api.StartRAGRequest"
                         }
                     }
                 ],
@@ -695,7 +695,7 @@ const docTemplate = `{
                     "200": {
                         "description": "List of started model slugs",
                         "schema": {
-                            "$ref": "#/definitions/api.StartRAGResponse"
+                            "$ref": "#/definitions/internal_api.StartRAGResponse"
                         }
                     },
                     "400": {
@@ -748,7 +748,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.StopRAGRequest"
+                            "$ref": "#/definitions/internal_api.StopRAGRequest"
                         }
                     }
                 ],
@@ -756,7 +756,7 @@ const docTemplate = `{
                     "200": {
                         "description": "List of stopped model slugs",
                         "schema": {
-                            "$ref": "#/definitions/api.StopRAGResponse"
+                            "$ref": "#/definitions/internal_api.StopRAGResponse"
                         }
                     },
                     "400": {
@@ -782,232 +782,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "api.ModelInfoResponse": {
-            "description": "Returns an LLM model with its JSON string fields (LiteLLMParams, ModelInfo, Capabilities) parsed into typed objects.",
-            "type": "object",
-            "properties": {
-                "active_params_b": {
-                    "type": "number"
-                },
-                "attention_layers": {
-                    "type": "integer"
-                },
-                "cache_creation_input_token_cost": {
-                    "type": "number"
-                },
-                "cache_read_input_token_cost": {
-                    "type": "number"
-                },
-                "capabilities": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "container": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "default": {
-                    "type": "boolean"
-                },
-                "default_context": {
-                    "type": "integer"
-                },
-                "engine_type": {
-                    "type": "string"
-                },
-                "gdn_layers": {
-                    "type": "integer"
-                },
-                "head_dim": {
-                    "type": "integer"
-                },
-                "hf_repo": {
-                    "type": "string"
-                },
-                "input_token_cost": {
-                    "type": "number"
-                },
-                "is_moe": {
-                    "type": "boolean"
-                },
-                "litellm_params": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "max_context": {
-                    "type": "integer"
-                },
-                "max_num_batched_tokens": {
-                    "type": "integer"
-                },
-                "max_num_seqs": {
-                    "type": "integer"
-                },
-                "model_info": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "name": {
-                    "type": "string"
-                },
-                "num_kv_heads": {
-                    "type": "integer"
-                },
-                "num_speculative_tokens": {
-                    "type": "integer"
-                },
-                "output_token_cost": {
-                    "type": "number"
-                },
-                "port": {
-                    "type": "integer"
-                },
-                "quant_bytes_per_param": {
-                    "type": "number"
-                },
-                "slug": {
-                    "type": "string"
-                },
-                "speculative_decoding": {
-                    "type": "string"
-                },
-                "sub_type": {
-                    "type": "string"
-                },
-                "supports_mtp": {
-                    "type": "boolean"
-                },
-                "total_params_b": {
-                    "type": "number"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.ODataListResponse": {
-            "type": "object",
-            "properties": {
-                "data": {},
-                "meta": {
-                    "$ref": "#/definitions/api.ODataMeta"
-                }
-            }
-        },
-        "api.ODataMeta": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer"
-                },
-                "page": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                },
-                "total_pages": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.RAGListResponse": {
-            "type": "object",
-            "properties": {
-                "embed_models": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.RAGModelInfo"
-                    }
-                },
-                "rerank_models": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.RAGModelInfo"
-                    }
-                }
-            }
-        },
-        "api.RAGModelInfo": {
-            "type": "object",
-            "properties": {
-                "container": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "port": {
-                    "type": "integer"
-                },
-                "slug": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.StartRAGRequest": {
-            "type": "object",
-            "properties": {
-                "embed_slug": {
-                    "type": "string"
-                },
-                "rerank_slug": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.StartRAGResponse": {
-            "type": "object",
-            "properties": {
-                "started": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "api.StopRAGRequest": {
-            "type": "object",
-            "properties": {
-                "embed_slug": {
-                    "type": "string"
-                },
-                "rerank_slug": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.StopRAGResponse": {
-            "type": "object",
-            "properties": {
-                "stopped": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "api.importRequest": {
-            "type": "object",
-            "properties": {
-                "yaml_content": {
-                    "type": "string"
-                }
-            }
-        },
-        "models.Model": {
+        "github_com_user_llm-manager_internal_database_models.Model": {
             "description": "An LLM model record stored in the database, including configuration, token pricing, engine settings, and variant information.",
             "type": "object",
             "properties": {
@@ -1138,6 +913,231 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "internal_api.ModelInfoResponse": {
+            "description": "Returns an LLM model with its JSON string fields (LiteLLMParams, ModelInfo, Capabilities) parsed into typed objects.",
+            "type": "object",
+            "properties": {
+                "active_params_b": {
+                    "type": "number"
+                },
+                "attention_layers": {
+                    "type": "integer"
+                },
+                "cache_creation_input_token_cost": {
+                    "type": "number"
+                },
+                "cache_read_input_token_cost": {
+                    "type": "number"
+                },
+                "capabilities": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "container": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "default": {
+                    "type": "boolean"
+                },
+                "default_context": {
+                    "type": "integer"
+                },
+                "engine_type": {
+                    "type": "string"
+                },
+                "gdn_layers": {
+                    "type": "integer"
+                },
+                "head_dim": {
+                    "type": "integer"
+                },
+                "hf_repo": {
+                    "type": "string"
+                },
+                "input_token_cost": {
+                    "type": "number"
+                },
+                "is_moe": {
+                    "type": "boolean"
+                },
+                "litellm_params": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "max_context": {
+                    "type": "integer"
+                },
+                "max_num_batched_tokens": {
+                    "type": "integer"
+                },
+                "max_num_seqs": {
+                    "type": "integer"
+                },
+                "model_info": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "num_kv_heads": {
+                    "type": "integer"
+                },
+                "num_speculative_tokens": {
+                    "type": "integer"
+                },
+                "output_token_cost": {
+                    "type": "number"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "quant_bytes_per_param": {
+                    "type": "number"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "speculative_decoding": {
+                    "type": "string"
+                },
+                "sub_type": {
+                    "type": "string"
+                },
+                "supports_mtp": {
+                    "type": "boolean"
+                },
+                "total_params_b": {
+                    "type": "number"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.ODataListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "meta": {
+                    "$ref": "#/definitions/internal_api.ODataMeta"
+                }
+            }
+        },
+        "internal_api.ODataMeta": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.RAGListResponse": {
+            "type": "object",
+            "properties": {
+                "embed_models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.RAGModelInfo"
+                    }
+                },
+                "rerank_models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.RAGModelInfo"
+                    }
+                }
+            }
+        },
+        "internal_api.RAGModelInfo": {
+            "type": "object",
+            "properties": {
+                "container": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.StartRAGRequest": {
+            "type": "object",
+            "properties": {
+                "embed_slug": {
+                    "type": "string"
+                },
+                "rerank_slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.StartRAGResponse": {
+            "type": "object",
+            "properties": {
+                "started": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_api.StopRAGRequest": {
+            "type": "object",
+            "properties": {
+                "embed_slug": {
+                    "type": "string"
+                },
+                "rerank_slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.StopRAGResponse": {
+            "type": "object",
+            "properties": {
+                "stopped": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_api.importRequest": {
+            "type": "object",
+            "properties": {
+                "yaml_content": {
+                    "type": "string"
+                }
+            }
         }
     }
 }`
@@ -1145,7 +1145,7 @@ const docTemplate = `{
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
-	Host:             "localhost:8080",
+	Host:             "PLACEHOLDER_HOST",
 	BasePath:         "/api",
 	Schemes:          []string{},
 	Title:            "llm-manager API",

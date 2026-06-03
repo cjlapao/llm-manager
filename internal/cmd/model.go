@@ -227,7 +227,7 @@ func (c *ModelCommand) runCreate(args []string) int {
 func (c *ModelCommand) runUpdate(args []string) int {
 	if len(args) < 1 {
 		fmt.Println("Usage: llm-manager model update <slug> [key=value ...]")
-		fmt.Println("Available fields: name, type, hf_repo, yml, container, port, engine_type, env_vars, command_args, input_token_cost, output_token_cost, capabilities")
+		fmt.Println("Available fields: name, type, hf_repo, yml, container, port, engine_type, env_vars, command_args, input_token_cost, output_token_cost, cache_creation_input_token_cost, cache_read_input_token_cost, capabilities")
 		return 0
 	}
 
@@ -245,7 +245,7 @@ func (c *ModelCommand) runUpdate(args []string) int {
 
 	if len(updates) == 0 {
 		fmt.Println("Usage: llm-manager model update <slug> [key=value ...]")
-		fmt.Println("Available fields: name, type, hf_repo, yml, container, port, engine_type, env_vars, command_args, input_token_cost, output_token_cost, capabilities")
+		fmt.Println("Available fields: name, type, hf_repo, yml, container, port, engine_type, env_vars, command_args, input_token_cost, output_token_cost, cache_creation_input_token_cost, cache_read_input_token_cost, capabilities")
 		return 0
 	}
 

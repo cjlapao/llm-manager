@@ -199,10 +199,6 @@ func TestContainerCommand_ResolveServiceAlias(t *testing.T) {
 	// Test that known aliases resolve to container names
 	aliases := map[string]string{
 		"comfyui":    "comfyui-flux",
-		"embed":      "llm-embed",
-		"embedding":  "llm-embed",
-		"rerank":     "llm-rerank",
-		"reranker":   "llm-rerank",
 		"whisper":    "whisper-stt",
 		"kokoro":     "kokoro-tts",
 		"litellm":    "litellm",

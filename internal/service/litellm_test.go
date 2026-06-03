@@ -270,7 +270,7 @@ func TestBuildDeploymentSpecs_ThinkingModel_DualAlias(t *testing.T) {
 		"name": "Qwen 3.6",
 	}
 
-	specs, err := buildDeploymentSpecs(params, minfo, "qwen3.6-35b-a3b-fp8", true, nil, 0.0001, 0.0002, "", "", 0)
+	specs, err := buildDeploymentSpecs(params, minfo, "qwen3.6-35b-a3b-fp8", true, nil, 0.0001, 0.0002, 0, 0, "", "", 0)
 	if err != nil {
 		t.Fatalf("buildDeploymentSpecs returned error: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestBuildDeploymentSpecs_NonThinkingModel_SingleAlias(t *testing.T) {
 		"name": "Qwen Coder",
 	}
 
-	specs, err := buildDeploymentSpecs(params, minfo, "qwen3-coder-next-fp8", false, nil, 0.00005, 0.0001, "", "", 0)
+	specs, err := buildDeploymentSpecs(params, minfo, "qwen3-coder-next-fp8", false, nil, 0.00005, 0.0001, 0, 0, "", "", 0)
 	if err != nil {
 		t.Fatalf("buildDeploymentSpecs returned error: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestBuildDeploymentSpecs_ExistingChatTemplateKwargs_Merge(t *testing.T) {
 		"name": "Qwen with kwargs",
 	}
 
-	specs, err := buildDeploymentSpecs(params, minfo, "qwen3.6-35b-a3b-fp8", true, nil, 0.0001, 0.0002, "", "", 0)
+	specs, err := buildDeploymentSpecs(params, minfo, "qwen3.6-35b-a3b-fp8", true, nil, 0.0001, 0.0002, 0, 0, "", "", 0)
 	if err != nil {
 		t.Fatalf("buildDeploymentSpecs returned error: %v", err)
 	}

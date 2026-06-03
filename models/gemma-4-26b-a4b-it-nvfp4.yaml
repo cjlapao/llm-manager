@@ -18,8 +18,10 @@ subtype: chat
 environment:
   VLLM_LOAD_FORMAT_DEVICE: cuda
 
-input_token_cost: 0.00000228
-output_token_cost: 0.00000456
+input_token_cost: 0.000003
+output_token_cost: 0.000015
+cache_creation_input_token_cost: 0.00000375
+cache_read_input_token_cost: 0.0000003
 
 profile:
   total_params_b: 26

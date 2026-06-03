@@ -1,155 +1,6 @@
 basePath: /api
 definitions:
-  api.ModelInfoResponse:
-    description: Returns an LLM model with its JSON string fields (LiteLLMParams,
-      ModelInfo, Capabilities) parsed into typed objects.
-    properties:
-      active_params_b:
-        type: number
-      attention_layers:
-        type: integer
-      cache_creation_input_token_cost:
-        type: number
-      cache_read_input_token_cost:
-        type: number
-      capabilities:
-        items:
-          type: string
-        type: array
-      container:
-        type: string
-      created_at:
-        type: string
-      default:
-        type: boolean
-      default_context:
-        type: integer
-      engine_type:
-        type: string
-      gdn_layers:
-        type: integer
-      head_dim:
-        type: integer
-      hf_repo:
-        type: string
-      input_token_cost:
-        type: number
-      is_moe:
-        type: boolean
-      litellm_params:
-        additionalProperties: true
-        type: object
-      max_context:
-        type: integer
-      max_num_batched_tokens:
-        type: integer
-      max_num_seqs:
-        type: integer
-      model_info:
-        additionalProperties: true
-        type: object
-      name:
-        type: string
-      num_kv_heads:
-        type: integer
-      num_speculative_tokens:
-        type: integer
-      output_token_cost:
-        type: number
-      port:
-        type: integer
-      quant_bytes_per_param:
-        type: number
-      slug:
-        type: string
-      speculative_decoding:
-        type: string
-      sub_type:
-        type: string
-      supports_mtp:
-        type: boolean
-      total_params_b:
-        type: number
-      type:
-        type: string
-      updated_at:
-        type: string
-    type: object
-  api.ODataListResponse:
-    properties:
-      data: {}
-      meta:
-        $ref: '#/definitions/api.ODataMeta'
-    type: object
-  api.ODataMeta:
-    properties:
-      limit:
-        type: integer
-      page:
-        type: integer
-      total:
-        type: integer
-      total_pages:
-        type: integer
-    type: object
-  api.RAGListResponse:
-    properties:
-      embed_models:
-        items:
-          $ref: '#/definitions/api.RAGModelInfo'
-        type: array
-      rerank_models:
-        items:
-          $ref: '#/definitions/api.RAGModelInfo'
-        type: array
-    type: object
-  api.RAGModelInfo:
-    properties:
-      container:
-        type: string
-      name:
-        type: string
-      port:
-        type: integer
-      slug:
-        type: string
-      status:
-        type: string
-    type: object
-  api.StartRAGRequest:
-    properties:
-      embed_slug:
-        type: string
-      rerank_slug:
-        type: string
-    type: object
-  api.StartRAGResponse:
-    properties:
-      started:
-        items:
-          type: string
-        type: array
-    type: object
-  api.StopRAGRequest:
-    properties:
-      embed_slug:
-        type: string
-      rerank_slug:
-        type: string
-    type: object
-  api.StopRAGResponse:
-    properties:
-      stopped:
-        items:
-          type: string
-        type: array
-    type: object
-  api.importRequest:
-    properties:
-      yaml_content:
-        type: string
-    type: object
-  models.Model:
+  github_com_user_llm-manager_internal_database_models.Model:
     description: An LLM model record stored in the database, including configuration,
       token pricing, engine settings, and variant information.
     properties:
@@ -238,7 +89,156 @@ definitions:
       yml:
         type: string
     type: object
-host: localhost:8080
+  internal_api.ModelInfoResponse:
+    description: Returns an LLM model with its JSON string fields (LiteLLMParams,
+      ModelInfo, Capabilities) parsed into typed objects.
+    properties:
+      active_params_b:
+        type: number
+      attention_layers:
+        type: integer
+      cache_creation_input_token_cost:
+        type: number
+      cache_read_input_token_cost:
+        type: number
+      capabilities:
+        items:
+          type: string
+        type: array
+      container:
+        type: string
+      created_at:
+        type: string
+      default:
+        type: boolean
+      default_context:
+        type: integer
+      engine_type:
+        type: string
+      gdn_layers:
+        type: integer
+      head_dim:
+        type: integer
+      hf_repo:
+        type: string
+      input_token_cost:
+        type: number
+      is_moe:
+        type: boolean
+      litellm_params:
+        additionalProperties: true
+        type: object
+      max_context:
+        type: integer
+      max_num_batched_tokens:
+        type: integer
+      max_num_seqs:
+        type: integer
+      model_info:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+      num_kv_heads:
+        type: integer
+      num_speculative_tokens:
+        type: integer
+      output_token_cost:
+        type: number
+      port:
+        type: integer
+      quant_bytes_per_param:
+        type: number
+      slug:
+        type: string
+      speculative_decoding:
+        type: string
+      sub_type:
+        type: string
+      supports_mtp:
+        type: boolean
+      total_params_b:
+        type: number
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_api.ODataListResponse:
+    properties:
+      data: {}
+      meta:
+        $ref: '#/definitions/internal_api.ODataMeta'
+    type: object
+  internal_api.ODataMeta:
+    properties:
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  internal_api.RAGListResponse:
+    properties:
+      embed_models:
+        items:
+          $ref: '#/definitions/internal_api.RAGModelInfo'
+        type: array
+      rerank_models:
+        items:
+          $ref: '#/definitions/internal_api.RAGModelInfo'
+        type: array
+    type: object
+  internal_api.RAGModelInfo:
+    properties:
+      container:
+        type: string
+      name:
+        type: string
+      port:
+        type: integer
+      slug:
+        type: string
+      status:
+        type: string
+    type: object
+  internal_api.StartRAGRequest:
+    properties:
+      embed_slug:
+        type: string
+      rerank_slug:
+        type: string
+    type: object
+  internal_api.StartRAGResponse:
+    properties:
+      started:
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api.StopRAGRequest:
+    properties:
+      embed_slug:
+        type: string
+      rerank_slug:
+        type: string
+    type: object
+  internal_api.StopRAGResponse:
+    properties:
+      stopped:
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api.importRequest:
+    properties:
+      yaml_content:
+        type: string
+    type: object
+host: PLACEHOLDER_HOST
 info:
   contact: {}
   description: A CLI tool and API server for managing LLM resources, containers, and
@@ -285,7 +285,7 @@ paths:
         "200":
           description: OData-wrapped response when OData params present
           schema:
-            $ref: '#/definitions/api.ODataListResponse'
+            $ref: '#/definitions/internal_api.ODataListResponse'
         "400":
           description: Invalid query parameters
           schema:
@@ -312,14 +312,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/models.Model'
+          $ref: '#/definitions/github_com_user_llm-manager_internal_database_models.Model'
       produces:
       - application/json
       responses:
         "201":
           description: Created model
           schema:
-            $ref: '#/definitions/models.Model'
+            $ref: '#/definitions/github_com_user_llm-manager_internal_database_models.Model'
         "400":
           description: Malformed JSON body
           schema:
@@ -388,7 +388,7 @@ paths:
         "200":
           description: Model found
           schema:
-            $ref: '#/definitions/models.Model'
+            $ref: '#/definitions/github_com_user_llm-manager_internal_database_models.Model'
         "404":
           description: Model not found
           schema:
@@ -428,7 +428,7 @@ paths:
         "200":
           description: Updated model
           schema:
-            $ref: '#/definitions/models.Model'
+            $ref: '#/definitions/github_com_user_llm-manager_internal_database_models.Model'
         "400":
           description: Malformed JSON body or missing slug
           schema:
@@ -581,7 +581,7 @@ paths:
         "200":
           description: Enriched model details
           schema:
-            $ref: '#/definitions/api.ModelInfoResponse'
+            $ref: '#/definitions/internal_api.ModelInfoResponse'
         "404":
           description: Model not found
           schema:
@@ -610,7 +610,7 @@ paths:
         in: body
         name: yaml_content
         schema:
-          $ref: '#/definitions/api.importRequest'
+          $ref: '#/definitions/internal_api.importRequest'
       - description: YAML file to upload
         in: formData
         name: file
@@ -621,7 +621,7 @@ paths:
         "201":
           description: Imported model
           schema:
-            $ref: '#/definitions/models.Model'
+            $ref: '#/definitions/github_com_user_llm-manager_internal_database_models.Model'
         "400":
           description: Malformed request or invalid file
           schema:
@@ -675,7 +675,7 @@ paths:
         "200":
           description: OData-wrapped response when OData params present
           schema:
-            $ref: '#/definitions/api.ODataListResponse'
+            $ref: '#/definitions/internal_api.ODataListResponse'
         "400":
           description: Invalid query parameters
           schema:
@@ -703,14 +703,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/api.StartRAGRequest'
+          $ref: '#/definitions/internal_api.StartRAGRequest'
       produces:
       - application/json
       responses:
         "200":
           description: List of started model slugs
           schema:
-            $ref: '#/definitions/api.StartRAGResponse'
+            $ref: '#/definitions/internal_api.StartRAGResponse'
         "400":
           description: Invalid request body
           schema:
@@ -744,14 +744,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/api.StopRAGRequest'
+          $ref: '#/definitions/internal_api.StopRAGRequest'
       produces:
       - application/json
       responses:
         "200":
           description: List of stopped model slugs
           schema:
-            $ref: '#/definitions/api.StopRAGResponse'
+            $ref: '#/definitions/internal_api.StopRAGResponse'
         "400":
           description: Invalid request body
           schema:

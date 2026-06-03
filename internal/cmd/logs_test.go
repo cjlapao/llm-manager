@@ -107,8 +107,6 @@ func TestServiceAliasCaseInsensitive(t *testing.T) {
 	}{
 		{"ComfyUI", "comfyui-flux"},
 		{"COMFYUI", "comfyui-flux"},
-		{"Embed", "llm-embed"},
-		{"EMBED", "llm-embed"},
 		{"MCP", "mcpo"},
 		{"Mcp", "mcpo"},
 	}

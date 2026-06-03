@@ -29,7 +29,7 @@ func TestValidateFields_ValidFields(t *testing.T) {
 			fields: []string{
 				"id", "slug", "type", "sub_type", "name", "hf_repo", "yml",
 				"container", "port", "engine_type", "env_vars", "command_args",
-				"input_token_cost", "output_token_cost", "capabilities",
+				"input_token_cost", "output_token_cost", "cache_creation_input_token_cost", "cache_read_input_token_cost", "capabilities",
 				"lite_llm_params", "model_info", "litellm_model_id",
 				"litellm_active_aliases", "litellm_variant_ids", "default",
 				"base_image_id", "engine_version_slug", "total_params_b",
@@ -42,7 +42,7 @@ func TestValidateFields_ValidFields(t *testing.T) {
 			wantFields: []string{
 				"id", "slug", "type", "sub_type", "name", "hf_repo", "yml",
 				"container", "port", "engine_type", "env_vars", "command_args",
-				"input_token_cost", "output_token_cost", "capabilities",
+				"input_token_cost", "output_token_cost", "cache_creation_input_token_cost", "cache_read_input_token_cost", "capabilities",
 				"lite_llm_params", "model_info", "litellm_model_id",
 				"litellm_active_aliases", "litellm_variant_ids", "default",
 				"base_image_id", "engine_version_slug", "total_params_b",
@@ -251,8 +251,8 @@ func TestFieldWhiteList_Columns(t *testing.T) {
 	if !ok {
 		t.Fatal("models white-list not found")
 	}
-	if len(modelWL.Columns) != 40 {
-		t.Errorf("models white-list has %d columns, expected 40", len(modelWL.Columns))
+	if len(modelWL.Columns) != 42 {
+		t.Errorf("models white-list has %d columns, expected 42", len(modelWL.Columns))
 	}
 
 	// Verify Container white-list
