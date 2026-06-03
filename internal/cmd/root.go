@@ -229,7 +229,7 @@ COMMANDS:
   update      Check for and install updates
   mem         Show system memory and disk usage
   uninstall   Uninstall a model (stop container, delete YAML, clear cache, remove from LiteLLM and DB)
-  comfyui     Manage ComfyUI (start, stop)
+  comfyui     Manage ComfyUI and image generation models (start, stop, flux, 3d, status)
   speech      Manage speech services - whisper + kokoro (start, stop)
 
 GLOBAL OPTIONS:
@@ -255,6 +255,7 @@ EXAMPLES:
   llm-manager llm start latest
   llm-manager llm swap qwen3_6
   llm-manager comfyui start
+  llm-manager comfyui flux start flux-schnell
   llm-manager speech stop
   LLM_MANAGER_VERBOSE=true llm-manager
 
