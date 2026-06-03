@@ -2,13 +2,16 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/user/llm-manager/internal/config"
 	"github.com/user/llm-manager/internal/database"
@@ -46,10 +49,10 @@ type variantEntry struct {
 
 // ModelService handles business logic for LLM model operations.
 type ModelService struct {
-	db       database.DatabaseManager
-	cfg      *config.Config
-	litellm  LiteLLMModeler
-	eng      *EngineService
+	db      database.DatabaseManager
+	cfg     *config.Config
+	litellm LiteLLMModeler
+	eng     *EngineService
 }
 
 // NewModelService creates a new ModelService.
@@ -231,7 +234,7 @@ func (s *ModelService) buildOpenCodeEntry(m *models.Model) *OpenCodeModelEntry {
 		},
 	}
 
-	contextLimit := 262144 // default context window
+	contextLimit := 262144    // default context window
 	outputLimit := uint(4096) // default output limit
 
 	// Try to extract limits from model_info
@@ -890,7 +893,7 @@ func (s *ContainerService) StartContainer(slug string, allowMultiple bool, overr
 	// or created by a different compose project that used the same container name.
 	// docker compose down won't touch these.
 	if model.Container != "" {
-		exec.Command("docker", "stop", model.Container).Run() // stop if running, ignore errors
+		exec.Command("docker", "stop", model.Container).Run()     // stop if running, ignore errors
 		exec.Command("docker", "rm", "-f", model.Container).Run() // force remove, ignore errors
 	}
 
@@ -1107,33 +1110,160 @@ func (s *ContainerService) Deactivate3D() error {
 	return nil
 }
 
-// StartComfyUI starts ComfyUI via profile-based docker compose.
+// StartComfyUI starts ComfyUI via dynamic Docker Compose provisioning.
+//
+// It resolves the ComfyUI engine type and latest version from the database,
+// validates the volume path, generates a docker-compose YAML, starts the
+// container, and polls the health endpoint until it returns HTTP 200.
+//
+// The generated compose file is written to $INSTALL_DIR/.llm-manager/comfyui-compose.yml.
 func (s *ContainerService) StartComfyUI() error {
-	composePath := filepath.Join(s.cfg.InstallDir, "docker-compose.yml")
-	cmd := exec.Command("docker", "compose", "-f", composePath, "--profile", "comfyui", "up", "-d", "comfyui")
-	cmd.Dir = s.cfg.InstallDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start ComfyUI: %s (%w)", string(output), err)
+	// 1. Resolve the ComfyUI engine type and latest version from the database.
+	engineSvc := NewEngineService(s.db)
+	latest, err := engineSvc.ResolveLatestVersion("comfyui")
+	if err != nil {
+		return fmt.Errorf("no ComfyUI engine version found: %w", err)
 	}
+
+	// 2. Extract image name, tag, container name from the engine version.
+	image := latest.Image // e.g. "comfyanonymous/ComfyUI"
+	tag := "latest"
+	if latest.Version != "" {
+		tag = latest.Version
+	}
+	containerName := latest.ContainerName // e.g. "comfyui-flux"
+	if containerName == "" {
+		containerName = "comfyui-flux"
+	}
+
+	// 3. Resolve volume path from volumes_json.
+	volumes := latest.GetVolumes()
+	volumePath := ""
+	for hostPath, _ := range volumes {
+		// The host path is the left side of the mapping (e.g. "~/.comfyui/models")
+		volumePath = hostPath
+		break
+	}
+	if volumePath == "" {
+		volumePath = filepath.Join(s.cfg.InstallDir, ".comfyui", "models")
+	}
+
+	// 4. Validate/create the volume path on the host filesystem.
+	if err := os.MkdirAll(volumePath, 0o755); err != nil {
+		return fmt.Errorf("failed to create volume path %s: %w", volumePath, err)
+	}
+
+	// 5. Resolve host port — default to 8188 (ComfyUI's default).
+	hostPort := 8188
+
+	// 6. Generate the Docker Compose YAML.
+	composeGen, err := NewComposeGenerator()
+	if err != nil {
+		return fmt.Errorf("failed to create compose generator: %w", err)
+	}
+	composeYAML, err := composeGen.GenerateComfyUICompose(ComfyUIComposeTemplateData{
+		ImageName:     image,
+		ImageTag:      tag,
+		HostPort:      hostPort,
+		VolumePath:    volumePath,
+		ContainerName: containerName,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to generate ComfyUI compose YAML: %w", err)
+	}
+
+	// 7. Write the YAML to a known location.
+	composeDir := filepath.Join(s.cfg.InstallDir, ".llm-manager")
+	if err := os.MkdirAll(composeDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create compose directory %s: %w", composeDir, err)
+	}
+	composePath := filepath.Join(composeDir, "comfyui-compose.yml")
+	if err := os.WriteFile(composePath, []byte(composeYAML), 0o644); err != nil {
+		return fmt.Errorf("failed to write compose file %s: %w", composePath, err)
+	}
+
+	// 8. Execute docker compose -f <path> up -d.
+	cmd := exec.Command("docker", "compose", "-f", composePath, "up", "-d")
+	cmd.Dir = s.cfg.InstallDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to start ComfyUI: %v\nDocker output:\n%s", err, strings.TrimSpace(string(output)))
+	}
+
+	// 9. Poll health endpoint at http://127.0.0.1:<host_port>/health for HTTP 200.
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d", hostPort)
+	if err := s.waitForComfyUIHealthy(healthURL); err != nil {
+		return fmt.Errorf("health check failed: %w", err)
+	}
+
+	// 10. Update container status to RUNNING in database.
+	if err := s.db.UpdateContainerStatus("comfyui", "running"); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: failed to update container status for comfyui: %v\n", err)
+	}
+
 	return nil
 }
 
-// StopComfyUI stops the ComfyUI container.
+// waitForComfyUIHealthy polls the health endpoint of the ComfyUI container
+// until it returns HTTP 200, the context deadline expires, or an error occurs.
+// Uses configurable retry interval (default 3s) and max retries (default 30).
+func (s *ContainerService) waitForComfyUIHealthy(baseURL string) error {
+	client := &http.Client{Timeout: 5 * time.Second}
+	interval := 3 * time.Second
+	maxRetries := 30
+
+	for i := 0; i < maxRetries; i++ {
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, baseURL+"/health", nil)
+		if err != nil {
+			return fmt.Errorf("failed to create health check request: %w", err)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			// Best-effort: continue polling on transient errors
+			time.Sleep(interval)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			return nil
+		}
+
+		resp.Body.Close()
+		time.Sleep(interval)
+	}
+
+	return fmt.Errorf("max retries (%d) exceeded waiting for ComfyUI to become healthy", maxRetries)
+}
+
+// StopComfyUI stops the ComfyUI container by name and updates the database status.
+//
+// It uses docker stop on the container (default: comfyui-flux) and sets the
+// container status to STOPPED in the database. If the container does not exist,
+// it returns nil (no error).
 func (s *ContainerService) StopComfyUI() error {
-	// Check if container is running first
-	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", "comfyui-flux")
+	containerName := "comfyui-flux"
+
+	// Check if container is running first.
+	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", containerName)
 	output, err := cmd.Output()
 	if err != nil {
-		// Container doesn't exist or can't be inspected
+		// Container doesn't exist or can't be inspected — nothing to stop.
 		return nil
 	}
 
 	state := strings.TrimSpace(string(output))
 	if state == "running" {
-		stopCmd := exec.Command("docker", "stop", "comfyui-flux")
+		stopCmd := exec.Command("docker", "stop", containerName)
 		if err := stopCmd.Run(); err != nil {
-			return fmt.Errorf("failed to stop ComfyUI container: %w", err)
+			return fmt.Errorf("failed to stop ComfyUI container %s: %w", containerName, err)
 		}
+	}
+
+	// Update container status in database.
+	if err := s.db.UpdateContainerStatus("comfyui", "stopped"); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: failed to update container status for comfyui: %v\n", err)
 	}
 
 	return nil
@@ -1200,7 +1330,7 @@ func (s *ContainerService) StartModelBySlug(slug string) error {
 	// or created by a different compose project that used the same container name.
 	// docker compose up cannot reuse a name that is already in use (even if stopped).
 	fmt.Fprintf(os.Stderr, "  Cleaning up stale container %s...\n", model.Container)
-	exec.Command("docker", "stop", model.Container).Run() // stop if running, ignore errors
+	exec.Command("docker", "stop", model.Container).Run()     // stop if running, ignore errors
 	exec.Command("docker", "rm", "-f", model.Container).Run() // force remove, ignore errors
 
 	// Always create fresh via compose
@@ -1332,7 +1462,7 @@ func (s *ContainerService) StartModelBySlugWithAllow(slug string, allowMultiple 
 	// or created by a different compose project that used the same container name.
 	// docker compose up cannot reuse a name that is already in use (even if stopped).
 	fmt.Fprintf(os.Stderr, "  Cleaning up stale container %s...\n", model.Container)
-	exec.Command("docker", "stop", model.Container).Run() // stop if running, ignore errors
+	exec.Command("docker", "stop", model.Container).Run()     // stop if running, ignore errors
 	exec.Command("docker", "rm", "-f", model.Container).Run() // force remove, ignore errors
 
 	// Always create fresh via compose
@@ -1373,7 +1503,6 @@ func (s *ContainerService) GetModelStatus(slug string) (ModelStatus, error) {
 	}, nil
 }
 
-
 // EstimateMemory returns a MemoryResult for a model based on its profile data.
 // Returns nil and no error if the model has no profile data.
 func (s *ContainerService) EstimateMemory(slug string) (*MemoryResult, error) {
@@ -1383,6 +1512,7 @@ func (s *ContainerService) EstimateMemory(slug string) (*MemoryResult, error) {
 	}
 	return EstimateMemory(model)
 }
+
 // ServiceService provides high-level service orchestration.
 type ServiceService struct {
 	db        database.DatabaseManager
