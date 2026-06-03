@@ -1114,13 +1114,13 @@ func (s *ContainerService) Deactivate3D() error {
 //
 // It resolves the ComfyUI engine type and latest version from the database,
 // validates the volume path, generates a docker-compose YAML, starts the
-// container, and polls the health endpoint until it returns HTTP 200.
+// container, and polls the health endpoint (root path /) until it returns HTTP 200.
 //
 // The generated compose file is written to $INSTALL_DIR/.llm-manager/comfyui-compose.yml.
 func (s *ContainerService) StartComfyUI() error {
-	// 1. Resolve the ComfyUI engine type and latest version from the database.
-	engineSvc := NewEngineService(s.db)
-	latest, err := engineSvc.ResolveLatestVersion("comfyui")
+	// 1. Resolve the ComfyUI engine type and latest version from the database
+	//    using the existing EngineService (s.svc) set in NewContainerService.
+	latest, err := s.svc.ResolveLatestVersion("comfyui")
 	if err != nil {
 		return fmt.Errorf("no ComfyUI engine version found: %w", err)
 	}
@@ -1137,13 +1137,9 @@ func (s *ContainerService) StartComfyUI() error {
 	}
 
 	// 3. Resolve volume path from volumes_json.
+	//    Pick the first host path deterministically; fall back to a default.
 	volumes := latest.GetVolumes()
-	volumePath := ""
-	for hostPath, _ := range volumes {
-		// The host path is the left side of the mapping (e.g. "~/.comfyui/models")
-		volumePath = hostPath
-		break
-	}
+	volumePath := pickFirstVolumePath(volumes)
 	if volumePath == "" {
 		volumePath = filepath.Join(s.cfg.InstallDir, ".comfyui", "models")
 	}
@@ -1182,21 +1178,26 @@ func (s *ContainerService) StartComfyUI() error {
 		return fmt.Errorf("failed to write compose file %s: %w", composePath, err)
 	}
 
-	// 8. Execute docker compose -f <path> up -d.
-	cmd := exec.Command("docker", "compose", "-f", composePath, "up", "-d")
+	// 8. Clean up any stale container with the same name before provisioning.
+	//    This matches the pattern used in StartContainer and StartModelBySlug.
+	fmt.Fprintf(os.Stderr, "  Cleaning up stale container %s...\n", containerName)
+	exec.Command("docker", "rm", "-f", containerName).Run() // ignore errors — container may not exist
+
+	// 9. Execute docker compose --project-name comfyui -f <path> up -d.
+	cmd := exec.Command("docker", "compose", "--project-name", "comfyui", "-f", composePath, "up", "-d")
 	cmd.Dir = s.cfg.InstallDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to start ComfyUI: %v\nDocker output:\n%s", err, strings.TrimSpace(string(output)))
 	}
 
-	// 9. Poll health endpoint at http://127.0.0.1:<host_port>/health for HTTP 200.
+	// 10. Poll health endpoint at http://127.0.0.1:<host_port>/ (root path) for HTTP 200.
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d", hostPort)
 	if err := s.waitForComfyUIHealthy(healthURL); err != nil {
 		return fmt.Errorf("health check failed: %w", err)
 	}
 
-	// 10. Update container status to RUNNING in database.
+	// 11. Update container status to RUNNING in database.
 	if err := s.db.UpdateContainerStatus("comfyui", "running"); err != nil {
 		fmt.Fprintf(os.Stderr, "  Warning: failed to update container status for comfyui: %v\n", err)
 	}
@@ -1204,44 +1205,63 @@ func (s *ContainerService) StartComfyUI() error {
 	return nil
 }
 
-// waitForComfyUIHealthy polls the health endpoint of the ComfyUI container
+// waitForComfyUIHealthy polls the root path (/) of the ComfyUI container
 // until it returns HTTP 200, the context deadline expires, or an error occurs.
-// Uses configurable retry interval (default 3s) and max retries (default 30).
+// Uses a 180-second timeout with 3-second intervals, following the pattern
+// from cmd/health.go's waitForHealthy().
 func (s *ContainerService) waitForComfyUIHealthy(baseURL string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+
 	client := &http.Client{Timeout: 5 * time.Second}
-	interval := 3 * time.Second
-	maxRetries := 30
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
 
-	for i := 0; i < maxRetries; i++ {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, baseURL+"/health", nil)
-		if err != nil {
-			return fmt.Errorf("failed to create health check request: %w", err)
-		}
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("health check timed out after 180s waiting for ComfyUI to become healthy")
+		case <-ticker.C:
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/", nil)
+			if err != nil {
+				return fmt.Errorf("failed to create health check request: %w", err)
+			}
 
-		resp, err := client.Do(req)
-		if err != nil {
-			// Best-effort: continue polling on transient errors
-			time.Sleep(interval)
-			continue
-		}
+			resp, err := client.Do(req)
+			if err != nil {
+				// Best-effort: continue polling on transient errors
+				continue
+			}
 
-		if resp.StatusCode == http.StatusOK {
+			if resp.StatusCode == http.StatusOK {
+				resp.Body.Close()
+				return nil
+			}
+
 			resp.Body.Close()
-			return nil
+			// Continue polling on non-200
 		}
-
-		resp.Body.Close()
-		time.Sleep(interval)
 	}
+}
 
-	return fmt.Errorf("max retries (%d) exceeded waiting for ComfyUI to become healthy", maxRetries)
+// pickFirstVolumePath returns the first host path from a volumes map.
+// The map keys are container paths; the values are host paths.
+// Returns an empty string if the map is nil or empty.
+func pickFirstVolumePath(volumes map[string]string) string {
+	if volumes == nil {
+		return ""
+	}
+	for _, hostPath := range volumes {
+		return hostPath
+	}
+	return ""
 }
 
 // StopComfyUI stops the ComfyUI container by name and updates the database status.
 //
 // It uses docker stop on the container (default: comfyui-flux) and sets the
 // container status to STOPPED in the database. If the container does not exist,
-// it returns nil (no error).
+// it still updates the DB status to stopped (best-effort) and returns nil.
 func (s *ContainerService) StopComfyUI() error {
 	containerName := "comfyui-flux"
 
@@ -1249,7 +1269,12 @@ func (s *ContainerService) StopComfyUI() error {
 	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", containerName)
 	output, err := cmd.Output()
 	if err != nil {
-		// Container doesn't exist or can't be inspected — nothing to stop.
+		// Container doesn't exist or can't be inspected — update DB anyway
+		// so the status reflects that we attempted to stop it.
+		fmt.Fprintf(os.Stderr, "  Container %s not found, updating status to stopped\n", containerName)
+		if stopErr := s.db.UpdateContainerStatus("comfyui", "stopped"); stopErr != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: failed to update container status for comfyui: %v\n", stopErr)
+		}
 		return nil
 	}
 
