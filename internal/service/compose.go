@@ -209,7 +209,8 @@ const composeTemplate = `services:
 
 // ComposeGenerator generates docker-compose YAML from model + engine config.
 type ComposeGenerator struct {
-	tmpl *template.Template
+	tmpl       *template.Template
+	comfyUITmpl *template.Template
 }
 
 // NewComposeGenerator creates a new ComposeGenerator.
@@ -221,7 +222,13 @@ func NewComposeGenerator() (*ComposeGenerator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse compose template: %w", err)
 	}
-	return &ComposeGenerator{tmpl: tmpl}, nil
+
+	comfyUITmpl, err := template.New("comfyui").Funcs(funcs).Parse(comfyUITemplate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ComfyUI compose template: %w", err)
+	}
+
+	return &ComposeGenerator{tmpl: tmpl, comfyUITmpl: comfyUITmpl}, nil
 }
 
 // Generate produces a complete docker-compose YAML string.
@@ -255,6 +262,57 @@ func (g *ComposeGenerator) GenerateWithOptions(model *models.Model, cfg EngineCo
 	var buf bytes.Buffer
 	if err := g.tmpl.Execute(&buf, data); err != nil {
 		return "", fmt.Errorf("failed to render compose template: %w", err)
+	}
+	return buf.String(), nil
+}
+
+// ComfyUIComposeTemplateData carries the data needed to render a ComfyUI
+// Docker Compose YAML with GPU passthrough.
+type ComfyUIComposeTemplateData struct {
+	ImageName     string
+	ImageTag      string
+	HostPort      int
+	VolumePath    string
+	ContainerName string
+}
+
+const comfyUITemplate = `x-gpu-service: &gpu-service
+  runtime: nvidia
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  comfyui:
+    image: {{ .ImageName }}:{{ .ImageTag }}
+    container_name: {{ .ContainerName }}
+    restart: unless-stopped
+    <<: *gpu-service
+    ports:
+      - "{{ .HostPort }}:8188"
+    volumes:
+      - {{ .VolumePath }}:/home/runner/ComfyUI/models
+    environment:
+      - CLI_ARGS=--listen 0.0.0.0
+`
+
+// GenerateComfyUICompose renders a Docker Compose YAML string for a ComfyUI
+// service with GPU passthrough enabled via the NVIDIA runtime.
+func (g *ComposeGenerator) GenerateComfyUICompose(data ComfyUIComposeTemplateData) (string, error) {
+	if data.ImageName == "" {
+		return "", fmt.Errorf("ImageName is required for ComfyUI composition")
+	}
+	if data.ContainerName == "" {
+		return "", fmt.Errorf("ContainerName is required for ComfyUI composition")
+	}
+
+	var buf bytes.Buffer
+	if err := g.comfyUITmpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("failed to render ComfyUI compose template: %w", err)
 	}
 	return buf.String(), nil
 }
