@@ -393,3 +393,53 @@ func TestEnsureCompose_ModelNotFound(t *testing.T) {
 		t.Errorf("expected 'resolve engine config' error, got: %v", err)
 	}
 }
+
+// ──────────────────────────────────────────────
+// pickFirstVolumePath tests (AC-2)
+// ──────────────────────────────────────────────
+
+func TestPickFirstVolumePath_NilMap(t *testing.T) {
+	result := pickFirstVolumePath(nil)
+	if result != "" {
+		t.Errorf("pickFirstVolumePath(nil) = %q, want empty string", result)
+	}
+}
+
+func TestPickFirstVolumePath_EmptyMap(t *testing.T) {
+	result := pickFirstVolumePath(map[string]string{})
+	if result != "" {
+		t.Errorf("pickFirstVolumePath(empty) = %q, want empty string", result)
+	}
+}
+
+func TestPickFirstVolumePath_SingleEntry(t *testing.T) {
+	vols := map[string]string{"/home/runner/ComfyUI/models": "/opt/comfyui/models"}
+	result := pickFirstVolumePath(vols)
+	if result != "/opt/comfyui/models" {
+		t.Errorf("pickFirstVolumePath(single) = %q, want %q", result, "/opt/comfyui/models")
+	}
+}
+
+func TestPickFirstVolumePath_MultipleEntries(t *testing.T) {
+	vols := map[string]string{
+		"/home/runner/ComfyUI/models":       "/opt/comfyui/models",
+		"/home/runner/ComfyUI/models/checkpoints": "/opt/comfyui/checkpoints",
+	}
+	result := pickFirstVolumePath(vols)
+	// Should return the first host path found (deterministic for a single entry)
+	if result == "" {
+		t.Error("pickFirstVolumePath(multi) returned empty string")
+	}
+}
+
+func TestPickFirstVolumePath_NestedPaths(t *testing.T) {
+	vols := map[string]string{
+		"/models":       "/data/models",
+		"/models/checkpoints": "/data/checkpoints",
+		"/models/loras": "/data/loras",
+	}
+	result := pickFirstVolumePath(vols)
+	if result == "" {
+		t.Error("pickFirstVolumePath(nested) returned empty string")
+	}
+}
