@@ -18,10 +18,11 @@ import (
 
 // RootCommand represents the root command for the application.
 type RootCommand struct {
-	cfg     *config.Config
-	db      database.DatabaseManager
-	apiPort int
-	apiHost string
+	cfg         *config.Config
+	db          database.DatabaseManager
+	apiPort     int
+	apiHost     string
+	apiPortFlag bool // true only when --api-port was explicitly provided
 }
 
 // NewRootCommand creates a new RootCommand.
@@ -47,6 +48,7 @@ func (c *RootCommand) ParseGlobalFlags(args []string) []string {
 					os.Exit(1)
 				}
 				c.apiPort = port
+				c.apiPortFlag = true
 				i++ // skip the value
 			} else {
 				fmt.Fprintln(os.Stderr, "Error: --api-port requires a value")
@@ -96,8 +98,8 @@ func (c *RootCommand) Run(args []string) int {
 	// Parse global flags (--api-port, --api-host) before anything else
 	apiArgs := c.ParseGlobalFlags(args)
 
-	// Check if API mode is requested
-	if c.apiPort > 0 {
+	// Check if API mode is explicitly requested via --api-port flag
+	if c.apiPortFlag {
 
 		// Open database connection for the API server
 		db, err := database.NewDatabaseManager(c.cfg.DatabaseURL)
@@ -231,6 +233,7 @@ COMMANDS:
   uninstall   Uninstall a model (stop container, delete YAML, clear cache, remove from LiteLLM and DB)
   comfyui     Manage ComfyUI and image generation models (start, stop, flux, 3d, status)
   speech      Manage speech services - whisper + kokoro (start, stop)
+  rag         Manage RAG models - embeddings + rerankers (start, stop, list, info)
 
 GLOBAL OPTIONS:
   --api-port <port>     Start API server on the given port (default: 8780)
@@ -257,6 +260,7 @@ EXAMPLES:
   llm-manager comfyui start
   llm-manager comfyui flux start flux-schnell
   llm-manager speech stop
+  llm-manager rag start
   LLM_MANAGER_VERBOSE=true llm-manager
 
 For more information, visit: https://github.com/user/llm-manager`)

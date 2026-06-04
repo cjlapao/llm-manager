@@ -55,8 +55,8 @@ type MemoryBreakdown struct {
 type MemoryResult struct {
 	TotalMB              int     // worst-case total (for validation)
 	TotalRealisticMB     int     // realistic estimate (for util calc)
-	KVCacheMaxMB         int     // KV cache at full context (worst-case)
-	KVCacheRealisticMB   int     // KV cache at realistic batch size
+	KVCacheMaxMB         int     // KV at full context
+	KVCacheRealisticMB   int     // KV at realistic batch size
 	GPUMemoryUtilization float64 // rounded up to nearest 0.01
 	DockerLimitGB        int
 	Breakdown            MemoryBreakdown
@@ -95,8 +95,6 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 	bd := MemoryBreakdown{}
 
 	// Use profile override for numSequences if set, otherwise use the passed value.
-	// This allows the DB profile to adjust KV cache, GDN state, and prefix cache
-	// calculations independently of the CLI override (which only affects flags).
 	seqs := numSequences
 	if profile.MaxNumSeqs > 0 {
 		seqs = profile.MaxNumSeqs
@@ -106,16 +104,9 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 	bd.WeightsMB = int(profile.TotalParamsB * profile.QuantBytesPerParam * 1024)
 
 	// 2. KV Cache (0 for encoder models with no attention layers)
-	// vLLM's --gpu-memory-utilization reserves a pool of GPU memory.
-	// After loading weights, the remainder is used for KV cache.
-	// We must reserve enough for KV at the requested context length,
-	// because vLLM pre-allocates KV cache for that length at startup.
 	if profile.AttentionLayers > 0 {
 		kvPerToken := float64(2 * profile.NumKvHeads * profile.HeadDim * profile.AttentionLayers * int(kvDtypeBytes))
 		bd.KVCacheMB = int(kvPerToken*float64(contextLen*seqs)) / (1024 * 1024)
-		// Use full-context KV for utilization calculation — vLLM needs this
-		// much KV cache memory reserved. The "realistic" estimate was causing
-		// OOM because vLLM pre-allocates KV cache for max_model_len.
 		bd.KVCacheRealisticMB = bd.KVCacheMB
 	}
 
@@ -126,27 +117,13 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 
 	// 4. Prefix Cache Overhead
 	if seqs >= 2 {
-		bd.PrefixCacheMB = 2048 // heavy multi-agent
+		bd.PrefixCacheMB = 2048
 	} else {
-		bd.PrefixCacheMB = 1024 // standard
+		bd.PrefixCacheMB = 1024
 	}
 
 	// 5. MTP Speculative Decoding Overhead
-	// NVFP4 (0.5) does NOT support MTP. Also skip if model doesn't support MTP.
 	if mtpTokens > 0 && profile.SupportsMtp && profile.QuantBytesPerParam != 0.5 {
-		// MTP overhead is estimated from the worked examples in vllm_memory_calc.md.
-		// The formula (active * 500 + active * 333 * tokens + active * 167 * (tokens+1))
-		// produces wildly inflated values (e.g., 58 GB for 27B dense MTP=3) that
-		// contradict the documented reference table. Use reference values instead.
-		//
-		// Reference values from docs/vllm_memory_calc.md:
-		//   Qwen3.6-35B-A3B (MoE, 3B active), MTP=2  → ~2,000 MB
-		//   Qwen3.6-35B-A3B (MoE, 3B active), MTP=3  → ~2,700 MB
-		//   Qwen3.6-27B    (dense, 27B active), MTP=2 → ~5,500 MB
-		//   Qwen3.6-27B    (dense, 27B active), MTP=3 → ~7,500 MB
-		//   Qwen3-Coder-Next (MoE, 3B active), MTP=2 → ~2,000 MB
-		//
-		// Interpolate: MoE ~670 MB/token, Dense ~2,750 MB/token
 		if profile.IsMoe {
 			bd.MTPMB = 670 * mtpTokens
 		} else {
@@ -155,74 +132,79 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 	}
 
 	// 8. Vision Encoder + Projector (multimodal models only)
-	// vLLM loads a vision encoder (e.g., SigLIP, CLIP) and a vision projector
-	// (connector) for multimodal models. These sit in the same reserved pool
-	// as the language model weights but were previously unaccounted for,
-	// causing ~500 MB underestimation and CUDA OOM during inference.
-	//
-	// FP8 (1.0 bytes/param):  ~400 MB encoder + ~100 MB projector ≈ 500 MB
-	// BF16 (2.0 bytes/param): ~800 MB encoder + ~200 MB projector ≈ 1,000 MB
-	// Scaled proportionally for other quantizations.
 	if profile.SupportsVision {
 		const (
-			visionFP8MB  = 500  // FP8 vision encoder + projector
-			visionBF16MB = 1000 // BF16 vision encoder + projector
+			visionFP8MB  = 500
+			visionBF16MB = 1000
 		)
-		// Base is FP8 (1.0 bytes/param) = 500 MB. Scale linearly.
 		bd.VisionEncoderMB = int(float64(visionFP8MB) * profile.QuantBytesPerParam)
 	}
 
 	// 6. CUDA Context and Graph Capture
 	if profile.AttentionLayers == 0 {
-		bd.CUDAContextMB = 1500 // encoder: context only, no graph capture
+		bd.CUDAContextMB = 1500
 	} else {
-		bd.CUDAContextMB = 3000 // vLLM: context + graphs
+		bd.CUDAContextMB = 3000
 	}
 
 	// 8. Off-Budget Allocations
 	// These cover intermediate activation tensors during prefill, FlashInfer/
 	// Triton JIT kernel allocations, PyTorch CUDA allocator fragmentation, and
-	// temporary buffers. Vision models need extra headroom because the encoder
-	// adds additional activation overhead during multimodal processing.
+	// temporary buffers.
 	if profile.AttentionLayers == 0 {
-		bd.OffBudgetMB = 2000 // encoder: activations + JIT kernels, no KV cache overhead
+		bd.OffBudgetMB = 2000
 	} else if profile.SupportsVision {
 		if contextLen > 65536 {
-			bd.OffBudgetMB = 5000 // vision + large context = bigger activations
+			bd.OffBudgetMB = 5000
 		} else {
-			bd.OffBudgetMB = 4000 // vision model overhead
+			bd.OffBudgetMB = 4000
 		}
 	} else if contextLen > 65536 {
-		bd.OffBudgetMB = 4000 // large context = bigger activation tensors
+		bd.OffBudgetMB = 4000
 	} else {
-		bd.OffBudgetMB = 3000 // standard
+		bd.OffBudgetMB = 3000
 	}
 
 	// Total at MAX context (worst-case, for validation)
 	totalMax := bd.WeightsMB + bd.KVCacheMB + bd.GDNStateMB + bd.PrefixCacheMB + bd.MTPMB + bd.CUDAContextMB + bd.OffBudgetMB + bd.VisionEncoderMB
 
 	// Total at realistic batch size (for gpu_memory_utilization)
-	// Uses realistic KV cache estimate instead of full-context KV cache
 	totalRealistic := bd.WeightsMB + bd.KVCacheRealisticMB + bd.GDNStateMB + bd.PrefixCacheMB + bd.MTPMB + bd.CUDAContextMB + bd.OffBudgetMB + bd.VisionEncoderMB
 
 	// Whether the model can physically fit at the requested context length
-	// on this GPU. If false, the model will fail to start with OOM.
+	// on this GPU.
 	fitsAtMaxContext := totalMax <= gpuAvailable
 
-	// gpu_memory_utilization is a fraction of TOTAL GPU memory (121,856 MB).
-	// vLLM always reserves against the total, not free memory. Multi-model
-	// safety comes from the sum of all models' reservations fitting within
-	// SAFE_USABLE_MB.
+	// ── Encoder/RAG models (0 attention layers) ──
+	// These have no KV cache, so their memory footprint is dominated by weights
+	// plus vLLM's internal overhead: CUDA context, JIT kernel caches, PagedAttention
+	// metadata, tensor parallelism structures, activation buffers, PyTorch allocator
+	// fragmentation, etc.
 	//
-	// However, when other models are already running (availableGPUmb < TotalGPUMB),
-	// we must scale the utilization against available memory to avoid over-reserving.
-	// This prevents the "Free memory is less than desired GPU memory utilization"
-	// error that occurs when an LLM is already occupying most of the GPU.
-	//
-	// Add a 2% safety margin to account for untracked overhead: PyTorch
-	// CUDA allocator fragmentation, JIT kernel cache growth, activation
-	// tensor spikes during prefill, and any vision encoder / multimodal
-	// processor overhead that slips past detection.
+	// We compute the total from the breakdown (weights + CUDA context + off-budget
+	// + prefix cache) and express it as a fraction of total GPU memory.
+	// This gives a stable reservation that works regardless of GPU sharing.
+	if profile.AttentionLayers == 0 {
+		utilization := float64(totalRealistic) / float64(TotalGPUMB)
+		utilization = roundUpTo001(utilization)
+		// Absolute minimum: vLLM needs some headroom to initialize even
+		// for tiny models. Floor at 0.01 (~1.2 GB of the 120 GB GPU).
+		if utilization < 0.01 {
+			utilization = 0.01
+		}
+		return &MemoryResult{
+			TotalMB:              totalMax,
+			TotalRealisticMB:     totalRealistic,
+			KVCacheMaxMB:         bd.KVCacheMB,
+			KVCacheRealisticMB:   bd.KVCacheRealisticMB,
+			GPUMemoryUtilization: utilization,
+			DockerLimitGB:        int(math.Ceil(float64(totalMax*115) / 102400)),
+			Breakdown:            bd,
+			FitsAtMaxContext:     fitsAtMaxContext,
+		}, nil
+	}
+
+	// ── Standard path for non-encoder models (LLM, chat, auto-complete) ──
 	utilization := float64(totalRealistic) / float64(TotalGPUMB)
 	utilization = utilization * 1.02 // +2% safety margin
 
@@ -230,17 +212,16 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 	if gpuAvailable > 0 && gpuAvailable < TotalGPUMB {
 		availUtil := float64(totalRealistic) / float64(gpuAvailable)
 		availUtil = availUtil * 1.02
-		// Use whichever is higher — the total-GPU utilization or the available-GPU utilization
 		if availUtil > utilization {
 			utilization = availUtil
 		}
 	}
 
 	return &MemoryResult{
-		TotalMB:            totalMax,       // worst-case total (for validation)
-		TotalRealisticMB:   totalRealistic, // realistic estimate (for util calc)
-		KVCacheMaxMB:       bd.KVCacheMB,   // KV at full context
-		KVCacheRealisticMB: bd.KVCacheRealisticMB,
+		TotalMB:              totalMax,
+		TotalRealisticMB:     totalRealistic,
+		KVCacheMaxMB:         bd.KVCacheMB,
+		KVCacheRealisticMB:   bd.KVCacheRealisticMB,
 		GPUMemoryUtilization: roundUpTo001(utilization),
 		DockerLimitGB:        int(math.Ceil(float64(totalMax*115) / 102400)),
 		Breakdown:            bd,
@@ -267,9 +248,7 @@ func ReadFreeGPUMemory() int {
 
 // SetGPUMemorySource sets the source for GPU memory queries.
 // Currently a no-op — the service always uses nvidia-smi.
-// Accepted values: "free" (system free command), "nvidia-smi".
 func SetGPUMemorySource(source string) {
-	// TODO: implement switching between "free" and "nvidia-smi" query methods
 	_ = source
 }
 
@@ -277,7 +256,7 @@ func SetGPUMemorySource(source string) {
 // Returns nil and no error if the model has no profile data.
 func EstimateMemory(model *models.Model) (*MemoryResult, error) {
 	if model.TotalParamsB == nil || model.QuantBytesPerParam == nil {
-		return nil, nil // no profile data
+		return nil, nil
 	}
 
 	attentionLayers := 0
@@ -314,7 +293,7 @@ func EstimateMemory(model *models.Model) (*MemoryResult, error) {
 		NumKvHeads:         numKvHeads,
 		HeadDim:            headDim,
 		SupportsMtp:        derefOrFalse(model.SupportsMtp),
-		SupportsVision:     false, // RAG models don't have vision capability
+		SupportsVision:     false,
 		DefaultContext:     defaultContext,
 		MaxContext:         maxContext,
 		QuantBytesPerParam: *model.QuantBytesPerParam,

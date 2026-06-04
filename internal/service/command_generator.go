@@ -53,22 +53,13 @@ func GenerateFlags(profile ModelProfile, memResult *MemoryResult, contextLen int
 	}
 
 	// --gpu-memory-utilization: from calculated ratio, formatted to 2 decimal places
-	// CalculateMemory already scales utilization against available GPU memory
-	// when other models are running (availableGPUmb < TotalGPUMB). Trust that
-	// value — it accounts for both the model's actual memory needs AND the
-	// currently free GPU memory.
+	// CalculateMemory handles encoder models with the full breakdown
+	// (weights + CUDA context + off-budget + prefix cache) expressed as
+	// a fraction of total GPU memory. For non-encoder models, it scales
+	// against available GPU memory when other models are running.
+	// Trust that value — no additional floor needed.
 	util := memResult.GPUMemoryUtilization
-	
-	// Encoder models (0 attention layers) still need a minimum GPU memory
-	// reservation for vLLM's internal cache pools (even without KV cache,
-	// vLLM reserves memory for activation buffers, tensor parallelism,
-	// and internal structures). A minimum of 0.50 ensures vLLM has enough
-	// room to initialize. Without this, vLLM fails with:
-	// "No available memory for the cache blocks."
-	if profile.AttentionLayers == 0 && util < 0.50 {
-		util = 0.50
-	}
-	
+
 	flags.GPUMemoryUtil = fmt.Sprintf("%.2f", util)
 
 	return flags
