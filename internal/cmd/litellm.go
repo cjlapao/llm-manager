@@ -70,15 +70,15 @@ func (c *LiteLLMCommand) Run(args []string) int {
 		}
 		return c.runDelete(args[1])
 	case "sync":
-		// sync supports optional --all flag: "litellm sync --all" or "litellm sync <slug>"
-		if len(args) == 0 {
+		// sync supports optional slug or --all flag: "litellm sync --all" or "litellm sync <slug>"
+		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Error: 'sync' requires a model slug or --all flag")
 			return 1
 		}
-		if args[0] == "--all" {
+		if args[1] == "--all" {
 			return c.runSyncAll()
 		}
-		return c.runSync(args[0])
+		return c.runSync(args[1])
 	case "help", "-h", "--help":
 		c.PrintHelp()
 		return 0
