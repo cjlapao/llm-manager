@@ -367,9 +367,9 @@ func TestCalculateMemory_RAGEncoder_BF16(t *testing.T) {
 		t.Errorf("VisionEncoderMB = %d, want 0", result.Breakdown.VisionEncoderMB)
 	}
 
-	// Total: 1228 + 0 + 0 + 1024 + 0 + 1500 + 2000 + 0 = 5752
-	if result.TotalMB != 5752 {
-		t.Errorf("TotalMB = %d, want 5752", result.TotalMB)
+	// TotalRealistic: 1228 + 256(kv) + 0 + 1024 + 0 + 1500 + 2000 + 0 = 6008
+	if result.TotalRealisticMB != 6008 {
+		t.Errorf("TotalRealisticMB = %d, want 6008", result.TotalRealisticMB)
 	}
 
 	// Fits on GPU? 4252 <= 121856 → true
@@ -384,8 +384,8 @@ func TestCalculateMemory_RAGEncoder_BF16(t *testing.T) {
 }
 
 func TestCalculateMemory_RAGEncoder_Reranker_BF16(t *testing.T) {
-	// Reranker model has identical profile structure to embedding model.
-	// Verify it produces the same memory result.
+	// Reranker has SubType="reranker" -> OffBudgetMB=4000 (vs 2000 for embedding).
+	// This produces a higher gpu_memory_utilization than embedding.
 	profile := ModelProfile{
 		TotalParamsB:       0.6,
 		ActiveParamsB:      0.6,
@@ -399,6 +399,7 @@ func TestCalculateMemory_RAGEncoder_Reranker_BF16(t *testing.T) {
 		DefaultContext:     8192,
 		MaxContext:         8192,
 		QuantBytesPerParam: 2.0, // BF16
+		SubType:            "reranker",
 	}
 
 	result, err := CalculateMemory(profile, 2.0, 8192, 1, 0, 0)
@@ -406,12 +407,16 @@ func TestCalculateMemory_RAGEncoder_Reranker_BF16(t *testing.T) {
 		t.Fatalf("CalculateMemory() error: %v", err)
 	}
 
-	// Reranker should produce the same total as embedding model
-	if result.TotalMB != 5752 {
-		t.Errorf("TotalMB = %d, want 5752 (same as embed)", result.TotalMB)
+	// Reranker: weights=1228 kvCache=896 CUDA=1500 offBudget=4000 prefix=1024 = 8648
+	if result.TotalRealisticMB != 8648 {
+		t.Errorf("TotalRealisticMB = %d, want 8648 (reranker offBudget=4000 + kvCache=896)", result.TotalRealisticMB)
 	}
-	if result.GPUMemoryUtilization != 0.05 {
-		t.Errorf("GPUMemoryUtilization = %.4f, want 0.05", result.GPUMemoryUtilization)
+	if result.Breakdown.OffBudgetMB != 4000 {
+		t.Errorf("OffBudgetMB = %d, want 4000 for reranker", result.Breakdown.OffBudgetMB)
+	}
+	// GPU utilization: (8648 / 121856) = 0.0710 -> ceil to 0.08
+	if result.GPUMemoryUtilization != 0.08 {
+		t.Errorf("GPUMemoryUtilization = %.4f, want 0.07", result.GPUMemoryUtilization)
 	}
 	if !result.FitsAtMaxContext {
 		t.Errorf("FitsAtMaxContext = false, want true")
@@ -445,8 +450,8 @@ func TestCalculateMemory_RAGEncoder_FP8(t *testing.T) {
 		t.Errorf("WeightsMB = %d, want 614", result.Breakdown.WeightsMB)
 	}
 
-	// Total: 614 + 0 + 0 + 1024 + 0 + 1500 + 2000 + 0 = 5138
-	if result.TotalMB != 5138 {
+	// TotalRealistic: 614 + 256(kv) + 0 + 1024 + 0 + 1500 + 2000 + 0 = 5394
+	if result.TotalRealisticMB != 5394 {
 		t.Errorf("TotalMB = %d, want 5138", result.TotalMB)
 	}
 
