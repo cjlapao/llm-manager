@@ -1,8 +1,8 @@
 package service
 
 import (
-	"github.com/user/llm-manager/internal/database/models"
 	"fmt"
+	"github.com/user/llm-manager/internal/database/models"
 	"math"
 	"os/exec"
 	"strconv"
@@ -36,6 +36,7 @@ type ModelProfile struct {
 	MaxContext         int
 	QuantBytesPerParam float64 // bytes per param (2.0 BF16, 1.0 FP8, 0.5 NVFP4)
 	MaxNumSeqs         int     // optional override for number of concurrent sequences
+	SubType            string  // "chat", "embedding", "reranker", etc.
 }
 
 // MemoryBreakdown holds per-component VRAM usage in MB.
@@ -152,7 +153,15 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 	// Triton JIT kernel allocations, PyTorch CUDA allocator fragmentation, and
 	// temporary buffers.
 	if profile.AttentionLayers == 0 {
-		bd.OffBudgetMB = 2000
+		// Rerankers (cross-encoder) process query-document pairs through all
+		// attention layers simultaneously. The bidirectional pass requires
+		// much larger intermediate activation buffers than embedding models.
+		// We allocate 4,000 MB for rerankers vs 2,000 MB for embeddings.
+		if profile.SubType == "reranker" {
+			bd.OffBudgetMB = 4000
+		} else {
+			bd.OffBudgetMB = 2000
+		}
 	} else if profile.SupportsVision {
 		if contextLen > 65536 {
 			bd.OffBudgetMB = 5000
@@ -171,22 +180,49 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 	// Total at realistic batch size (for gpu_memory_utilization)
 	totalRealistic := bd.WeightsMB + bd.KVCacheRealisticMB + bd.GDNStateMB + bd.PrefixCacheMB + bd.MTPMB + bd.CUDAContextMB + bd.OffBudgetMB + bd.VisionEncoderMB
 
+	// Encoder/RAG models (0 attention layers) need KV cache estimation.
+	// vLLM treats rerankers as generative models and allocates KV cache
+	// even though AttentionLayers=0 in our profile. We estimate the KV
+	// cache vLLM will need based on context length and model type.
+	// Empirical: Qwen3-Reranker-0.6B at max_model_len=8192 needs ~900 MB KV cache.
+	// Heuristic: ~112 KB per token for cross-encoders (key+value projections),
+	// ~16 KB per token for embeddings (lighter pooling overhead).
+	if profile.AttentionLayers == 0 {
+		var kvPerTokenKB int
+		if profile.SubType == "reranker" {
+			kvPerTokenKB = 112
+		} else {
+			kvPerTokenKB = 16
+		}
+		kvEstimateMB := contextLen * kvPerTokenKB / 1024 * seqs
+		if kvEstimateMB < 256 {
+			kvEstimateMB = 256
+		}
+		bd.KVCacheRealisticMB = kvEstimateMB
+		// Recompute totalRealistic including KV cache so utilization covers it
+		totalRealistic = bd.WeightsMB + bd.KVCacheRealisticMB + bd.GDNStateMB + bd.PrefixCacheMB + bd.MTPMB + bd.CUDAContextMB + bd.OffBudgetMB + bd.VisionEncoderMB
+	}
+
 	// Whether the model can physically fit at the requested context length
 	// on this GPU.
 	fitsAtMaxContext := totalMax <= gpuAvailable
 
 	// ── Encoder/RAG models (0 attention layers) ──
-	// These have no KV cache, so their memory footprint is dominated by weights
-	// plus vLLM's internal overhead: CUDA context, JIT kernel caches, PagedAttention
-	// metadata, tensor parallelism structures, activation buffers, PyTorch allocator
-	// fragmentation, etc.
+	// These have no KV cache in our model, but vLLM treats rerankers as
+	// generative models and DOES allocate KV cache. The gpu_memory_utilization
+	// value vLLM uses is an ABSOLUTE reservation: utilization × TotalGPUMB.
 	//
-	// We compute the total from the breakdown (weights + CUDA context + off-budget
-	// + prefix cache) and express it as a fraction of total GPU memory.
-	// This gives a stable reservation that works regardless of GPU sharing.
+	// We must compute utilization against the ACTUAL free GPU memory
+	// (gpuAvailable), not TotalGPUMB, because vLLM will fail if the
+	// reservation exceeds what's actually free.
+	//
+	// utilization = totalRealistic / gpuAvailable, rounded up to 0.01
+	// This tells vLLM: "reserve this fraction of total GPU so that
+	// utilization × TotalGPUMB >= totalRealistic"
 	if profile.AttentionLayers == 0 {
-		utilization := float64(totalRealistic) / float64(TotalGPUMB)
+		utilization := float64(totalRealistic) / float64(gpuAvailable)
 		utilization = roundUpTo001(utilization)
+
 		// Absolute minimum: vLLM needs some headroom to initialize even
 		// for tiny models. Floor at 0.01 (~1.2 GB of the 120 GB GPU).
 		if utilization < 0.01 {
@@ -298,6 +334,7 @@ func EstimateMemory(model *models.Model) (*MemoryResult, error) {
 		MaxContext:         maxContext,
 		QuantBytesPerParam: *model.QuantBytesPerParam,
 		MaxNumSeqs:         derefOrZero(model.MaxNumSeqs),
+		SubType:            model.SubType,
 	}
 
 	return CalculateMemory(profile, *model.QuantBytesPerParam, defaultContext, 1, 0, 0)

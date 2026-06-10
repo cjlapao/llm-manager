@@ -33,6 +33,7 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 		MaxContext:         derefOrZero(model.MaxContext),
 		QuantBytesPerParam: *model.QuantBytesPerParam,
 		MaxNumSeqs:         derefOrZero(model.MaxNumSeqs),
+		SubType:            model.SubType,
 	}
 
 	// Apply CLI overrides — non-zero values replace auto-calculated defaults
@@ -81,6 +82,17 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 	if err != nil {
 		return existingCmds
 	}
+
+	fmt.Fprintf(os.Stderr, "  [mem] freeGPUmb=%d TotalGPUMB=%d\n", freeGPUmb, TotalGPUMB)
+	fmt.Fprintf(os.Stderr, "  [mem] weights=%d CUDA=%d offBudget=%d prefix=%d totalRealistic=%d\n",
+		memResult.Breakdown.WeightsMB,
+		memResult.Breakdown.CUDAContextMB,
+		memResult.Breakdown.OffBudgetMB,
+		memResult.Breakdown.PrefixCacheMB,
+		memResult.TotalRealisticMB)
+	fmt.Fprintf(os.Stderr, "  [mem] utilization=%.4f (%d / %d)\n",
+		float64(memResult.TotalRealisticMB)/float64(TotalGPUMB),
+		memResult.TotalRealisticMB, TotalGPUMB)
 
 	// Generate smart command flags
 	genFlags := GenerateFlags(profile, memResult, contextLen, numSequences)
@@ -209,7 +221,7 @@ const composeTemplate = `services:
 
 // ComposeGenerator generates docker-compose YAML from model + engine config.
 type ComposeGenerator struct {
-	tmpl       *template.Template
+	tmpl        *template.Template
 	comfyUITmpl *template.Template
 }
 
