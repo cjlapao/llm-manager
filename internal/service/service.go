@@ -848,6 +848,13 @@ func (s *ContainerService) checkGPUMemory(slug string, overrides StartOverrides)
 			return nil // non-fatal
 		}
 		poolNeeded := int(overrideUtil * float64(TotalGPUMB))
+		// Compute total memory footprint from profile to match CanFitDynamic's safety margin base.
+		// This ensures the safety margin is a percentage of the full model footprint
+		// (weights + KV cache + overhead), identical to the auto-calc path.
+		memEst, err := CalculateMemory(profile, getKVDtypeBytes(model.CommandArgs), checkContext, checkSeqs, mtpTokens, freeMB)
+		if err == nil && memEst != nil {
+			poolNeeded = memEst.TotalMB
+		}
 		safetyMargin := ComputeSafetyMargin(poolNeeded, s.cfg.SafetyMarginPct)
 		available := freeMB - safetyMargin
 

@@ -582,6 +582,7 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 			MaxNumBatchedTokens:  model.MaxNumBatchedTokens,
 			SpeculativeDecoding:  model.SpeculativeDecoding,
 			NumSpeculativeTokens: model.NumSpeculativeTokens,
+			GpuMemoryUtilization: model.GpuMemoryUtilization,
 		}
 	}
 
