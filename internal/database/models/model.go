@@ -16,48 +16,49 @@ import (
 //	@Summary	LLM model definition
 //	@Description	An LLM model record stored in the database, including configuration, token pricing, engine settings, and variant information.
 type Model struct {
-	ID                   uuid.UUID `gorm:"type:uuid;primaryKey"`
-	Slug                 string    `gorm:"uniqueIndex;size:128;not null;column:slug"`
-	Type                 string    `gorm:"size:32;not null;index;column:type"`
-	SubType              string    `gorm:"size:32;column:sub_type"`
-	Name                 string    `gorm:"size:256;not null;column:name"`
-	HFRepo               string    `gorm:"size:512;column:hf_repo"`
-	YML                  string    `gorm:"type:text;column:yml"`
-	Container            string    `gorm:"size:256;column:container"`
-	Port                 int       `gorm:"not null;column:port"`
-	EngineType           string    `gorm:"size:16;default:'vllm';column:engine_type"`
-	EnvVars              string    `gorm:"type:text;column:env_vars"`
-	CommandArgs          string    `gorm:"type:text;column:command_args"`
-	InputTokenCost             float64   `gorm:"default:0;column:input_token_cost"`
-	OutputTokenCost            float64   `gorm:"default:0;column:output_token_cost"`
-	CacheCreationInputTokenCost float64  `gorm:"default:0;column:cache_creation_input_token_cost"`
-	CacheReadInputTokenCost     float64  `gorm:"default:0;column:cache_read_input_token_cost"`
-	Capabilities         string    `gorm:"type:text;column:capabilities"`
-	LiteLLMParams        string    `gorm:"type:text;column:lite_llm_params"`
-	ModelInfo            string    `gorm:"type:text;column:model_info"`
-	LitellmModelID       string    `gorm:"type:varchar(36);size:36;column:litellm_model_id"`
-	LitellmActiveAliases string    `gorm:"type:text;column:litellm_active_aliases"`
-	LitellmVariantIDs    string    `gorm:"type:text;column:litellm_variant_ids"`
-	Default              bool      `gorm:"type:boolean;default:false;column:default"`
-	BaseImageID          string    `gorm:"size:128;column:base_image_id"`
-	EngineVersionSlug    string    `gorm:"size:128;default:'';column:engine_version_slug"`
-	TotalParamsB         *float64  `gorm:"column:total_params_b"`
-	ActiveParamsB        *float64  `gorm:"column:active_params_b"`
-	IsMoe                *bool     `gorm:"column:is_moe"`
-	AttentionLayers      *int      `gorm:"column:attention_layers"`
-	GdnLayers            *int      `gorm:"column:gdn_layers"`
-	NumKvHeads           *int      `gorm:"column:num_kv_heads"`
-	HeadDim              *int      `gorm:"column:head_dim"`
-	SupportsMtp          *bool     `gorm:"column:supports_mtp"`
-	DefaultContext       *int      `gorm:"column:default_context"`
-	MaxContext           *int      `gorm:"column:max_context"`
-	QuantBytesPerParam   *float64  `gorm:"column:quant_bytes_per_param"`
-	MaxNumSeqs           *int      `gorm:"column:max_num_seqs"`
-	MaxNumBatchedTokens  *int      `gorm:"column:max_num_batched_tokens"`
-	SpeculativeDecoding  *string   `gorm:"column:speculative_decoding"`
-	NumSpeculativeTokens *int      `gorm:"column:num_speculative_tokens"`
-	CreatedAt            time.Time `gorm:"autoCreateTime;column:created_at"`
-	UpdatedAt            time.Time `gorm:"autoUpdateTime;column:updated_at"`
+	ID                          uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Slug                        string    `gorm:"uniqueIndex;size:128;not null;column:slug"`
+	Type                        string    `gorm:"size:32;not null;index;column:type"`
+	SubType                     string    `gorm:"size:32;column:sub_type"`
+	Name                        string    `gorm:"size:256;not null;column:name"`
+	HFRepo                      string    `gorm:"size:512;column:hf_repo"`
+	YML                         string    `gorm:"type:text;column:yml"`
+	Container                   string    `gorm:"size:256;column:container"`
+	Port                        int       `gorm:"not null;column:port"`
+	EngineType                  string    `gorm:"size:16;default:'vllm';column:engine_type"`
+	EnvVars                     string    `gorm:"type:text;column:env_vars"`
+	CommandArgs                 string    `gorm:"type:text;column:command_args"`
+	InputTokenCost              float64   `gorm:"default:0;column:input_token_cost"`
+	OutputTokenCost             float64   `gorm:"default:0;column:output_token_cost"`
+	CacheCreationInputTokenCost float64   `gorm:"default:0;column:cache_creation_input_token_cost"`
+	CacheReadInputTokenCost     float64   `gorm:"default:0;column:cache_read_input_token_cost"`
+	Capabilities                string    `gorm:"type:text;column:capabilities"`
+	LiteLLMParams               string    `gorm:"type:text;column:lite_llm_params"`
+	ModelInfo                   string    `gorm:"type:text;column:model_info"`
+	LitellmModelID              string    `gorm:"type:varchar(36);size:36;column:litellm_model_id"`
+	LitellmActiveAliases        string    `gorm:"type:text;column:litellm_active_aliases"`
+	LitellmVariantIDs           string    `gorm:"type:text;column:litellm_variant_ids"`
+	Default                     bool      `gorm:"type:boolean;default:false;column:default"`
+	BaseImageID                 string    `gorm:"size:128;column:base_image_id"`
+	EngineVersionSlug           string    `gorm:"size:128;default:'';column:engine_version_slug"`
+	TotalParamsB                *float64  `gorm:"column:total_params_b"`
+	ActiveParamsB               *float64  `gorm:"column:active_params_b"`
+	IsMoe                       *bool     `gorm:"column:is_moe"`
+	AttentionLayers             *int      `gorm:"column:attention_layers"`
+	GdnLayers                   *int      `gorm:"column:gdn_layers"`
+	NumKvHeads                  *int      `gorm:"column:num_kv_heads"`
+	HeadDim                     *int      `gorm:"column:head_dim"`
+	SupportsMtp                 *bool     `gorm:"column:supports_mtp"`
+	DefaultContext              *int      `gorm:"column:default_context"`
+	MaxContext                  *int      `gorm:"column:max_context"`
+	QuantBytesPerParam          *float64  `gorm:"column:quant_bytes_per_param"`
+	MaxNumSeqs                  *int      `gorm:"column:max_num_seqs"`
+	MaxNumBatchedTokens         *int      `gorm:"column:max_num_batched_tokens"`
+	SpeculativeDecoding         *string   `gorm:"column:speculative_decoding"`
+	NumSpeculativeTokens        *int      `gorm:"column:num_speculative_tokens"`
+	GpuMemoryUtilization        *float64  `gorm:"column:gpu_memory_utilization"`
+	CreatedAt                   time.Time `gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt                   time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }
 
 // TableName returns the database table name for Model.

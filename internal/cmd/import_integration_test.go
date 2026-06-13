@@ -390,7 +390,7 @@ func TestIntegration_CRUD_EngineType(t *testing.T) {
 		t.Fatalf("CreateEngineType error: %v", err)
 	}
 	if err := db.CreateEngineVersion(&models.EngineVersion{
-		Slug:          "del-v1", EngineTypeSlug: "test-del", Version: "001",
+		Slug: "del-v1", EngineTypeSlug: "test-del", Version: "001",
 		Image: "test/img:latest", ContainerName: "node",
 	}); err != nil {
 		t.Fatalf("CreateEngineVersion error: %v", err)
@@ -649,7 +649,7 @@ func TestIntegration_NilEngineService(t *testing.T) {
 		Slug: "default-v1", EngineTypeSlug: "vllm", Version: "001",
 		Image: "cjlapao/pgx-vllm:latest", ContainerName: "vllm-node",
 		Entrypoint: "python3 -m vllm.entrypoints.openai.api_server",
-		IsDefault: true, IsLatest: true,
+		IsDefault:  true, IsLatest: true,
 		EnvironmentJSON: `{"HF_HUB_OFFLINE":"0"}`, VolumesJSON: `{}`, CommandArgs: `[]`,
 	})
 

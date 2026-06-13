@@ -22,10 +22,10 @@ type EngineDefaults struct {
 // vllmDefaults are the hardcoded defaults for the vLLM engine type.
 var vllmDefaults = EngineDefaults{
 	Volumes: map[string]string{
-		"../models":          "/root/.cache/huggingface",
-		"../vllm-cache":      "/root/.cache/vllm",
-		"../llm-templates":   "/app/templates",
-		"../triton-cache":    "/root/.cache/triton",
+		"../models":           "/root/.cache/huggingface",
+		"../vllm-cache":       "/root/.cache/vllm",
+		"../llm-templates":    "/app/templates",
+		"../triton-cache":     "/root/.cache/triton",
 		"../flashinfer-cache": "/root/.cache/flashinfer",
 	},
 	Environment: map[string]string{
@@ -493,12 +493,12 @@ func (s *EngineService) SetAsDefault(engineTypeSlug, versionSlug string) error {
 // If enableLogging is false, returns empty string "".
 // If enabled, returns:
 //
-//		logging:
-//		  driver: "syslog"
-//		  options:
-//		    syslog-address: "{{.Address}}"
-//		    syslog-facility: "{{.Facility}}"
-//		    tag: "ai-server/model"
+//	logging:
+//	  driver: "syslog"
+//	  options:
+//	    syslog-address: "{{.Address}}"
+//	    syslog-facility: "{{.Facility}}"
+//	    tag: "ai-server/model"
 func (s *EngineService) BuildLoggingSection(enableLogging bool, address, facility, modelName string) string {
 	if !enableLogging {
 		return ""
@@ -519,13 +519,13 @@ func (s *EngineService) BuildLoggingSection(enableLogging bool, address, facilit
 // If enableNvidia is false, returns empty string "".
 // If enabled, returns:
 //
-//		deploy:
-//		  resources:
-//		    reservations:
-//		      devices:
-//		        - driver: nvidia
-//		          count: "{{.Count}}"
-//		          capabilities: [gpu]
+//	deploy:
+//	  resources:
+//	    reservations:
+//	      devices:
+//	        - driver: nvidia
+//	          count: "{{.Count}}"
+//	          capabilities: [gpu]
 //
 // If gpuCount is empty, uses "all" as the count value.
 func (s *EngineService) BuildDeploySection(enableNvidia bool, gpuCount string) string {
@@ -553,7 +553,7 @@ func (s *EngineService) BuildDeploySection(enableNvidia bool, gpuCount string) s
 
 // yamlFile represents the top-level structure of an engine import YAML file.
 type yamlFile struct {
-	Engine   yamlEngine   `yaml:"engine"`
+	Engine   yamlEngine    `yaml:"engine"`
 	Versions []yamlVersion `yaml:"versions"`
 }
 
@@ -566,20 +566,20 @@ type yamlEngine struct {
 
 // yamlVersion represents an engine version definition.
 type yamlVersion struct {
-	Slug          string              `yaml:"slug"`
-	Version       string              `yaml:"version"`
-	ContainerName string              `yaml:"container_name"`
-	Image         string              `yaml:"image"`
-	Entrypoint    []string            `yaml:"entrypoint"`
-	Default       bool                `yaml:"default"`
-	Latest        bool                `yaml:"latest"`
-	Volumes       map[string]string   `yaml:"volumes"`
-	Environment   map[string]string   `yaml:"environment"`
-	Logging       yamlLogging         `yaml:"logging"`
-	Nvidia        bool                `yaml:"nvidia"`
-	GPUCount      string              `yaml:"gpu_count"`
-	CommandArgs   []string            `yaml:"command_args"`
-	Port          int                 `yaml:"port"`
+	Slug          string            `yaml:"slug"`
+	Version       string            `yaml:"version"`
+	ContainerName string            `yaml:"container_name"`
+	Image         string            `yaml:"image"`
+	Entrypoint    []string          `yaml:"entrypoint"`
+	Default       bool              `yaml:"default"`
+	Latest        bool              `yaml:"latest"`
+	Volumes       map[string]string `yaml:"volumes"`
+	Environment   map[string]string `yaml:"environment"`
+	Logging       yamlLogging       `yaml:"logging"`
+	Nvidia        bool              `yaml:"nvidia"`
+	GPUCount      string            `yaml:"gpu_count"`
+	CommandArgs   []string          `yaml:"command_args"`
+	Port          int               `yaml:"port"`
 }
 
 // yamlLogging represents logging configuration.

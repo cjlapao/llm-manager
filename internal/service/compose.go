@@ -20,20 +20,34 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 
 	// Build profile from DB fields
 	profile := ModelProfile{
-		TotalParamsB:       *model.TotalParamsB,
-		ActiveParamsB:      derefOrZero(model.ActiveParamsB),
-		IsMoe:              derefOrFalse(model.IsMoe),
-		AttentionLayers:    derefOrZero(model.AttentionLayers),
-		GdnLayers:          derefOrZero(model.GdnLayers),
-		NumKvHeads:         derefOrZero(model.NumKvHeads),
-		HeadDim:            derefOrZero(model.HeadDim),
-		SupportsMtp:        derefOrFalse(model.SupportsMtp),
-		SupportsVision:     strings.Contains(model.CommandArgs, "mm-processor-cache-type"),
-		DefaultContext:     derefOrZero(model.DefaultContext),
-		MaxContext:         derefOrZero(model.MaxContext),
-		QuantBytesPerParam: *model.QuantBytesPerParam,
-		MaxNumSeqs:         derefOrZero(model.MaxNumSeqs),
-		SubType:            model.SubType,
+		TotalParamsB:              *model.TotalParamsB,
+		ActiveParamsB:             derefOrZero(model.ActiveParamsB),
+		IsMoe:                     derefOrFalse(model.IsMoe),
+		AttentionLayers:           derefOrZero(model.AttentionLayers),
+		GdnLayers:                 derefOrZero(model.GdnLayers),
+		NumKvHeads:                derefOrZero(model.NumKvHeads),
+		HeadDim:                   derefOrZero(model.HeadDim),
+		SupportsMtp:               derefOrFalse(model.SupportsMtp),
+		SupportsVision:            strings.Contains(model.CommandArgs, "mm-processor-cache-type"),
+		DefaultContext:            derefOrZero(model.DefaultContext),
+		MaxContext:                derefOrZero(model.MaxContext),
+		QuantBytesPerParam:        *model.QuantBytesPerParam,
+		MaxNumSeqs:                derefOrZero(model.MaxNumSeqs),
+		SubType:                   model.SubType,
+		KvCacheOverheadMultiplier: 1.0,
+	}
+
+	// Detect hybrid (GDN) models and apply KV cache overhead multiplier.
+	// Dense hybrid models with MTP need a higher multiplier because the draft
+	// model's speculative tokens also consume KV cache entries, and GDN
+	// attention kernels allocate additional page buffers.
+	if profile.GdnLayers > 0 {
+		if profile.SupportsMtp && !profile.IsMoe {
+			profile.KvCacheOverheadMultiplier = 2.00
+		} else {
+			profile.KvCacheOverheadMultiplier = 1.44
+		}
+		fmt.Fprintf(os.Stderr, "  [kv-override] hybrid gdn=%d model, kv_cache_x%.2f\n", profile.GdnLayers, profile.KvCacheOverheadMultiplier)
 	}
 
 	// Apply CLI overrides — non-zero values replace auto-calculated defaults
@@ -54,45 +68,57 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 	// Profile-based MaxNumBatchedTokens override (yields to CLI override)
 	profileBatchedTokens := derefOrZero(model.MaxNumBatchedTokens)
 
-	// Extract MTP tokens from command args (same logic as checkGPUMemory)
+	// MTP tokens from model.NumSpeculativeTokens (DB field).
+	// Same source as checkGPUMemory() to keep calculation consistent.
 	mtpTokens := 0
-	if model.CommandArgs != "" {
-		idx := strings.Index(model.CommandArgs, "num_speculative_tokens")
-		if idx >= 0 {
-			rest := model.CommandArgs[idx+len("num_speculative_tokens"):]
-			for i, ch := range rest {
-				if ch >= '0' && ch <= '9' {
-					for j := i; j < len(rest); j++ {
-						c := rest[j]
-						if c >= '0' && c <= '9' {
-							mtpTokens = mtpTokens*10 + int(c-'0')
-						} else {
-							break
-						}
-					}
-					break
-				}
-			}
-		}
+	if model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
+		mtpTokens = *model.NumSpeculativeTokens
 	}
 
-	// Compute memory result for the profile (with MTP tokens)
-	freeGPUmb := ReadFreeGPUMemory()
-	memResult, err := CalculateMemory(profile, *model.QuantBytesPerParam, contextLen, numSequences, mtpTokens, freeGPUmb)
+	// ── Determine GPU memory utilization ────────────────────────────────
+	// Priority: CLI override > DB profile value > auto-calculated
+	var gpuMemUtil float64
+	var utilSource string // "cli", "db", or "calc"
+
+	if overrides.GPUMemoryUtil != nil {
+		gpuMemUtil = *overrides.GPUMemoryUtil
+		utilSource = "cli"
+	} else if model.GpuMemoryUtilization != nil && *model.GpuMemoryUtilization > 0 {
+		gpuMemUtil = *model.GpuMemoryUtilization
+		utilSource = "db"
+	}
+
+	// Compute memory result for the profile (with MTP tokens) only when
+	// there is no override. When an override is present we still need the
+	// breakdown for other flags (max-num-batched-tokens etc.) but will
+	// replace the utilization afterwards.
+	freeMB := 0
+	if fm, err := readMemAvailableMB(); err == nil {
+		freeMB = fm
+	}
+	memResult, err := CalculateMemory(profile, getKVDtypeBytes(model.CommandArgs), contextLen, numSequences, mtpTokens, freeMB)
 	if err != nil {
 		return existingCmds
 	}
 
-	fmt.Fprintf(os.Stderr, "  [mem] freeGPUmb=%d TotalGPUMB=%d\n", freeGPUmb, TotalGPUMB)
-	fmt.Fprintf(os.Stderr, "  [mem] weights=%d CUDA=%d offBudget=%d prefix=%d totalRealistic=%d\n",
-		memResult.Breakdown.WeightsMB,
-		memResult.Breakdown.CUDAContextMB,
-		memResult.Breakdown.OffBudgetMB,
-		memResult.Breakdown.PrefixCacheMB,
-		memResult.TotalRealisticMB)
-	fmt.Fprintf(os.Stderr, "  [mem] utilization=%.4f (%d / %d)\n",
-		float64(memResult.TotalRealisticMB)/float64(TotalGPUMB),
-		memResult.TotalRealisticMB, TotalGPUMB)
+	// Override utilization if CLI or DB value is set
+	if utilSource != "" {
+		fmt.Fprintf(os.Stderr, "  [gpu-memory] using %s override: %.2f\n", utilSource, gpuMemUtil)
+		memResult.GPUMemoryUtilization = gpuMemUtil
+	} else {
+		fmt.Fprintf(os.Stderr, "  [mem] weights=%d CUDA=%d prefix=%d totalRealistic=%d\n",
+			memResult.Breakdown.WeightsMB,
+			memResult.Breakdown.CUDAContextMB,
+			memResult.Breakdown.PrefixCacheMB,
+			memResult.TotalRealisticMB)
+		fmt.Fprintf(os.Stderr, "  [mem] utilization=%.4f (%d / %d)",
+			float64(memResult.TotalRealisticMB)/float64(TotalGPUMB),
+			memResult.TotalRealisticMB, TotalGPUMB)
+		if freeMB > 0 {
+			fmt.Fprintf(os.Stderr, " (scaled from free RAM %d MB)", freeMB)
+		}
+		fmt.Fprintf(os.Stderr, "\n")
+	}
 
 	// Generate smart command flags
 	genFlags := GenerateFlags(profile, memResult, contextLen, numSequences)
@@ -127,8 +153,8 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 	if model.SpeculativeDecoding != nil && *model.SpeculativeDecoding != "" &&
 		model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
 
-		// Only inject if model supports MTP (NVFP4 does not support speculative decoding)
-		if model.SupportsMtp != nil && *model.SupportsMtp && model.QuantBytesPerParam != nil && *model.QuantBytesPerParam != 0.5 {
+		// Only inject if model supports MTP
+		if model.SupportsMtp != nil && *model.SupportsMtp && model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
 			// Inject as a single combined string with single quotes around the JSON
 			// so the compose template renders it on one line: --speculative-config '{...}'
 			specConfig := fmt.Sprintf("'{\"method\":\"%s\",\"num_speculative_tokens\":%d}'", *model.SpeculativeDecoding, *model.NumSpeculativeTokens)
@@ -136,8 +162,6 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 			fmt.Fprintf(os.Stderr, "  [speculative] --speculative-config %s\n", specConfig)
 		} else if !(model.SupportsMtp != nil && *model.SupportsMtp) {
 			fmt.Fprintf(os.Stderr, "  [warning] speculative_decoding set but model does not support MTP\n")
-		} else if model.QuantBytesPerParam != nil && *model.QuantBytesPerParam == 0.5 {
-			fmt.Fprintf(os.Stderr, "  [warning] speculative_decoding set but NVFP4 does not support speculative decoding\n")
 		}
 	}
 

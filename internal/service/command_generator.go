@@ -65,12 +65,13 @@ func GenerateFlags(profile ModelProfile, memResult *MemoryResult, contextLen int
 	return flags
 }
 
-// deriveBatchedTokens derives max-num-batched-tokens from the memory breakdown.
+// deriveBatchedTokens derives max-num-batched-tokens from total realistic memory.
+// Higher memory models get larger batch sizes to amortize prefill latency.
 func deriveBatchedTokens(mem *MemoryResult) string {
 	switch {
-	case mem.Breakdown.OffBudgetMB >= 4000:
+	case mem.TotalRealisticMB >= 40000:
 		return "32768"
-	case mem.Breakdown.OffBudgetMB >= 3000:
+	case mem.TotalRealisticMB >= 25000:
 		return "16384"
 	default:
 		return "8192"

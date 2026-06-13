@@ -19,6 +19,13 @@ import (
 	"github.com/user/llm-manager/pkg/yamlparser"
 )
 
+// Health check constants — mirrored from cmd/health.go to avoid cross-package deps.
+const (
+	healthCheckTimeout      = 180 * time.Second
+	healthCheckInterval     = 3 * time.Second
+	healthCheckClientTimeout = 5 * time.Second
+)
+
 // OpenCodeModelEntry represents a model entry in opencode's provider.models.
 type OpenCodeModelEntry struct {
 	Name       string                 `json:"name,omitempty"`
@@ -765,47 +772,50 @@ func (s *ContainerService) checkGPUMemory(slug string, overrides StartOverrides)
 	}
 
 	profile := ModelProfile{
-		TotalParamsB:       *model.TotalParamsB,
-		ActiveParamsB:      0,
-		IsMoe:              model.IsMoe != nil && *model.IsMoe,
-		AttentionLayers:    attentionLayers,
-		GdnLayers:          gdnLayers,
-		NumKvHeads:         numKvHeads,
-		HeadDim:            headDim,
-		SupportsMtp:        model.SupportsMtp != nil && *model.SupportsMtp,
-		SupportsVision:     strings.Contains(model.CommandArgs, "mm-processor-cache-type"),
-		DefaultContext:     defaultContext,
-		MaxContext:         maxContext,
-		QuantBytesPerParam: *model.QuantBytesPerParam,
+		TotalParamsB:              *model.TotalParamsB,
+		ActiveParamsB:             0,
+		IsMoe:                     model.IsMoe != nil && *model.IsMoe,
+		AttentionLayers:           attentionLayers,
+		GdnLayers:                 gdnLayers,
+		NumKvHeads:                numKvHeads,
+		HeadDim:                   headDim,
+		SupportsMtp:               model.SupportsMtp != nil && *model.SupportsMtp,
+		SupportsVision:            strings.Contains(model.CommandArgs, "mm-processor-cache-type"),
+		DefaultContext:            defaultContext,
+		MaxContext:                maxContext,
+		QuantBytesPerParam:        *model.QuantBytesPerParam,
+		MaxNumSeqs:                derefOrZero(model.MaxNumSeqs),
+		SubType:                   model.SubType,
+		KvCacheOverheadMultiplier: 1.0,
 	}
 
-	// Determine MTP tokens from command args string
-	// Looks for --speculative-config with num_speculative_tokens value
-	mtpTokens := 0
-	if model.CommandArgs != "" {
-		// Find the numeric value after "num_speculative_tokens"
-		idx := strings.Index(model.CommandArgs, "num_speculative_tokens")
-		if idx >= 0 {
-			rest := model.CommandArgs[idx+len("num_speculative_tokens"):]
-			for i, ch := range rest {
-				if ch >= '0' && ch <= '9' {
-					for j := i; j < len(rest); j++ {
-						c := rest[j]
-						if c >= '0' && c <= '9' {
-							mtpTokens = mtpTokens*10 + int(c-'0')
-						} else {
-							break
-						}
-					}
-					break
-				}
-			}
+	// Detect hybrid (GDN) models and apply KV cache overhead multiplier.
+	if gdnLayers > 0 {
+		if profile.SupportsMtp && !profile.IsMoe {
+			profile.KvCacheOverheadMultiplier = 2.00
+		} else {
+			profile.KvCacheOverheadMultiplier = 1.44
 		}
+		fmt.Fprintf(os.Stderr, "  [kv-override] hybrid gdn=%d model, kv_cache_x%.2f\n", gdnLayers, profile.KvCacheOverheadMultiplier)
 	}
 
-	// Apply CLI overrides to context length and sequences for the pre-flight check
+	// Determine MTP tokens from model.NumSpeculativeTokens (DB field).
+	// The YAML profile.num_speculative_tokens is imported into this DB column
+	// by ImportModel/UpdateModelWithYAML. We use the dedicated field instead
+	// of parsing CommandArgs, which is a JSON-encoded string and unreliable.
+	mtpTokens := 0
+	if model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
+		mtpTokens = *model.NumSpeculativeTokens
+	}
+
+	// Apply CLI overrides to context length and sequences for the pre-flight check.
+	// Default to profile.MaxNumSeqs so the pre-flight matches what vLLM will
+	// actually reserve (compose.go also starts from profile.MaxNumSeqs).
 	checkContext := defaultContext
-	checkSeqs := 1
+	checkSeqs := profile.MaxNumSeqs
+	if checkSeqs < 1 {
+		checkSeqs = 1
+	}
 	if overrides.MaxModelLen > 0 {
 		checkContext = overrides.MaxModelLen
 		fmt.Fprintf(os.Stderr, "  [override] --max-model-len=%d\n", overrides.MaxModelLen)
@@ -818,7 +828,63 @@ func (s *ContainerService) checkGPUMemory(slug string, overrides StartOverrides)
 		fmt.Fprintf(os.Stderr, "  [override] --max-num-batched-tokens=%d\n", overrides.MaxNumBatchedTokens)
 	}
 
-	result, err := CanFitDynamic(profile, *model.QuantBytesPerParam, checkContext, checkSeqs, mtpTokens)
+	// ── Check if there's a GPU memory utilization override ───────────────
+	// Priority: CLI override > DB profile value
+	var hasOverride bool
+	var overrideUtil float64
+	if overrides.GPUMemoryUtil != nil {
+		hasOverride = true
+		overrideUtil = *overrides.GPUMemoryUtil
+	} else if model.GpuMemoryUtilization != nil && *model.GpuMemoryUtilization > 0 {
+		hasOverride = true
+		overrideUtil = *model.GpuMemoryUtilization
+	}
+
+	if hasOverride {
+		// Bypass auto-calculation — just verify the reserved pool fits in free RAM.
+		freeMB, err := readMemAvailableMB()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: could not read free memory: %v\n", err)
+			return nil // non-fatal
+		}
+		poolNeeded := int(overrideUtil * float64(TotalGPUMB))
+		// Compute total memory footprint from profile to match CanFitDynamic's safety margin base.
+		// This ensures the safety margin is a percentage of the full model footprint
+		// (weights + KV cache + overhead), identical to the auto-calc path.
+		memEst, err := CalculateMemory(profile, getKVDtypeBytes(model.CommandArgs), checkContext, checkSeqs, mtpTokens, freeMB)
+		if err == nil && memEst != nil {
+			poolNeeded = memEst.TotalMB
+		}
+		safetyMargin := ComputeSafetyMargin(poolNeeded, s.cfg.SafetyMarginPct)
+		available := freeMB - safetyMargin
+
+		fmt.Fprintf(os.Stderr, "  [gpu-memory] using override: %.2f (pool: %d MB)\n", overrideUtil, poolNeeded)
+		fmt.Fprintf(os.Stderr, "  Available RAM: %d MB (free %d MB - %d MB safety margin)\n", available, freeMB, safetyMargin)
+
+		if poolNeeded > available {
+			fmt.Fprintf(os.Stderr, "  ERROR: insufficient memory for gpu_memory_utilization=%.2f\n", overrideUtil)
+			fmt.Fprintf(os.Stderr, "  Need %d MB (%.1f GB), only %d MB available\n",
+				poolNeeded, float64(poolNeeded)/1024, available)
+			return fmt.Errorf("insufficient memory for model %s (gpu_memory_utilization=%.2f requires %d MB)",
+				slug, overrideUtil, poolNeeded)
+		}
+
+		// Warn if tight
+		headroom := available - poolNeeded
+		if headroom < 4096 {
+			fmt.Fprintf(os.Stderr, "  Warning: memory is tight — %.1f GB headroom remaining\n",
+				float64(headroom)/1024)
+		}
+		return nil
+	}
+
+	// ── Auto-calculate path (no override) ──────────────────────────────────
+
+	// Sync the profile with the overridden values so CalculateMemory() inside
+	// CanFitDynamic sees the CLI overrides instead of the DB defaults.
+	profile.MaxNumSeqs = checkSeqs
+
+	result, err := CanFitDynamic(profile, getKVDtypeBytes(model.CommandArgs), checkContext, checkSeqs, mtpTokens, s.cfg.SafetyMarginPct)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  Warning: could not calculate GPU memory: %v\n", err)
 		return nil // non-fatal
@@ -826,8 +892,9 @@ func (s *ContainerService) checkGPUMemory(slug string, overrides StartOverrides)
 
 	if !result.Fits {
 		fmt.Fprintf(os.Stderr, "  ERROR: insufficient GPU memory\n")
-		fmt.Fprintf(os.Stderr, "  Model needs %d MB (%.0f GB), only %d MB available (free %d MB - 5 GB safety margin)\n",
-			result.NeededMB, float64(result.NeededMB)/1024, result.AvailableMB, result.FreeMB)
+		safetyGB := float64(result.SafetyMarginMB) / 1024
+		fmt.Fprintf(os.Stderr, "  Model needs %d MB (%.0f GB), only %d MB available (free %d MB - %.1f GB safety margin)\n",
+			result.NeededMB, float64(result.NeededMB)/1024, result.AvailableMB, result.FreeMB, safetyGB)
 		fmt.Fprintf(os.Stderr, "  gpu_memory_utilization would be %.2f (vLLM reserves %.2f × %.0f MB = %.0f MB)\n",
 			result.GPUMemoryUtilization, result.GPUMemoryUtilization, float64(TotalGPUMB),
 			result.GPUMemoryUtilization*float64(TotalGPUMB))
@@ -916,6 +983,31 @@ func (s *ContainerService) StartContainer(slug string, allowMultiple bool, overr
 	if err := s.db.UpdateContainerStatus(slug, "running"); err != nil {
 		fmt.Fprintf(os.Stderr, "  Warning: failed to update container status for %s: %v\n", slug, err)
 	}
+	return nil
+}
+
+// StartContainerDryRun is a dry-run variant of StartContainer. It performs all
+// preparation and pre-flight checks (most importantly GPU memory) without
+// touching Docker at all — no compose down, no rm, no up, no DB status update.
+// It is safe to call when the machine is offline or Docker is unreachable.
+// Returns nil on success, error only if the model is not found or GPU memory
+// is insufficient.
+func (s *ContainerService) StartContainerDryRun(slug string, overrides StartOverrides) error {
+	model, err := s.db.GetModel(slug)
+	if err != nil {
+		return fmt.Errorf("model not found: %w", err)
+	}
+
+	if model.Container == "" {
+		return fmt.Errorf("model %s has no container configured", slug)
+	}
+
+	fmt.Println("[dry-run] Pre-flight: checking GPU memory...")
+	if err := s.checkGPUMemory(slug, overrides); err != nil {
+		return err
+	}
+	fmt.Println("[dry-run] Pre-flight: GPU memory OK")
+
 	return nil
 }
 
@@ -1501,6 +1593,72 @@ func (s *ContainerService) StartModelBySlugWithAllow(slug string, allowMultiple 
 	return nil
 }
 
+// StartModelWithHealthCheck starts a model container and then polls its
+// /health endpoint until it returns HTTP 200.
+// This is the recommended way to start RAG models (embedding + reranker)
+// on a shared GPU — start the first model, wait for it to be healthy,
+// then start the second model to avoid simultaneous vLLM startup contention.
+func (s *ContainerService) StartModelWithHealthCheck(slug string, allowMultiple bool) error {
+	if err := s.StartModelBySlugWithAllow(slug, allowMultiple); err != nil {
+		return err
+	}
+
+	model, err := s.db.GetModel(slug)
+	if err != nil {
+		return fmt.Errorf("model not found after start: %w", err)
+	}
+	if model.Port == 0 {
+		fmt.Fprintf(os.Stderr, "  Warning: model %s has no port configured, skipping health check\n", slug)
+		return nil
+	}
+
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d", model.Port)
+	fmt.Fprintf(os.Stderr, "  Waiting for %s to become healthy at %s/health ...\n", slug, healthURL)
+	if err := s.waitForModelHealthy(model.Slug, healthURL); err != nil {
+		return fmt.Errorf("health check failed for %s at %s: %w", slug, healthURL, err)
+	}
+	fmt.Fprintf(os.Stderr, "  ✓ %s is healthy\n", slug)
+	return nil
+}
+
+// waitForModelHealthy polls the /health endpoint of a model container until
+// it returns HTTP 200, the context deadline expires, or an error occurs.
+// Uses a 180-second timeout with 3-second intervals.
+func (s *ContainerService) waitForModelHealthy(slug string, baseURL string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), healthCheckTimeout)
+	defer cancel()
+
+	client := &http.Client{Timeout: healthCheckClientTimeout}
+	ticker := time.NewTicker(healthCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("health check timed out after %s waiting for %s to become healthy", healthCheckTimeout, slug)
+		case <-ticker.C:
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/health", nil)
+			if err != nil {
+				continue
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				// Best-effort: continue polling on transient errors
+				continue
+			}
+
+			if resp.StatusCode == http.StatusOK {
+				resp.Body.Close()
+				return nil
+			}
+
+			resp.Body.Close()
+			// Continue polling on non-200
+		}
+	}
+}
+
 // GetModelStatus returns model metadata along with the Docker container
 // running/stopped status for a given slug. Returns "running", "stopped", or
 // "unknown" as the status string.
@@ -1726,4 +1884,14 @@ func parseJSONToArray(jsonStr string) []string {
 		return nil
 	}
 	return arr
+}
+
+// ListRAGEmbeddingModels returns all RAG embedding models from the database.
+func (s *ContainerService) ListRAGEmbeddingModels() ([]models.Model, error) {
+	return s.db.ListModelsByTypeSubType("rag", "embedding")
+}
+
+// ListRAGRerankerModels returns all RAG reranker models from the database.
+func (s *ContainerService) ListRAGRerankerModels() ([]models.Model, error) {
+	return s.db.ListModelsByTypeSubType("rag", "reranker")
 }

@@ -134,10 +134,10 @@ func TestModelInsertAndQuery(t *testing.T) {
 
 	// Insert a model
 	model := &models.Model{
-		Slug: "test-model",
-		Type: "llm",
-		Name: "Test Model",
-		Port: 8080,
+		Slug:    "test-model",
+		Type:    "llm",
+		Name:    "Test Model",
+		Port:    8080,
 		Default: false,
 	}
 
@@ -193,10 +193,10 @@ func TestModelUUIDGeneration(t *testing.T) {
 
 	// Insert without ID — BeforeCreate should generate one
 	model := &models.Model{
-		Slug: "uuid-test",
-		Type: "embedding",
-		Name: "UUID Test",
-		Port: 9090,
+		Slug:    "uuid-test",
+		Type:    "embedding",
+		Name:    "UUID Test",
+		Port:    9090,
 		Default: false,
 	}
 
@@ -211,11 +211,11 @@ func TestModelUUIDGeneration(t *testing.T) {
 
 	// Insert with explicit ID
 	model2 := &models.Model{
-		ID:   uuidNew(),
-		Slug: "uuid-explicit",
-		Type: "reranker",
-		Name: "Explicit UUID",
-		Port: 9091,
+		ID:      uuidNew(),
+		Slug:    "uuid-explicit",
+		Type:    "reranker",
+		Name:    "Explicit UUID",
+		Port:    9091,
 		Default: false,
 	}
 

@@ -49,6 +49,11 @@ type Config struct {
 	// "nvidia-smi": uses nvidia-smi queries — works on discrete GPUs with
 	//   separate VRAM. Falls back to `free` if nvidia-smi returns [N/A].
 	GPUMemorySource string
+	// SafetyMarginPct is the percentage of the model's total memory footprint
+	// reserved as a safety margin during GPU memory pre-flight checks.
+	// Stored as a string to allow the config file to be a simple number.
+	// Default: "5" (5%).
+	SafetyMarginPct string
 }
 
 // validConfigKeys defines the set of supported config keys and their defaults.
@@ -67,6 +72,7 @@ var validConfigKeys = map[string]string{
 	"HF_TOKEN":                 "",
 	"OPENAI_API_URL":           "",
 	"GPU_MEMORY_SOURCE":        "free",
+	"LLM_MANAGER_SAFETY_MARGIN_PCT": "5",
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -110,6 +116,7 @@ func DefaultValues() map[string]string {
 		"HF_TOKEN":                 "",
 		"OPENAI_API_URL":           "",
 		"GPU_MEMORY_SOURCE":        "free",
+		"LLM_MANAGER_SAFETY_MARGIN_PCT": "5",
 	}
 }
 
@@ -270,6 +277,10 @@ func LoadConfig() (*Config, error) {
 		cfg.GPUMemorySource = val
 	}
 
+	if val, ok := configValues["LLM_MANAGER_SAFETY_MARGIN_PCT"]; ok {
+		cfg.SafetyMarginPct = val
+	}
+
 	// Layer 3: Override with environment variables (always wins)
 	if val := os.Getenv("LLM_MANAGER_VERBOSE"); val == "true" || val == "1" {
 		cfg.Verbose = true
@@ -323,6 +334,10 @@ func LoadConfig() (*Config, error) {
 
 	if val := os.Getenv("GPU_MEMORY_SOURCE"); val != "" {
 		cfg.GPUMemorySource = val
+	}
+
+	if val := os.Getenv("LLM_MANAGER_SAFETY_MARGIN_PCT"); val != "" {
+		cfg.SafetyMarginPct = val
 	}
 
 	// Ensure directories exist
@@ -403,6 +418,7 @@ func (c *Config) String() string {
 	fmt.Fprintf(&b, "  hf token:        %s\n", maskAPIKey(c.HfToken))
 	fmt.Fprintf(&b, "  openai api url:  %s\n", c.OpenAIAPIURL)
 	fmt.Fprintf(&b, "  gpu memory src:  %s\n", c.GPUMemorySource)
+	fmt.Fprintf(&b, "  safety margin:   %s%%\n", c.SafetyMarginPct)
 	return b.String()
 }
 

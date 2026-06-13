@@ -80,12 +80,16 @@ type ModelProfile struct {
 	SupportsMtp        *bool    `yaml:"supports_mtp"`
 	DefaultContext     *int     `yaml:"default_context"`
 	MaxContext         *int     `yaml:"max_context"`
-	QuantBytesPerParam   *float64 `yaml:"quant_bytes_per_param"`
+	QuantBytesPerParam *float64 `yaml:"quant_bytes_per_param"`
 	// New fields for runtime tuning
-	MaxNumSeqs           *int     `yaml:"max_num_seqs"`
-	MaxNumBatchedTokens  *int     `yaml:"max_num_batched_tokens"`
-	SpeculativeDecoding  *string  `yaml:"speculative_decoding"` // e.g., "mtp"
-	NumSpeculativeTokens *int     `yaml:"num_speculative_tokens"`
+	MaxNumSeqs           *int    `yaml:"max_num_seqs"`
+	MaxNumBatchedTokens  *int    `yaml:"max_num_batched_tokens"`
+	SpeculativeDecoding  *string `yaml:"speculative_decoding"` // e.g., "mtp"
+	NumSpeculativeTokens *int    `yaml:"num_speculative_tokens"`
+	// GpuMemoryUtilization is an optional override for gpu_memory_utilization.
+	// When set, the auto-calculated memory utilization is bypassed and this
+	// value is used directly. Value must be in (0, 1).
+	GpuMemoryUtilization *float64 `yaml:"gpu_memory_utilization"`
 }
 
 // ModelYAML represents the YAML schema for model import.
@@ -106,7 +110,7 @@ type ModelYAML struct {
 	// Cache-aware pricing fields (LiteLLM style)
 	CacheCreationInputTokenCost *float64 `yaml:"cache_creation_input_token_cost"`
 	CacheReadInputTokenCost     *float64 `yaml:"cache_read_input_token_cost"`
-	Capabilities    []string          `yaml:"capabilities"`
+	Capabilities                []string `yaml:"capabilities"`
 	// LiteLLM parameters - optional, supports mixed types (float, int, string, bool, nested maps, arrays).
 	// The system will auto-construct api_base (from config URL + port) and model (from slug) during import.
 	LiteLLMParams map[string]interface{} `yaml:"litellm_params"`
@@ -114,6 +118,8 @@ type ModelYAML struct {
 	ModelInfo map[string]interface{} `yaml:"model_info"`
 	// Model architecture profile for GPU memory calculation — optional.
 	Profile *ModelProfile `yaml:"profile"`
+	// Optional health check URL for TTS voice verification.
+	HealthCheckVoice *string `yaml:"health_check_voice"`
 }
 
 // ParseYAML reads and parses a YAML file into a ModelYAML struct.
@@ -355,6 +361,11 @@ func validateProfile(p *ModelProfile) []error {
 	}
 	if p.NumSpeculativeTokens != nil && *p.NumSpeculativeTokens <= 0 {
 		errs = append(errs, fmt.Errorf("profile.num_speculative_tokens must be > 0 (got %d)", *p.NumSpeculativeTokens))
+	}
+	if p.GpuMemoryUtilization != nil {
+		if *p.GpuMemoryUtilization <= 0 || *p.GpuMemoryUtilization > 1.0 {
+			errs = append(errs, fmt.Errorf("profile.gpu_memory_utilization must be in (0, 1] (got %s)", formatCost(*p.GpuMemoryUtilization)))
+		}
 	}
 
 	return errs

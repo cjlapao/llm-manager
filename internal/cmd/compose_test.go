@@ -112,18 +112,18 @@ func TestComposeCommand_VLLMModel(t *testing.T) {
 		t.Fatalf("CreateEngineType() error: %v", err)
 	}
 	vllmVer := &models.EngineVersion{
-		Slug:            "test-vllm-v1",
-		EngineTypeSlug:  "vllm",
-		Version:         "001",
-		Image:           "cjlapao/pgx-vllm:latest",
-		ContainerName:   "vllm-node",
-		Entrypoint:      "python3 -m vllm.entrypoints.openai.api_server",
-		IsDefault:       true,
-		IsLatest:        true,
-		EnvironmentJSON: `{"HF_HUB_OFFLINE":"0"}`,
-		VolumesJSON:     `{"../models":"/root/.cache/huggingface"}`,
-		CommandArgs:     `[]`,
-		EnableLogging:   false,
+		Slug:               "test-vllm-v1",
+		EngineTypeSlug:     "vllm",
+		Version:            "001",
+		Image:              "cjlapao/pgx-vllm:latest",
+		ContainerName:      "vllm-node",
+		Entrypoint:         "python3 -m vllm.entrypoints.openai.api_server",
+		IsDefault:          true,
+		IsLatest:           true,
+		EnvironmentJSON:    `{"HF_HUB_OFFLINE":"0"}`,
+		VolumesJSON:        `{"../models":"/root/.cache/huggingface"}`,
+		CommandArgs:        `[]`,
+		EnableLogging:      false,
 		DeployEnableNvidia: false,
 	}
 	if err := db.CreateEngineVersion(vllmVer); err != nil {
@@ -135,19 +135,19 @@ func TestComposeCommand_VLLMModel(t *testing.T) {
 	commandArgsJSON := `["--model","Qwen/Qwen3-Next-80B-A3B-Instruct","--max-model-len","131072","--kv-cache-dtype","fp8"]`
 
 	model := &models.Model{
-		Slug:            "compose-vllm-test",
-		Type:            "llm",
-		Name:            "Compose VLLM Test",
-		HFRepo:          "Qwen/Qwen3-Next-80B-A3B-Instruct",
-		Container:       "llm-compose-vllm-test",
-		Port:            8017,
-		EngineType:      "vllm",
+		Slug:              "compose-vllm-test",
+		Type:              "llm",
+		Name:              "Compose VLLM Test",
+		HFRepo:            "Qwen/Qwen3-Next-80B-A3B-Instruct",
+		Container:         "llm-compose-vllm-test",
+		Port:              8017,
+		EngineType:        "vllm",
 		EngineVersionSlug: "test-vllm-v1",
-		EnvVars:         envVarsJSON,
-		CommandArgs:     commandArgsJSON,
-		InputTokenCost:  0.0000003,
-		OutputTokenCost: 0.0000004,
-		Default:         false,
+		EnvVars:           envVarsJSON,
+		CommandArgs:       commandArgsJSON,
+		InputTokenCost:    0.0000003,
+		OutputTokenCost:   0.0000004,
+		Default:           false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)

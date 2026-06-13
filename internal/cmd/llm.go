@@ -106,10 +106,13 @@ func (c *LlmCommand) runStart(args []string) int {
 	}
 
 	allowMultiple := false
+	dryRun := false
 	wait := false
 	overrides := service.StartOverrides{}
 	for _, arg := range args[1:] {
 		switch arg {
+		case "--dry-run", "-n":
+			dryRun = true
 		case "--allow-multiple", "-m":
 			allowMultiple = true
 		case "--wait", "-w":
@@ -119,6 +122,8 @@ func (c *LlmCommand) runStart(args []string) int {
 		case "--max-num-seqs":
 			// next arg is the value
 		case "--max-num-batched-tokens":
+			// next arg is the value
+		case "--gpu-memory":
 			// next arg is the value
 		}
 	}
@@ -147,7 +152,24 @@ func (c *LlmCommand) runStart(args []string) int {
 				overrides.MaxNumBatchedTokens = val
 				i++
 			}
+		case "--gpu-memory":
+			if i+1 < len(args) {
+				var val float64
+				fmt.Sscanf(args[i+1], "%f", &val)
+				overrides.GPUMemoryUtil = &val
+				i++
+			}
 		}
+	}
+
+	// Dry-run: only GPU memory check, no Docker modifications
+	if dryRun {
+		if err := c.svc.StartContainerDryRun(slug, overrides); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		fmt.Println("[dry-run] Dry run complete. No containers were modified.")
+		return 0
 	}
 
 	// Normal LLM start
@@ -368,8 +390,8 @@ func (c *LlmCommand) runLogs(args []string) int {
 			follow = true
 		} else {
 			if n, _ := fmt.Sscanf(args[i], "%d", &lines); n == 0 {
-			fmt.Fprintf(os.Stderr, "Warning: invalid log line count %q, using default 50\n", args[i])
-		}
+				fmt.Fprintf(os.Stderr, "Warning: invalid log line count %q, using default 50\n", args[i])
+			}
 		}
 	}
 
@@ -457,6 +479,8 @@ SUBCOMMANDS:
   logs <slug> [-f] [lines]  Show container logs (-f for follow mode)
 
 FLAGS:
+  --dry-run, -n           Preview startup (memory checks, diagnostics) without
+                          modifying Docker
   --allow-multiple, -m    Only for 'start' and 'swap': don't stop other running
                           LLM containers before starting
   --wait, -w              Wait for the container to become healthy before returning

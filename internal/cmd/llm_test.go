@@ -53,10 +53,10 @@ func newTestLlmCommand(t *testing.T) (*LlmCommand, string) {
 func addTestModel(t *testing.T, mgr database.DatabaseManager, slug string) *models.Model {
 	t.Helper()
 	m := &models.Model{
-		Slug:  slug,
-		Name:  "Test Model " + slug,
-		Port:  8080,
-		Type:  "llm",
+		Slug: slug,
+		Name: "Test Model " + slug,
+		Port: 8080,
+		Type: "llm",
 	}
 	if err := mgr.CreateModel(m); err != nil {
 		t.Fatalf("CreateModel(%q) returned error: %v", slug, err)

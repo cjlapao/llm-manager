@@ -200,7 +200,7 @@ func TestInstallCommand_MissingHFToken(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.OpenAIAPIURL = "http://localhost:8000"
 	cfg.LLMDir = "/opt/ai-server/llm-compose"
-	cfg.HfToken = ""  // explicitly empty
+	cfg.HfToken = "" // explicitly empty
 
 	// Clear any env-fallback token for this test.
 	os.Unsetenv("HUGGING_FACE_HUB_TOKEN")
@@ -278,19 +278,19 @@ func TestInstallCommand_NoContainerField(t *testing.T) {
 
 	// Model present but container field is blank.
 	model := &models.Model{
-		Slug:           "no-container-model",
-		Type:           "llm",
-		Name:           "No Container",
-		HFRepo:         "Qwen/Qwen3-70B",
-		YML:            "models/no-container.yml",
-		Container:      "",
-		Port:           8082,
-		EngineType:     "vllm",
-		EnvVars:        "{}",
-		CommandArgs:    `{"model":"Qwen/Qwen3-70B"}`,
-		InputTokenCost: 0.0000005,
+		Slug:            "no-container-model",
+		Type:            "llm",
+		Name:            "No Container",
+		HFRepo:          "Qwen/Qwen3-70B",
+		YML:             "models/no-container.yml",
+		Container:       "",
+		Port:            8082,
+		EngineType:      "vllm",
+		EnvVars:         "{}",
+		CommandArgs:     `{"model":"Qwen/Qwen3-70B"}`,
+		InputTokenCost:  0.0000005,
 		OutputTokenCost: 0.0000007,
-		Default:        false,
+		Default:         false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)

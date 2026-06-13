@@ -8,8 +8,8 @@
 slug: qwen3.6-35b-a3b-nvfp4
 name: "Qwen3.6 35B-A3B NVFP4"
 engine: vllm
-engine_version: pgx-llm-v1
-hf_repo: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+engine_version: pgx-llm-v3
+hf_repo: "nvidia/Qwen3.6-35B-A3B-NVFP4"
 container: llm-qwen3.6-35b-a3b-nvfp4
 port: 8014
 type: llm
@@ -35,12 +35,16 @@ profile:
   default_context: 262144
   max_context: 262144
   quant_bytes_per_param: 0.5
+  speculative_decoding: mtp
+  num_speculative_tokens: 3
+  max_num_seqs: 4
+  max_num_batched_tokens: 8192
 
 command:
   - ${{ .hf_repo }}
   - "--model ${{ .hf_repo }}"
   - "--served-model-name ${{ .slug }}"
-  - "--kv-cache-dtype fp8_e4m3"
+  - "--kv-cache-dtype fp8"
   - "--dtype auto"
   - "--enable-chunked-prefill"
   - "--reasoning-parser qwen3"
@@ -53,10 +57,9 @@ command:
   - "--mm-processor-cache-type shm"
   - "--disable-custom-all-reduce"
   - "--enable-expert-parallel"
-  - "--moe-backend marlin"
   - "--mm-encoder-tp-mode data"
   - "--load-format instanttensor"
-  - "--chat-template /app/templates/qwen3.5-chat-template.jinja"
+  - "--chat-template /app/templates/qwen3.6-35b-a3b-chat-template.jinja"
   - "--default-chat-template-kwargs '{\"preserve_thinking\": true}'"
 
 capabilities:

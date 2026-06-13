@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	activeAliasName       = "active"
-	activeThinkingAlias   = "active-thinking"
-	ragAliasReranker      = "reranker"
-	ragAliasEmbeddings    = "embeddings"
+	activeAliasName     = "active"
+	activeThinkingAlias = "active-thinking"
+	ragAliasReranker    = "reranker"
+	ragAliasEmbeddings  = "embeddings"
 )
 
 // LiteLLMService handles CRUD operations against the LiteLLM proxy API.

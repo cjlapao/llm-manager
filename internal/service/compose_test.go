@@ -90,10 +90,10 @@ func TestGenerateComfyUICompose_MissingContainerName(t *testing.T) {
 	}
 
 	_, err = gen.GenerateComfyUICompose(ComfyUIComposeTemplateData{
-		ImageName:    "comfyanonymous/ComfyUI",
-		ImageTag:     "latest",
-		HostPort:     8188,
-		VolumePath:   "/opt/ai-server/comfyui-models",
+		ImageName:     "comfyanonymous/ComfyUI",
+		ImageTag:      "latest",
+		HostPort:      8188,
+		VolumePath:    "/opt/ai-server/comfyui-models",
 		ContainerName: "",
 	})
 	if err == nil {

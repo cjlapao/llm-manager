@@ -33,8 +33,9 @@ func NewRootCommand() *RootCommand {
 // ParseGlobalFlags parses global flags that appear before any subcommand.
 // Supported flags: --api-port, --api-host
 // Environment variables (used when flags are not provided):
-//   LLM_MANAGER_API_PORT  (default: 8780)
-//   LLM_MANAGER_API_HOST  (default: 0.0.0.0)
+//
+//	LLM_MANAGER_API_PORT  (default: 8780)
+//	LLM_MANAGER_API_HOST  (default: 0.0.0.0)
 func (c *RootCommand) ParseGlobalFlags(args []string) []string {
 	remaining := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
