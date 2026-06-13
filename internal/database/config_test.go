@@ -363,9 +363,9 @@ func TestListConfig(t *testing.T) {
 	}
 
 	expected := map[string]string{
-		"LLM_MANAGER_DATA_DIR":    "/custom/data",
-		"LLM_MANAGER_LOG_DIR":     "/custom/log",
-		"LITELLM_URL": "http://example.com",
+		"LLM_MANAGER_DATA_DIR": "/custom/data",
+		"LLM_MANAGER_LOG_DIR":  "/custom/log",
+		"LITELLM_URL":          "http://example.com",
 	}
 
 	for k, v := range expected {

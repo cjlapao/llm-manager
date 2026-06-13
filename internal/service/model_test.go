@@ -114,9 +114,9 @@ func TestBuildLiteLLMParams_StripsCostFromLiteLLMParams(t *testing.T) {
 
 	yaml := &yamlparser.ModelYAML{
 		LiteLLMParams: map[string]interface{}{
-			"input_cost_per_token":   0.01,
-			"output_cost_per_token":  0.02,
-			"model_name":             "gpt-4-custom",
+			"input_cost_per_token":  0.01,
+			"output_cost_per_token": 0.02,
+			"model_name":            "gpt-4-custom",
 		},
 		Capabilities: []string{},
 	}

@@ -104,9 +104,9 @@ func (m *sqliteManager) ensureLegacyColumns() error {
 		return nil
 	}
 	columns := []struct {
-		table  string
-		col    string
-		def    string
+		table string
+		col   string
+		def   string
 	}{
 		{"models", "sub_type", "TEXT"},
 		{"models", "engine_type", "TEXT DEFAULT 'vllm'"},

@@ -19,10 +19,10 @@ type mockDB struct {
 
 func newMockDB() *mockDB {
 	return &mockDB{
-		engineTypes:  make(map[string]*models.EngineType),
+		engineTypes:    make(map[string]*models.EngineType),
 		engineVersions: []models.EngineVersion{},
-		defaultSlug:  make(map[string]string),
-		latestSlug:   make(map[string]string),
+		defaultSlug:    make(map[string]string),
+		latestSlug:     make(map[string]string),
 	}
 }
 
@@ -40,11 +40,11 @@ func (m *mockDB) GetEngineTypeBySlug(slug string) (*models.EngineType, error) {
 	}
 	return v, nil
 }
-func (m *mockDB) CreateEngineType(_ *models.EngineType) error                           { return nil }
-func (m *mockDB) UpdateEngineType(_ string, _ map[string]interface{}) error            { return nil }
-func (m *mockDB) DeleteEngineType(_ string) error                                      { return nil }
-func (m *mockDB) EngineTypeExists(_ string) (bool, error)                              { return false, nil }
-func (m *mockDB) ListEngineVersions() ([]models.EngineVersion, error) { return m.engineVersions, nil }
+func (m *mockDB) CreateEngineType(_ *models.EngineType) error                { return nil }
+func (m *mockDB) UpdateEngineType(_ string, _ map[string]interface{}) error  { return nil }
+func (m *mockDB) DeleteEngineType(_ string) error                            { return nil }
+func (m *mockDB) EngineTypeExists(_ string) (bool, error)                    { return false, nil }
+func (m *mockDB) ListEngineVersions() ([]models.EngineVersion, error)        { return m.engineVersions, nil }
 func (m *mockDB) EngineVersionExistsByTypeAndSlug(_, _ string) (bool, error) { return false, nil }
 func (m *mockDB) GetEngineVersionBySlugAndType(_, _ string) (*models.EngineVersion, error) {
 	for _, v := range m.engineVersions {
@@ -58,13 +58,13 @@ func (m *mockDB) GetEngineVersionByTypeAndSlug(_, _ string) (*models.EngineVersi
 	}
 	return nil, nil
 }
-func (m *mockDB) GetEngineVersionByID(_ string) (*models.EngineVersion, error)         { return nil, nil }
+func (m *mockDB) GetEngineVersionByID(_ string) (*models.EngineVersion, error) { return nil, nil }
 func (m *mockDB) GetEngineVersionByTypeAndVersion(_, _ string) (*models.EngineVersion, error) {
 	return nil, nil
 }
-func (m *mockDB) CreateEngineVersion(_ *models.EngineVersion) error                    { return nil }
-func (m *mockDB) UpdateEngineVersion(_ string, _ map[string]interface{}) error         { return nil }
-func (m *mockDB) DeleteEngineVersion(_ string) error                                   { return nil }
+func (m *mockDB) CreateEngineVersion(_ *models.EngineVersion) error            { return nil }
+func (m *mockDB) UpdateEngineVersion(_ string, _ map[string]interface{}) error { return nil }
+func (m *mockDB) DeleteEngineVersion(_ string) error                           { return nil }
 func (m *mockDB) FindDefaultVersionByType(typeSlug string) (*models.EngineVersion, error) {
 	if slug, ok := m.defaultSlug[typeSlug]; ok {
 		for _, v := range m.engineVersions {
@@ -85,39 +85,39 @@ func (m *mockDB) FindLatestVersionByType(typeSlug string) (*models.EngineVersion
 	}
 	return nil, nil
 }
-func (m *mockDB) ClearIsDefaultForType(_ string) error                                 { return nil }
-func (m *mockDB) UpdateIsDefaultClearOthers(_, _ string) error                         { return nil }
-func (m *mockDB) ListModelsByEngineVersion(_ string) ([]models.Model, error)           { return nil, nil }
-func (m *mockDB) ListModels() ([]models.Model, error)                                  { return nil, nil }
-func (m *mockDB) ListModelsByTypeSubType(_, _ string) ([]models.Model, error)          { return nil, nil }
-func (m *mockDB) GetModel(_ string) (*models.Model, error)                             { return nil, nil }
-func (m *mockDB) CreateModel(_ *models.Model) error                                    { return nil }
-func (m *mockDB) UpdateModel(_ string, _ map[string]interface{}) error                 { return nil }
-func (m *mockDB) DeleteModel(_ string) error                                           { return nil }
-func (m *mockDB) ListContainers() ([]models.Container, error)                          { return nil, nil }
-func (m *mockDB) GetContainerStatus(_ string) (string, error)                          { return "", nil }
-func (m *mockDB) UpdateContainerStatus(_ string, _ string) error                       { return nil }
-func (m *mockDB) GetHotspot() (*models.Hotspot, error)                                 { return nil, nil }
-func (m *mockDB) SetHotspot(_ string) error                                            { return nil }
-func (m *mockDB) ClearHotspot() error                                                  { return nil }
-func (m *mockDB) GetConfig(_ string) (*models.Config, error)                           { return nil, nil }
-func (m *mockDB) SetConfig(_, _ string) error                                          { return nil }
-func (m *mockDB) UnsetConfig(_ string) error                                           { return nil }
-func (m *mockDB) ListConfig() ([]models.Config, error)                                 { return nil, nil }
-func (m *mockDB) ListBaseImages() ([]models.BaseImage, error)                          { return nil, nil }
-func (m *mockDB) GetBaseImageBySlug(_ string) (*models.BaseImage, error)               { return nil, nil }
-func (m *mockDB) GetBaseImageByID(_ string) (*models.BaseImage, error)                 { return nil, nil }
-func (m *mockDB) CreateBaseImage(_ *models.BaseImage) error                            { return nil }
-func (m *mockDB) UpdateBaseImage(_ string, _ map[string]interface{}) error             { return nil }
-func (m *mockDB) DeleteBaseImage(_ string) error                                       { return nil }
-func (m *mockDB) Open() error                                                          { return nil }
-func (m *mockDB) Close() error                                                         { return nil }
-func (m *mockDB) SchemaVersion() (int, error)                                          { return 0, nil }
-func (m *mockDB) LatestVersion() (int, error)                                          { return 0, nil }
-func (m *mockDB) ApplyPendingMigrations() error                                        { return nil }
-func (m *mockDB) MigrateTo(_ int) error                                                { return nil }
-func (m *mockDB) AutoMigrate() error                                                   { return nil }
-func (m *mockDB) DB() *gorm.DB { return nil }
+func (m *mockDB) ClearIsDefaultForType(_ string) error                        { return nil }
+func (m *mockDB) UpdateIsDefaultClearOthers(_, _ string) error                { return nil }
+func (m *mockDB) ListModelsByEngineVersion(_ string) ([]models.Model, error)  { return nil, nil }
+func (m *mockDB) ListModels() ([]models.Model, error)                         { return nil, nil }
+func (m *mockDB) ListModelsByTypeSubType(_, _ string) ([]models.Model, error) { return nil, nil }
+func (m *mockDB) GetModel(_ string) (*models.Model, error)                    { return nil, nil }
+func (m *mockDB) CreateModel(_ *models.Model) error                           { return nil }
+func (m *mockDB) UpdateModel(_ string, _ map[string]interface{}) error        { return nil }
+func (m *mockDB) DeleteModel(_ string) error                                  { return nil }
+func (m *mockDB) ListContainers() ([]models.Container, error)                 { return nil, nil }
+func (m *mockDB) GetContainerStatus(_ string) (string, error)                 { return "", nil }
+func (m *mockDB) UpdateContainerStatus(_ string, _ string) error              { return nil }
+func (m *mockDB) GetHotspot() (*models.Hotspot, error)                        { return nil, nil }
+func (m *mockDB) SetHotspot(_ string) error                                   { return nil }
+func (m *mockDB) ClearHotspot() error                                         { return nil }
+func (m *mockDB) GetConfig(_ string) (*models.Config, error)                  { return nil, nil }
+func (m *mockDB) SetConfig(_, _ string) error                                 { return nil }
+func (m *mockDB) UnsetConfig(_ string) error                                  { return nil }
+func (m *mockDB) ListConfig() ([]models.Config, error)                        { return nil, nil }
+func (m *mockDB) ListBaseImages() ([]models.BaseImage, error)                 { return nil, nil }
+func (m *mockDB) GetBaseImageBySlug(_ string) (*models.BaseImage, error)      { return nil, nil }
+func (m *mockDB) GetBaseImageByID(_ string) (*models.BaseImage, error)        { return nil, nil }
+func (m *mockDB) CreateBaseImage(_ *models.BaseImage) error                   { return nil }
+func (m *mockDB) UpdateBaseImage(_ string, _ map[string]interface{}) error    { return nil }
+func (m *mockDB) DeleteBaseImage(_ string) error                              { return nil }
+func (m *mockDB) Open() error                                                 { return nil }
+func (m *mockDB) Close() error                                                { return nil }
+func (m *mockDB) SchemaVersion() (int, error)                                 { return 0, nil }
+func (m *mockDB) LatestVersion() (int, error)                                 { return 0, nil }
+func (m *mockDB) ApplyPendingMigrations() error                               { return nil }
+func (m *mockDB) MigrateTo(_ int) error                                       { return nil }
+func (m *mockDB) AutoMigrate() error                                          { return nil }
+func (m *mockDB) DB() *gorm.DB                                                { return nil }
 
 func TestMergeEnvironments(t *testing.T) {
 	// Test: version env + model env → both included

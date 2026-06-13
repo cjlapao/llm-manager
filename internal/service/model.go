@@ -181,23 +181,23 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 
 	// Map ModelYAML → models.Model
 	model := &models.Model{
-		Slug:              y.Slug,
-		Type:              y.Type,    // from YAML (defaults to "llm" if empty)
-		SubType:           y.SubType, // from YAML
-		Name:              y.Name,
-		HFRepo:            y.HFRepo,
-		Container:         y.Container,
-		Port:              y.Port,
-		EngineType:        "vllm", // default engine
-		EngineVersionSlug: "",     // resolved by engine service
-		InputTokenCost:             0.0,
-		OutputTokenCost:            0.0,
+		Slug:                        y.Slug,
+		Type:                        y.Type,    // from YAML (defaults to "llm" if empty)
+		SubType:                     y.SubType, // from YAML
+		Name:                        y.Name,
+		HFRepo:                      y.HFRepo,
+		Container:                   y.Container,
+		Port:                        y.Port,
+		EngineType:                  "vllm", // default engine
+		EngineVersionSlug:           "",     // resolved by engine service
+		InputTokenCost:              0.0,
+		OutputTokenCost:             0.0,
 		CacheCreationInputTokenCost: 0.0,
 		CacheReadInputTokenCost:     0.0,
-		Capabilities:      "",
-		EnvVars:           "",
-		CommandArgs:       "",
-		Default:           false,
+		Capabilities:                "",
+		EnvVars:                     "",
+		CommandArgs:                 "",
+		Default:                     false,
 	}
 
 	// Apply YAML-level optional fields
@@ -263,6 +263,7 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		model.MaxNumBatchedTokens = y.Profile.MaxNumBatchedTokens
 		model.SpeculativeDecoding = y.Profile.SpeculativeDecoding
 		model.NumSpeculativeTokens = y.Profile.NumSpeculativeTokens
+		model.GpuMemoryUtilization = y.Profile.GpuMemoryUtilization
 	}
 
 	// Marshal litellm_params and model_info to JSON for DB storage
@@ -377,6 +378,37 @@ func (s *ModelService) buildLiteLLMParams(y *yamlparser.ModelYAML, openAIAURL st
 	return params
 }
 
+// subtypeToMode maps a model type and subtype to the corresponding LiteLLM mode.
+func subtypeToMode(modelType, subType string) string {
+	switch modelType {
+	case "llm", "auto-complete":
+		return "chat"
+	case "rag":
+		if subType == "embedding" {
+			return "embedding"
+		}
+		return "rerank"
+	case "speech":
+		switch subType {
+		case "stt":
+			return "audio_transcription"
+		case "tts":
+			return "audio_speech"
+		case "omni":
+			return "realtime"
+		default:
+			return "chat"
+		}
+	case "comfyui":
+		if subType == "image" {
+			return "image_generation"
+		}
+		return "chat"
+	default:
+		return "chat"
+	}
+}
+
 // buildModelInfo constructs the model_info map by:
 // 1. Starting with YAML-provided model_info values
 // 2. Auto-setting boolean fields based on capabilities
@@ -411,7 +443,10 @@ func (s *ModelService) buildModelInfo(y *yamlparser.ModelYAML) map[string]interf
 		info["litellm_provider"] = y.Engine // default based on engine type
 	}
 	if _, exists := info["mode"]; !exists {
-		info["mode"] = "chat"
+		info["mode"] = subtypeToMode(y.Type, y.SubType)
+	}
+	if y.HealthCheckVoice != nil && *y.HealthCheckVoice != "" {
+		info["health_check_voice"] = *y.HealthCheckVoice
 	}
 	if _, exists := info["supports_vision"]; !exists {
 		info["supports_vision"] = false
@@ -532,20 +567,20 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 	// Export profile fields
 	if model.TotalParamsB != nil {
 		y.Profile = &yamlparser.ModelProfile{
-			TotalParamsB:       model.TotalParamsB,
-			ActiveParamsB:      model.ActiveParamsB,
-			IsMoe:              model.IsMoe,
-			AttentionLayers:    model.AttentionLayers,
-			GdnLayers:          model.GdnLayers,
-			NumKvHeads:         model.NumKvHeads,
-			HeadDim:            model.HeadDim,
-			SupportsMtp:        model.SupportsMtp,
-			DefaultContext:     model.DefaultContext,
-			MaxContext:         model.MaxContext,
-			QuantBytesPerParam: model.QuantBytesPerParam,
-			MaxNumSeqs:         model.MaxNumSeqs,
-			MaxNumBatchedTokens: model.MaxNumBatchedTokens,
-			SpeculativeDecoding: model.SpeculativeDecoding,
+			TotalParamsB:         model.TotalParamsB,
+			ActiveParamsB:        model.ActiveParamsB,
+			IsMoe:                model.IsMoe,
+			AttentionLayers:      model.AttentionLayers,
+			GdnLayers:            model.GdnLayers,
+			NumKvHeads:           model.NumKvHeads,
+			HeadDim:              model.HeadDim,
+			SupportsMtp:          model.SupportsMtp,
+			DefaultContext:       model.DefaultContext,
+			MaxContext:           model.MaxContext,
+			QuantBytesPerParam:   model.QuantBytesPerParam,
+			MaxNumSeqs:           model.MaxNumSeqs,
+			MaxNumBatchedTokens:  model.MaxNumBatchedTokens,
+			SpeculativeDecoding:  model.SpeculativeDecoding,
 			NumSpeculativeTokens: model.NumSpeculativeTokens,
 		}
 	}

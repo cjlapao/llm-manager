@@ -356,15 +356,15 @@ func TestUninstallCommand_HFRepoEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	model := &models.Model{
-		Slug:      "no-hf-model",
-		Type:      "llm",
-		Name:      "No HF Model",
-		HFRepo:    "", // no HuggingFace repo
-		Container: "no-hf-container",
-		Port:      8080,
+		Slug:       "no-hf-model",
+		Type:       "llm",
+		Name:       "No HF Model",
+		HFRepo:     "", // no HuggingFace repo
+		Container:  "no-hf-container",
+		Port:       8080,
 		EngineType: "vllm",
 		EnvVars:    "{}",
-		Default:   false,
+		Default:    false,
 	}
 	if err := db.CreateModel(model); err != nil {
 		t.Fatalf("CreateModel() error: %v", err)

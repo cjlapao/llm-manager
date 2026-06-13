@@ -5,18 +5,19 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 )
 
 // ValidationResult holds the outcome of a multi-model coexistence check.
 type ValidationResult struct {
-	Fits           bool
-	TotalNeededMB  int
-	SafeUsableMB   int
-	HeadroomMB     int
-	HeadroomGB     float64
-	Risk           string // "safe" (>8GB), "ok" (>4GB), "tight" (>0), "does_not_fit" (<=0)
-	Suggestions    []string
+	Fits          bool
+	TotalNeededMB int
+	SafeUsableMB  int
+	HeadroomMB    int
+	HeadroomGB    float64
+	Risk          string // "safe" (>8GB), "ok" (>4GB), "tight" (>0), "does_not_fit" (<=0)
+	Suggestions   []string
 }
 
 // DynamicFitResult holds the outcome of a dynamic fit check against current free memory.
@@ -28,6 +29,7 @@ type DynamicFitResult struct {
 	HeadroomMB           int
 	GPUMemoryUtilization float64
 	DockerLimitGB        int
+	SafetyMarginMB       int // computed safety margin in MB for this check
 }
 
 // ValidateMultiModel checks whether a set of model memory results can coexist
@@ -52,13 +54,13 @@ func ValidateMultiModel(results []MemoryResult) *ValidationResult {
 	}
 
 	return &ValidationResult{
-		Fits:           headroom >= 0,
-		TotalNeededMB:  total,
-		SafeUsableMB:   SafeUsableMB,
-		HeadroomMB:     headroom,
-		HeadroomGB:     headroomGB,
-		Risk:           risk,
-		Suggestions:    nil,
+		Fits:          headroom >= 0,
+		TotalNeededMB: total,
+		SafeUsableMB:  SafeUsableMB,
+		HeadroomMB:    headroom,
+		HeadroomGB:    headroomGB,
+		Risk:          risk,
+		Suggestions:   nil,
 	}
 }
 
@@ -89,13 +91,15 @@ func readMemAvailableMB() (int, error) {
 
 // CanFitDynamic checks whether a model can fit given current free memory.
 // Uses /proc/meminfo MemAvailable as the source of truth.
-func CanFitDynamic(profile ModelProfile, kvDtypeBytes float64, contextLen int, numSequences int, mtpTokens int) (*DynamicFitResult, error) {
-	mem, err := CalculateMemory(profile, kvDtypeBytes, contextLen, numSequences, mtpTokens, 0)
+// safetyMarginPct is a percentage string like "5" (5%) of the model's total
+// memory footprint. Defaults to 5% if empty.
+func CanFitDynamic(profile ModelProfile, kvDtypeBytes float64, contextLen int, numSequences int, mtpTokens int, safetyMarginPct string) (*DynamicFitResult, error) {
+	freeMB, err := readMemAvailableMB()
 	if err != nil {
 		return nil, err
 	}
 
-	freeMB, err := readMemAvailableMB()
+	mem, err := CalculateMemory(profile, kvDtypeBytes, contextLen, numSequences, mtpTokens, freeMB)
 	if err != nil {
 		return nil, err
 	}
@@ -117,25 +121,29 @@ func CanFitDynamic(profile ModelProfile, kvDtypeBytes float64, contextLen int, n
 	fmt.Fprintf(os.Stderr, "  MTP overhead:      %6d MB\n", mem.Breakdown.MTPMB)
 	fmt.Fprintf(os.Stderr, "  Vision encoder:    %6d MB\n", mem.Breakdown.VisionEncoderMB)
 	fmt.Fprintf(os.Stderr, "  CUDA ctx+graphs:   %6d MB\n", mem.Breakdown.CUDAContextMB)
-	fmt.Fprintf(os.Stderr, "  Off-budget:        %6d MB\n", mem.Breakdown.OffBudgetMB)
 	fmt.Fprintf(os.Stderr, "  ─────────────────────────────────\n")
 	fmt.Fprintf(os.Stderr, "  Total (max ctx):   %6d MB\n", mem.TotalMB)
 	fmt.Fprintf(os.Stderr, "  Total (realistic): %6d MB\n", mem.TotalRealisticMB)
 
-	safetyMargin := 5120 // 5 GB
+	safetyMargin := ComputeSafetyMargin(mem.TotalMB, safetyMarginPct)
 	available := freeMB - safetyMargin
-	fmt.Fprintf(os.Stderr, "  Available (free - 5GB margin): %6d MB\n", available)
+	pct := 5.0 // default for display
+	if parsed, err := strconv.ParseFloat(safetyMarginPct, 64); err == nil && parsed > 0 {
+		pct = parsed
+	}
+	fmt.Fprintf(os.Stderr, "  Available (free - %.1f%% margin = %d MB): %6d MB\n",
+		pct, safetyMargin, available)
 	fmt.Fprintf(os.Stderr, "  gpu_memory_utilization: %.2f (total_realistic / %.0f total)\n",
 		mem.GPUMemoryUtilization, float64(TotalGPUMB))
 	fmt.Fprintf(os.Stderr, "  Docker limit: %dg\n", mem.DockerLimitGB)
-	fmt.Fprintf(os.Stderr, "  Fits: %v (need %d MB <= available %d MB)\n", mem.FitsAtMaxContext, mem.TotalMB, available)
-	fmt.Fprintf(os.Stderr, "=== End GPU Memory Calculation ===\n\n")
 
 	fits := mem.TotalMB <= available
 	headroom := 0
 	if fits {
 		headroom = available - mem.TotalMB
 	}
+
+	fmt.Fprintf(os.Stderr, "  Fits: %v (need %d MB <= available %d MB)\n", fits, mem.TotalMB, available)
 
 	return &DynamicFitResult{
 		Fits:                 fits,
@@ -145,5 +153,6 @@ func CanFitDynamic(profile ModelProfile, kvDtypeBytes float64, contextLen int, n
 		HeadroomMB:           headroom,
 		GPUMemoryUtilization: mem.GPUMemoryUtilization,
 		DockerLimitGB:        mem.DockerLimitGB,
+		SafetyMarginMB:       safetyMargin,
 	}, nil
 }

@@ -117,7 +117,7 @@ func segmentIndex(seg string) (cleaned string, idx int, hasIdx bool) {
 	if left == -1 || right == -1 || right <= left+1 {
 		return s, -1, false
 	}
-	n, err := strconv.Atoi(s[left+1:right])
+	n, err := strconv.Atoi(s[left+1 : right])
 	if err != nil {
 		return s, -1, false
 	}

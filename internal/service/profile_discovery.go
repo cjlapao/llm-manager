@@ -24,10 +24,10 @@ const (
 
 // Default values for non-discoverable fields.
 const (
-	DefaultIsMoe            = false
-	DefaultSupportsMtp      = false
-	DefaultQuantBytes       = 2.0 // BF16 baseline
-	DefaultActiveParamsB    = -1.0 // Invalid marker when is_moe=false
+	DefaultIsMoe         = false
+	DefaultSupportsMtp   = false
+	DefaultQuantBytes    = 2.0  // BF16 baseline
+	DefaultActiveParamsB = -1.0 // Invalid marker when is_moe=false
 )
 
 var discoveryHTTPClient = &http.Client{Timeout: 30 * time.Second}
@@ -204,10 +204,10 @@ func getParamsFromHFAPI(hfRepo string) int64 {
 
 	var hfInfo struct {
 		Safetensors *struct {
-			Total  int64 `json:"total"`
-			BF16   int64 `json:"BF16"`
-			FP16   int64 `json:"FP16"`
-			FP32   int64 `json:"FP32"`
+			Total int64 `json:"total"`
+			BF16  int64 `json:"BF16"`
+			FP16  int64 `json:"FP16"`
+			FP32  int64 `json:"FP32"`
 		} `json:"safetensors"`
 	}
 	if err := json.Unmarshal(data, &hfInfo); err != nil {
@@ -280,5 +280,5 @@ func MergeProfile(yamlProfile *yamlparser.ModelProfile, discovered *DiscoveredPr
 }
 
 // helper functions for creating pointer values
-func boolPtr(v bool) *bool { return &v }
+func boolPtr(v bool) *bool        { return &v }
 func floatPtr(v float64) *float64 { return &v }

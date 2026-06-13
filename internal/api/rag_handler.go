@@ -388,14 +388,16 @@ func (h *RAGHandler) StartRAG(w http.ResponseWriter, r *http.Request) {
 
 	started := make([]string, 0, 2)
 
-	// Always start both resolved slugs (matching CLI behavior)
-	if err := h.ContainerService.StartModelBySlugWithAllow(embedSlug, false); err != nil {
+	// Start embedding model first, wait for it to be healthy before
+	// starting the reranker. This avoids simultaneous vLLM startup
+	// contention on a shared GPU.
+	if err := h.ContainerService.StartModelWithHealthCheck(embedSlug, false); err != nil {
 		WriteError(w, http.StatusInternalServerError, "failed to start embedding model: "+err.Error())
 		return
 	}
 	started = append(started, embedSlug)
 
-	if err := h.ContainerService.StartModelBySlugWithAllow(rerankSlug, false); err != nil {
+	if err := h.ContainerService.StartModelWithHealthCheck(rerankSlug, false); err != nil {
 		WriteError(w, http.StatusInternalServerError, "failed to start reranker model: "+err.Error())
 		return
 	}

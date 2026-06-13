@@ -169,8 +169,8 @@ func TestWriteConfigFile(t *testing.T) {
 
 	// Write values
 	err := WriteConfigFile(map[string]string{
-		"LITELLM_URL": "http://example.com",
-		"LLM_MANAGER_DATA_DIR":    "/custom/data",
+		"LITELLM_URL":          "http://example.com",
+		"LLM_MANAGER_DATA_DIR": "/custom/data",
 	})
 	if err != nil {
 		t.Fatalf("WriteConfigFile() returned error: %v", err)
@@ -199,8 +199,8 @@ func TestWriteConfigFile_FiltersEmptyValues(t *testing.T) {
 
 	// Write values including an empty one
 	err := WriteConfigFile(map[string]string{
-		"LITELLM_URL": "http://example.com",
-		"LLM_MANAGER_DATA_DIR":    "", // should be filtered
+		"LITELLM_URL":          "http://example.com",
+		"LLM_MANAGER_DATA_DIR": "", // should be filtered
 	})
 	if err != nil {
 		t.Fatalf("WriteConfigFile() returned error: %v", err)
@@ -560,5 +560,3 @@ func TestMaskAPIKey_HF_TOKEN(t *testing.T) {
 		t.Errorf("maskAPIKey(%q) = %q, want %q", longToken, maskedLong, expected)
 	}
 }
-
-

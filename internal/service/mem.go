@@ -56,21 +56,21 @@ type jsonModel struct {
 // ModelConfig represents the config.json from a HuggingFace model.
 // For MoE/VLM models, text_config is nested inside text_config field.
 type ModelConfig struct {
-	Architectures         []string `json:"architectures"`
-	ModelType             string   `json:"model_type"`
-	HiddenSize            int      `json:"hidden_size"`
-	NumHiddenLayers       int      `json:"num_hidden_layers"`
-	NumAttentionHeads     int      `json:"num_attention_heads"`
-	NumKeyValHeads        int      `json:"num_key_value_heads"`
-	IntermediateSize      int      `json:"intermediate_size"`
-	VocabSize             int      `json:"vocab_size"`
-	MaxPositionEmbeddings int      `json:"max_position_embeddings"`
-	ModelMaxLength        int      `json:"model_max_length"`
-	NumExperts            int      `json:"num_experts"`
-	NumCodebooks          int      `json:"num_codebooks"`
-	ImageSize             int      `json:"image_size"`
-	PaddingSide           string   `json:"padding_side"`
-	TieWordEmbeddings     bool     `json:"tie_word_embeddings"`
+	Architectures         []string     `json:"architectures"`
+	ModelType             string       `json:"model_type"`
+	HiddenSize            int          `json:"hidden_size"`
+	NumHiddenLayers       int          `json:"num_hidden_layers"`
+	NumAttentionHeads     int          `json:"num_attention_heads"`
+	NumKeyValHeads        int          `json:"num_key_value_heads"`
+	IntermediateSize      int          `json:"intermediate_size"`
+	VocabSize             int          `json:"vocab_size"`
+	MaxPositionEmbeddings int          `json:"max_position_embeddings"`
+	ModelMaxLength        int          `json:"model_max_length"`
+	NumExperts            int          `json:"num_experts"`
+	NumCodebooks          int          `json:"num_codebooks"`
+	ImageSize             int          `json:"image_size"`
+	PaddingSide           string       `json:"padding_side"`
+	TieWordEmbeddings     bool         `json:"tie_word_embeddings"`
 	TextConfig            *ModelConfig `json:"text_config"`
 	QuantizationConfig    *struct {
 		LoadIn4Bit   bool   `json:"load_in_4bit"`
@@ -94,12 +94,12 @@ func (c *ModelConfig) EffectiveTextConfig() *ModelConfig {
 // It provides total parameter counts directly without parsing config.json.
 type HFModelInfo struct {
 	Safetensors *struct {
-		Total  int64 `json:"total"`
-		BF16   int64 `json:"BF16"`
-		FP16   int64 `json:"FP16"`
-		FP32   int64 `json:"FP32"`
-		Int8   int64 `json:"Int8"`
-		Int4   int64 `json:"Int4"`
+		Total int64 `json:"total"`
+		BF16  int64 `json:"BF16"`
+		FP16  int64 `json:"FP16"`
+		FP32  int64 `json:"FP32"`
+		Int8  int64 `json:"Int8"`
+		Int4  int64 `json:"Int4"`
 	} `json:"safetensors"`
 }
 
@@ -136,8 +136,8 @@ func NewMemService(db database.DatabaseManager, cfg *config.Config) *MemService 
 
 // modelsJSON represents the top-level structure of models.json.
 type modelsJSON struct {
-	Version    string            `json:"version"`
-	HFCacheDir string            `json:"hf_cache_dir"`
+	Version    string               `json:"version"`
+	HFCacheDir string               `json:"hf_cache_dir"`
 	Models     map[string]jsonModel `json:"models"`
 }
 

@@ -301,17 +301,17 @@ func TestEnsureCompose(t *testing.T) {
 	// Create engine type and version
 	db.CreateEngineType(&models.EngineType{Slug: "vllm", Name: "vLLM", Description: "x"})
 	db.CreateEngineVersion(&models.EngineVersion{
-		Slug:           "test-v1",
-		EngineTypeSlug: "vllm",
-		Version:        "001",
-		Image:          "cjlapao/pgx-vllm:latest",
-		ContainerName:  "vllm-node",
-		Entrypoint:     "python3 -m vllm.entrypoints.openai.api_server",
-		IsDefault:      true,
-		IsLatest:       true,
+		Slug:            "test-v1",
+		EngineTypeSlug:  "vllm",
+		Version:         "001",
+		Image:           "cjlapao/pgx-vllm:latest",
+		ContainerName:   "vllm-node",
+		Entrypoint:      "python3 -m vllm.entrypoints.openai.api_server",
+		IsDefault:       true,
+		IsLatest:        true,
 		EnvironmentJSON: `{"HF_HUB_OFFLINE":"0"}`,
-		VolumesJSON:    `{}`,
-		CommandArgs:    `[]`,
+		VolumesJSON:     `{}`,
+		CommandArgs:     `[]`,
 	})
 
 	// Create model
@@ -422,7 +422,7 @@ func TestPickFirstVolumePath_SingleEntry(t *testing.T) {
 
 func TestPickFirstVolumePath_MultipleEntries(t *testing.T) {
 	vols := map[string]string{
-		"/home/runner/ComfyUI/models":       "/opt/comfyui/models",
+		"/home/runner/ComfyUI/models":             "/opt/comfyui/models",
 		"/home/runner/ComfyUI/models/checkpoints": "/opt/comfyui/checkpoints",
 	}
 	result := pickFirstVolumePath(vols)
@@ -434,9 +434,9 @@ func TestPickFirstVolumePath_MultipleEntries(t *testing.T) {
 
 func TestPickFirstVolumePath_NestedPaths(t *testing.T) {
 	vols := map[string]string{
-		"/models":       "/data/models",
+		"/models":             "/data/models",
 		"/models/checkpoints": "/data/checkpoints",
-		"/models/loras": "/data/loras",
+		"/models/loras":       "/data/loras",
 	}
 	result := pickFirstVolumePath(vols)
 	if result == "" {

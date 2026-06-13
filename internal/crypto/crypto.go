@@ -63,10 +63,10 @@ func encryptionKey() (key []byte, keyErr error) {
 	}
 
 	cachedKeyErr = fmt.Errorf(
-		"encryption key not found. Set it via one of:\n"+
-			"  1. Env var:        LLM_MANAGER_ENCRYPTION_KEY=...\\n"+
-			"  2. Config file:    LLM_MANAGER_ENCRYPTION_KEY=... in ~/.config/llm-manager/config.yaml\\n"+
-			"  3. Database:       llm-manager config set LLM_MANAGER_ENCRYPTION_KEY <key>\\n"+
+		"encryption key not found. Set it via one of:\n" +
+			"  1. Env var:        LLM_MANAGER_ENCRYPTION_KEY=...\\n" +
+			"  2. Config file:    LLM_MANAGER_ENCRYPTION_KEY=... in ~/.config/llm-manager/config.yaml\\n" +
+			"  3. Database:       llm-manager config set LLM_MANAGER_ENCRYPTION_KEY <key>\\n" +
 			"  4. Key file:       echo <key> > /opt/ai-server/.llm-manager-key",
 	)
 	return nil, cachedKeyErr

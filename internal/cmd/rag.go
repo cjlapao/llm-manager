@@ -104,16 +104,18 @@ func (c *RagCommand) runStart(args []string) int {
 		return 1
 	}
 
-	// Start embedding model
+	// Start embedding model first, wait for it to be healthy before
+	// starting the reranker. This avoids simultaneous vLLM startup
+	// contention on a shared GPU.
 	fmt.Printf("Starting embedding model: %s\n", embedSlug)
-	if err := c.svc.StartModelBySlugWithAllow(embedSlug, false); err != nil {
+	if err := c.svc.StartModelWithHealthCheck(embedSlug, false); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting embedding model: %v\n", err)
 		return 1
 	}
 
-	// Start reranker model
+	// Start reranker model after embedding is healthy
 	fmt.Printf("Starting reranker model: %s\n", rerankSlug)
-	if err := c.svc.StartModelBySlugWithAllow(rerankSlug, false); err != nil {
+	if err := c.svc.StartModelWithHealthCheck(rerankSlug, false); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting reranker model: %v\n", err)
 		return 1
 	}

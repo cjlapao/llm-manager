@@ -8,8 +8,8 @@
 slug: qwen3.6-27b-nvfp4
 name: "Qwen3.6 27B NVFP4"
 engine: vllm
-engine_version: pgx-llm-v1
-hf_repo: "Abiray/Qwen3.6-27B-NVFP4"
+engine_version: pgx-llm-v3
+hf_repo: "unsloth/Qwen3.6-27B-NVFP4"
 container: llm-qwen3.6-27b-nvfp4
 port: 8017
 type: llm
@@ -28,13 +28,17 @@ profile:
   active_params_b: 27
   is_moe: false
   attention_layers: 16
-  gdn_layers: 32
+  gdn_layers: 48
   num_kv_heads: 4
   head_dim: 128
   supports_mtp: true
   default_context: 262144
   max_context: 262144
   quant_bytes_per_param: 0.5
+  speculative_decoding: mtp
+  num_speculative_tokens: 3
+  max_num_seqs: 4
+  max_num_batched_tokens: 8192
 
 command:
   - ${{ .hf_repo }}
@@ -51,12 +55,11 @@ command:
   - "--trust-request-chat-template"
   - "--generation-config auto"
   - "--mm-processor-cache-type shm"
-  - "--moe-backend marlin"
   - "--disable-custom-all-reduce"
   - "--load-format instanttensor"
-  - "--chat-template /app/templates/qwen3.5-chat-template.jinja"
+  - "--async-scheduling"
+  - "--chat-template /app/templates/qwen3.6-27b-chat-template.jinja"
   - "--default-chat-template-kwargs '{\"preserve_thinking\": true}'"
-  - "--speculative-config '{\"method\":\"mtp\",\"num_speculative_tokens\":3}'"
 
 capabilities:
   - reasoning
@@ -122,18 +125,6 @@ litellm_params:
       top_k: 20
       min_p: 0
       presence_penalty: 1.5
-      repetition_penalty: 1.0
-      extra_body:
-        chat_template_kwargs:
-          enable_thinking: false
-          preserve_thinking: false
-    instruct-reasoning:
-      suffix: -instruct-reasoning
-      temperature: 1.0
-      top_p: 0.95
-      top_k: 20
-      min_p: 0
-      presence_penalty: 0.0
       repetition_penalty: 1.0
       extra_body:
         chat_template_kwargs:
