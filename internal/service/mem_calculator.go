@@ -119,9 +119,7 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 		kvPerToken := 2.0 * float64(profile.NumKvHeads) * float64(profile.HeadDim) * float64(profile.AttentionLayers) * kvDtypeBytes
 		effectiveKvPerToken := kvPerToken * profile.KvCacheOverheadMultiplier
 		bd.KVCacheMB = int(effectiveKvPerToken*float64(contextLen*seqs)) / (1024 * 1024)
-		// Realistic: assume ~50% average context utilization across sequences
-		realisticContext := contextLen / 2
-		bd.KVCacheRealisticMB = int(effectiveKvPerToken*float64(realisticContext*seqs)) / (1024 * 1024)
+		bd.KVCacheRealisticMB = bd.KVCacheMB
 	}
 
 	// 3. GDN Recurrent State (hybrid models only)
@@ -137,16 +135,18 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 	}
 
 	// 5. MTP Speculative Decoding Overhead
-	// vLLM's MTP does NOT load a separate draft model copy — speculative heads
-	// share the loaded checkpoint through views/aliases. The actual overhead is
-	// activation buffers + draft KV cache per speculative token.
+	// Dense models with MTP need memory for the draft model weights (which share
+	// embeddings/lm_head but still require ~85-90% of full model size), activation
+	// buffers for speculative token generation, and draft KV cache buffers.
 	// MoE models use a smaller speculative tree and thus less overhead.
 	if mtpTokens > 0 && profile.SupportsMtp {
 		if profile.IsMoe {
 			bd.MTPMB = 670 * mtpTokens
 		} else {
-			// Dense MTP: activation buffers + draft KV cache per speculative token
-			bd.MTPMB = 800 * mtpTokens
+			// Dense MTP: draft model weights (~90% of target) + activation buffers
+			// Empirical: 27B NVFP4 MTP needs ~13000 MB beyond target weights
+			draftWeightEstimate := int(float64(bd.WeightsMB)*0.90)
+			bd.MTPMB = draftWeightEstimate + 2000*mtpTokens
 		}
 	}
 
