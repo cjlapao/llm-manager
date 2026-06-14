@@ -116,11 +116,10 @@ func TestCalculateMemory_Qwen36_35b_A3B_FP8(t *testing.T) {
 }
 
 // TestCalculateMemory_Qwen36_27b_NVFP4 validates the memory calculation for the
-// Qwen3.6 27B NVFP4 dense hybrid model with MTP. This model failed at runtime
-// because the original calculation underestimated KV cache (GDN overhead) and
-// MTP draft model weights. The fix increases the GDN KV overhead multiplier
-// from 1.44 to 1.80 for dense hybrid MTP models and adds draft model weight
-// estimation to the MTP overhead component.
+// Qwen3.6 27B NVFP4 dense hybrid model with MTP. The MTP overhead uses a flat
+// per-token cost (800 MB/token for activation buffers + draft KV cache) because
+// vLLM's MTP shares the loaded checkpoint through views/aliases rather than
+// loading a separate draft model copy.
 func TestCalculateMemory_Qwen36_27b_NVFP4(t *testing.T) {
 	yamlPath := "../../models/qwen3.6-27b-nvfp4.yaml"
 	yamlData, err := yamlparser.ParseYAML(yamlPath)

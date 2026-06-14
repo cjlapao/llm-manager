@@ -9,4 +9,6 @@ type StartOverrides struct {
 	MaxNumSeqs          int     // overrides --max-num-seqs
 	MaxNumBatchedTokens int     // overrides --max-num-batched-tokens
 	GPUMemoryUtil       *float64 // overrides gpu_memory_utilization (bypasses calc)
+	SpeculativeDecoding  *string  // --speculative-decoding (e.g., "mtp")
+	NumSpeculativeTokens *int     // --speculative-tokens count
 }

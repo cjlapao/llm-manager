@@ -12,7 +12,7 @@ func init() {
 	RegisterCommand("speech", func(root *RootCommand) Command { return NewSpeechCommand(root) })
 }
 
-// SpeechCommand handles speech services (whisper-stt + kokoro-tts).
+// SpeechCommand handles speech services using generic model lifecycle methods.
 type SpeechCommand struct {
 	cfg *RootCommand
 	svc *service.ContainerService
@@ -48,38 +48,57 @@ func (c *SpeechCommand) Run(args []string) int {
 	}
 }
 
-// runStart starts whisper-stt and kokoro-tts via profile-based compose.
+// runStart starts all registered speech models via generic model lifecycle.
+// Speech models may run simultaneously, so allowMultiple is true.
 func (c *SpeechCommand) runStart() int {
-	fmt.Println("Starting speech services (whisper-stt + kokoro-tts)...")
-	if err := c.svc.StartSpeech(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting speech services: %v\n", err)
+	models, err := c.svc.ListSpeechModels()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error listing speech models: %v\n", err)
 		return 1
 	}
-	fmt.Println("Speech services started")
+
+	if len(models) == 0 {
+		fmt.Println("No speech models configured")
+		return 0
+	}
+
+	for i, m := range models {
+		fmt.Printf("Starting speech model %d/%d: %s...\n", i+1, len(models), m.Slug)
+		if err := c.svc.StartModelBySlug(m.Slug); err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting %s: %v\n", m.Slug, err)
+			return 1
+		}
+	}
+
+	fmt.Printf("Started %d speech model(s)\n", len(models))
 	return 0
 }
 
-// runStop stops whisper-stt and kokoro-tts containers.
+// runStop stops all running speech containers by subtype.
 func (c *SpeechCommand) runStop() int {
-	fmt.Println("Stopping speech services...")
-	if err := c.svc.StopSpeech(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error stopping speech services: %v\n", err)
-		return 1
+	stopped := 0
+	for _, subType := range []string{"stt", "tts", "omni"} {
+		if err := c.svc.StopAllBySubType("speech", subType); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to stop %s models: %v\n", subType, err)
+		} else {
+			stopped++
+		}
 	}
-	fmt.Println("Speech services stopped")
+
+	fmt.Printf("Stopped speech services (%d subtype group(s))\n", stopped)
 	return 0
 }
 
 // PrintHelp prints the speech command help.
 func (c *SpeechCommand) PrintHelp() {
-	fmt.Println(`speech - Manage speech services (whisper-stt + kokoro-tts) via profile-based compose.
+	fmt.Println(`speech - Manage speech models (STT, TTS, Omni) via generic model lifecycle.
 
 USAGE:
   llm-manager speech [SUBCOMMAND]
 
 SUBCOMMANDS:
-  start   Start whisper-stt and kokoro-tts (docker compose --profile speech up -d)
-  stop    Stop whisper-stt and kokoro-tts containers
+  start   Start all registered speech models from the database
+  stop    Stop all running speech containers
 
 EXAMPLES:
   llm-manager speech start

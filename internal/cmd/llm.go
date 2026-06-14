@@ -125,6 +125,10 @@ func (c *LlmCommand) runStart(args []string) int {
 			// next arg is the value
 		case "--gpu-memory":
 			// next arg is the value
+		case "--speculative-decoding":
+			// next arg is the value
+		case "--speculative-tokens":
+			// next arg is the value
 		}
 	}
 
@@ -157,6 +161,19 @@ func (c *LlmCommand) runStart(args []string) int {
 				var val float64
 				fmt.Sscanf(args[i+1], "%f", &val)
 				overrides.GPUMemoryUtil = &val
+				i++
+			}
+		case "--speculative-decoding":
+			if i+1 < len(args) {
+				val := args[i+1]
+				overrides.SpeculativeDecoding = &val
+				i++
+			}
+		case "--speculative-tokens":
+			if i+1 < len(args) {
+				var val int
+				fmt.Sscanf(args[i+1], "%d", &val)
+				overrides.NumSpeculativeTokens = &val
 				i++
 			}
 		}

@@ -68,10 +68,12 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 	// Profile-based MaxNumBatchedTokens override (yields to CLI override)
 	profileBatchedTokens := derefOrZero(model.MaxNumBatchedTokens)
 
-	// MTP tokens from model.NumSpeculativeTokens (DB field).
-	// Same source as checkGPUMemory() to keep calculation consistent.
+	// MTP tokens: CLI override > DB profile.
+	// If CLI sets --speculative-tokens 0, MTP is disabled even if DB has it configured.
 	mtpTokens := 0
-	if model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
+	if overrides.NumSpeculativeTokens != nil {
+		mtpTokens = *overrides.NumSpeculativeTokens
+	} else if model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
 		mtpTokens = *model.NumSpeculativeTokens
 	}
 
@@ -149,20 +151,20 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 	// when the profile overrides it.
 	result = removeSpeculativeConfigFlag(result)
 
-	// Inject --speculative-config if profile specifies it and model supports MTP
-	if model.SpeculativeDecoding != nil && *model.SpeculativeDecoding != "" &&
-		model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
+	// Determine speculative method: CLI override > DB profile.
+	specMethod := ""
+	if overrides.SpeculativeDecoding != nil && *overrides.SpeculativeDecoding != "" {
+		specMethod = *overrides.SpeculativeDecoding
+	} else if model.SpeculativeDecoding != nil {
+		specMethod = *model.SpeculativeDecoding
+	}
 
-		// Only inject if model supports MTP
-		if model.SupportsMtp != nil && *model.SupportsMtp && model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
-			// Inject as a single combined string with single quotes around the JSON
-			// so the compose template renders it on one line: --speculative-config '{...}'
-			specConfig := fmt.Sprintf("'{\"method\":\"%s\",\"num_speculative_tokens\":%d}'", *model.SpeculativeDecoding, *model.NumSpeculativeTokens)
-			result = append(result, "--speculative-config "+specConfig)
-			fmt.Fprintf(os.Stderr, "  [speculative] --speculative-config %s\n", specConfig)
-		} else if !(model.SupportsMtp != nil && *model.SupportsMtp) {
-			fmt.Fprintf(os.Stderr, "  [warning] speculative_decoding set but model does not support MTP\n")
-		}
+	// Inject --speculative-config only when we have both method AND tokens > 0.
+	// If operator provides both via CLI, we trust them (no supports_mtp gate).
+	if specMethod != "" && mtpTokens > 0 {
+		specConfig := fmt.Sprintf("'{\"method\":\"%s\",\"num_speculative_tokens\":%d}'", specMethod, mtpTokens)
+		result = append(result, "--speculative-config "+specConfig)
+		fmt.Fprintf(os.Stderr, "  [speculative] --speculative-config %s\n", specConfig)
 	}
 
 	fmt.Fprintf(os.Stderr, "  merge result: %v\n", result)
@@ -187,27 +189,29 @@ func derefOrFalse(p *bool) bool {
 
 // EngineComposeConfig carries pre-merged compose data from the caller.
 type EngineComposeConfig struct {
-	Image          string
-	Entrypoint     []string
-	EnvVars        map[string]string
-	Volumes        []string
-	CommandArgs    []string
-	LoggingSection string
-	DeploySection  string
+	Image              string
+	Entrypoint         []string
+	EnvVars            map[string]string
+	Volumes            []string
+	CommandArgs        []string
+	LoggingSection     string
+	DeploySection      string
+	HealthCheckSection string
 }
 
 // ComposeTemplateData is what gets passed to the Go template.
 type ComposeTemplateData struct {
-	ServiceName    string
-	Container      string
-	Port           int
-	Image          string
-	Entrypoint     []string
-	EnvVars        map[string]string
-	Volumes        []string
-	CommandArgs    []string
-	LoggingSection string
-	DeploySection  string
+	ServiceName        string
+	Container          string
+	Port               int
+	Image              string
+	Entrypoint         []string
+	EnvVars            map[string]string
+	Volumes            []string
+	CommandArgs        []string
+	LoggingSection     string
+	DeploySection      string
+	HealthCheckSection string
 }
 
 const composeTemplate = `services:
@@ -240,6 +244,9 @@ const composeTemplate = `services:
 {{- end}}
 {{- if .DeploySection}}
 {{.DeploySection}}
+{{- end}}
+{{- if .HealthCheckSection}}
+{{.HealthCheckSection}}
 {{- end}}
 `
 
@@ -283,16 +290,27 @@ func (g *ComposeGenerator) GenerateWithOptions(model *models.Model, cfg EngineCo
 	commandArgs := mergeProfileFlagsWithOptions(model, cfg.CommandArgs, overrides)
 
 	data := ComposeTemplateData{
-		ServiceName:    fmt.Sprintf("%s-%s", model.Type, model.Slug),
-		Container:      model.Container,
-		Port:           model.Port,
-		Image:          cfg.Image,
-		Entrypoint:     cfg.Entrypoint,
-		EnvVars:        cfg.EnvVars,
-		Volumes:        cfg.Volumes,
-		CommandArgs:    commandArgs,
-		LoggingSection: cfg.LoggingSection,
-		DeploySection:  cfg.DeploySection,
+		ServiceName:        fmt.Sprintf("%s-%s", model.Type, model.Slug),
+		Container:          model.Container,
+		Port:               model.Port,
+		Image:              cfg.Image,
+		Entrypoint:         cfg.Entrypoint,
+		EnvVars:            cfg.EnvVars,
+		Volumes:            cfg.Volumes,
+		CommandArgs:        commandArgs,
+		LoggingSection:     cfg.LoggingSection,
+		DeploySection:      cfg.DeploySection,
+		HealthCheckSection: cfg.HealthCheckSection,
+	}
+
+	// Add healthcheck for chat-type LLM models
+	if model.Type == "llm" && model.SubType == "chat" {
+		data.HealthCheckSection = `    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s`
 	}
 
 	var buf bytes.Buffer
