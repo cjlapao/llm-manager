@@ -65,6 +65,12 @@ func StartAPIServer(ctx *APIContext, host string, port int, shutdownTimeout time
 	api.HandleFunc("/rag/start", ragHandler.StartRAG).Methods(http.MethodPost)
 	api.HandleFunc("/rag/stop", ragHandler.StopRAG).Methods(http.MethodPost)
 
+	// Speech routes (from speech_handler.go)
+	speechHandler := &SpeechHandler{h}
+	api.HandleFunc("/speech", speechHandler.ListSpeech).Methods(http.MethodGet)
+	api.HandleFunc("/speech/start", speechHandler.StartSpeechAPI).Methods(http.MethodPost)
+	api.HandleFunc("/speech/stop", speechHandler.StopSpeechAPI).Methods(http.MethodPost)
+
 	// Placeholder health check to verify server is running
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
