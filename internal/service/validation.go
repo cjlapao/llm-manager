@@ -113,7 +113,7 @@ func CanFitDynamic(profile ModelProfile, kvDtypeBytes float64, contextLen int, n
 	fmt.Fprintf(os.Stderr, "  Free RAM (/proc/meminfo): %d MB\n", freeMB)
 	fmt.Fprintf(os.Stderr, "  Weights:           %6d MB (%.1fB × %.1f × 1024)\n",
 		mem.Breakdown.WeightsMB, profile.TotalParamsB, profile.QuantBytesPerParam)
-	fmt.Fprintf(os.Stderr, "  KV Cache (full ctx): %5d MB (kv/token=%.0fB × %d ctx × %d seq)\n",
+	fmt.Fprintf(os.Stderr, "  KV Cache (full ctx): %5d MB (kv/token=%.0fKB × %d ctx × %d seq)\n",
 		mem.KVCacheMaxMB, kvDtypeBytes*2*float64(profile.NumKvHeads)*float64(profile.HeadDim)*float64(profile.AttentionLayers)/1024, contextLen, numSequences)
 	fmt.Fprintf(os.Stderr, "  KV Cache (realistic): %4d MB\n", mem.KVCacheRealisticMB)
 	fmt.Fprintf(os.Stderr, "  GDN state:         %6d MB\n", mem.Breakdown.GDNStateMB)

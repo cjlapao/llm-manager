@@ -21,8 +21,8 @@ import (
 
 // Health check constants — mirrored from cmd/health.go to avoid cross-package deps.
 const (
-	healthCheckTimeout      = 180 * time.Second
-	healthCheckInterval     = 3 * time.Second
+	healthCheckTimeout       = 180 * time.Second
+	healthCheckInterval      = 3 * time.Second
 	healthCheckClientTimeout = 5 * time.Second
 )
 
@@ -799,12 +799,12 @@ func (s *ContainerService) checkGPUMemory(slug string, overrides StartOverrides)
 		fmt.Fprintf(os.Stderr, "  [kv-override] hybrid gdn=%d model, kv_cache_x%.2f\n", gdnLayers, profile.KvCacheOverheadMultiplier)
 	}
 
-	// Determine MTP tokens from model.NumSpeculativeTokens (DB field).
-	// The YAML profile.num_speculative_tokens is imported into this DB column
-	// by ImportModel/UpdateModelWithYAML. We use the dedicated field instead
-	// of parsing CommandArgs, which is a JSON-encoded string and unreliable.
+	// Determine MTP tokens: CLI override > DB profile.
+	// If CLI sets --speculative-tokens 0, MTP is disabled even if DB has it configured.
 	mtpTokens := 0
-	if model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
+	if overrides.NumSpeculativeTokens != nil {
+		mtpTokens = *overrides.NumSpeculativeTokens
+	} else if model.NumSpeculativeTokens != nil && *model.NumSpeculativeTokens > 0 {
 		mtpTokens = *model.NumSpeculativeTokens
 	}
 
@@ -1386,37 +1386,10 @@ func (s *ContainerService) StopComfyUI() error {
 	return nil
 }
 
-// StartSpeech starts whisper-stt and kokoro-tts via profile-based docker compose.
-func (s *ContainerService) StartSpeech() error {
-	composePath := filepath.Join(s.cfg.InstallDir, "docker-compose.yml")
-	cmd := exec.Command("docker", "compose", "-f", composePath, "--profile", "speech", "up", "-d", "whisper-stt", "kokoro-tts")
-	cmd.Dir = s.cfg.InstallDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start speech services: %s (%w)", string(output), err)
-	}
-	return nil
-}
-
-// StopSpeech stops whisper-stt and kokoro-tts containers.
-func (s *ContainerService) StopSpeech() error {
-	for _, name := range []string{"whisper-stt", "kokoro-tts"} {
-		cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", name)
-		output, err := cmd.Output()
-		if err != nil {
-			// Container doesn't exist or can't be inspected
-			continue
-		}
-
-		state := strings.TrimSpace(string(output))
-		if state == "running" {
-			stopCmd := exec.Command("docker", "stop", name)
-			if err := stopCmd.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "  Warning: failed to stop %s: %v\n", name, err)
-			}
-		}
-	}
-
-	return nil
+// getComposeProjectPrefix returns the docker-compose project-name prefix for
+// the given model type, ensuring each type gets its own network namespace.
+func getComposeProjectPrefix(modelType string) string {
+	return modelType + "-"
 }
 
 // StartModelBySlug reads a model from the database by slug and starts its
@@ -1439,7 +1412,7 @@ func (s *ContainerService) StartModelBySlug(slug string) error {
 	}
 
 	ymlPath := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
-	projectName := "rag-" + strings.ReplaceAll(model.Slug, ".", "-")
+	projectName := getComposeProjectPrefix(model.Type) + strings.ReplaceAll(model.Slug, ".", "-")
 	composeDir := filepath.Dir(ymlPath)
 
 	// Aggressively clean up any existing container with the same name, regardless of state.
@@ -1571,7 +1544,7 @@ func (s *ContainerService) StartModelBySlugWithAllow(slug string, allowMultiple 
 	}
 
 	ymlPath := filepath.Join(s.cfg.LLMDir, model.Slug+".yml")
-	projectName := "rag-" + strings.ReplaceAll(model.Slug, ".", "-")
+	projectName := getComposeProjectPrefix(model.Type) + strings.ReplaceAll(model.Slug, ".", "-")
 	composeDir := filepath.Dir(ymlPath)
 
 	// Aggressively clean up any existing container with the same name, regardless of state.
@@ -1894,4 +1867,33 @@ func (s *ContainerService) ListRAGEmbeddingModels() ([]models.Model, error) {
 // ListRAGRerankerModels returns all RAG reranker models from the database.
 func (s *ContainerService) ListRAGRerankerModels() ([]models.Model, error) {
 	return s.db.ListModelsByTypeSubType("rag", "reranker")
+}
+
+// ListSpeechModels returns all speech models from the database (across all subtypes).
+// It queries each known speech subtype individually and merges the results.
+func (s *ContainerService) ListSpeechModels() ([]models.Model, error) {
+	var all []models.Model
+	for _, subType := range []string{"stt", "tts", "omni"} {
+		models, err := s.db.ListModelsByTypeSubType("speech", subType)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list speech/%s models: %w", subType, err)
+		}
+		all = append(all, models...)
+	}
+	return all, nil
+}
+
+// ListSTTModels returns all speech STT models from the database.
+func (s *ContainerService) ListSTTModels() ([]models.Model, error) {
+	return s.db.ListModelsByTypeSubType("speech", "stt")
+}
+
+// ListTTSModels returns all speech TTS models from the database.
+func (s *ContainerService) ListTTSModels() ([]models.Model, error) {
+	return s.db.ListModelsByTypeSubType("speech", "tts")
+}
+
+// ListOmniModels returns all speech omni models from the database.
+func (s *ContainerService) ListOmniModels() ([]models.Model, error) {
+	return s.db.ListModelsByTypeSubType("speech", "omni")
 }
