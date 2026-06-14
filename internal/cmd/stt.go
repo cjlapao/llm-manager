@@ -90,10 +90,15 @@ func (c *SttCommand) resolveSlug(explicitSlug string, useDefault bool) (string, 
 		return "", fmt.Errorf("no STT models configured")
 	}
 
-	// Case 1: explicit slug provided
+	// Case 1: explicit slug provided — validate it is actually an STT model
 	if explicitSlug != "" {
-		if _, err := c.cfg.db.GetModel(explicitSlug); err != nil {
+		model, err := c.cfg.db.GetModel(explicitSlug)
+		if err != nil {
 			return "", fmt.Errorf("STT model not found: %s", explicitSlug)
+		}
+		if model.Type != "speech" || model.SubType != "stt" {
+			return "", fmt.Errorf("model %q is not an STT model (type=%q, subType=%q)",
+				explicitSlug, model.Type, model.SubType)
 		}
 		return explicitSlug, nil
 	}
