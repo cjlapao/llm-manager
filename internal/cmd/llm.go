@@ -125,6 +125,10 @@ func (c *LlmCommand) runStart(args []string) int {
 			// next arg is the value
 		case "--gpu-memory":
 			// next arg is the value
+		case "--speculative-decoding":
+			// next arg is the value
+		case "--speculative-tokens":
+			// next arg is the value
 		}
 	}
 
@@ -157,6 +161,19 @@ func (c *LlmCommand) runStart(args []string) int {
 				var val float64
 				fmt.Sscanf(args[i+1], "%f", &val)
 				overrides.GPUMemoryUtil = &val
+				i++
+			}
+		case "--speculative-decoding":
+			if i+1 < len(args) {
+				val := args[i+1]
+				overrides.SpeculativeDecoding = &val
+				i++
+			}
+		case "--speculative-tokens":
+			if i+1 < len(args) {
+				var val int
+				fmt.Sscanf(args[i+1], "%d", &val)
+				overrides.NumSpeculativeTokens = &val
 				i++
 			}
 		}
@@ -234,7 +251,7 @@ func (c *LlmCommand) runStop(args []string) int {
 	return 0
 }
 
-// ── restart ────────────────────────────────────────────────────────────────
+// ── restart ───────────────────────────────────────────────────────────────
 
 // runRestart restarts a model container.
 func (c *LlmCommand) runRestart(slug string) int {
@@ -247,7 +264,7 @@ func (c *LlmCommand) runRestart(slug string) int {
 	return 0
 }
 
-// ── swap ───────────────────────────────────────────────────────────────────
+// ── swap ─────────────────────────────────────────────────────────────────
 
 // runSwap performs a GPU-safe model swap.
 func (c *LlmCommand) runSwap(args []string) int {
@@ -378,7 +395,7 @@ func (c *LlmCommand) runStatus(slug string) int {
 	return 0
 }
 
-// ── logs ───────────────────────────────────────────────────────────────────
+// ── logs ─────────────────────────────────────────────────────────────────
 
 // runLogs shows container logs.
 func (c *LlmCommand) runLogs(args []string) int {
