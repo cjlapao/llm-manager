@@ -31,7 +31,7 @@ func (c *ContainerSwapCommand) Run(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintf(os.Stderr, "Error: 'swap' requires a model slug\n")
 		c.PrintHelp()
-		return 1
+		return 0
 	}
 
 	if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {

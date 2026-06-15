@@ -225,16 +225,25 @@ COMMANDS:
   migrate     Update database schema to match latest code
   model       Manage LLM models (list, get, create, update, delete, import, export, compose)
   import      Import a model or engine from a YAML file (auto-detects type)
-  llm         Manage LLM model containers (start, stop, restart, swap, status, logs)
-  container   Low-level Docker container operations (list, logs, status refresh)
+  llm         Manage LLM model containers (start, stop, restart, swap, compose, status, logs)
+  container   Low-level Docker container operations (logs, status refresh)
   service     Manage LLM services (high-level orchestration)
   logs        View container logs for a model
   update      Check for and install updates
   mem         Show system memory and disk usage
+  engine      Manage LLM inference engine types and versions
+  install     Install or reinstall a model from its database record
   uninstall   Uninstall a model (stop container, delete YAML, clear cache, remove from LiteLLM and DB)
+  generate    Generate configuration from model data
+  swap        GPU-safe model swap (stop all LLMs, drop cache, start target)
+  export      Export a model to a YAML file
   comfyui     Manage ComfyUI and image generation models (start, stop, flux, 3d, status)
-  speech      Manage speech services - whisper + kokoro (start, stop)
+  stt         Manage speech-to-text (STT) models (start, stop, info)
+  tts         Manage text-to-speech (TTS) models (start, stop, info)
+  omni        Manage multimodal Omni models (start, stop, info)
+  speech      Manage speech models (STT, TTS, Omni) — combined start/stop/info
   rag         Manage RAG models - embeddings + rerankers (start, stop, list, info)
+  litellm     Manage models in the LiteLLM proxy
 
 GLOBAL OPTIONS:
   --api-port <port>     Start API server on the given port (default: 8780)
