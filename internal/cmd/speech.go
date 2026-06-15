@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/user/llm-manager/internal/database/models"
 	"github.com/user/llm-manager/internal/service"
 )
 
@@ -51,9 +52,9 @@ func (c *SpeechCommand) Run(args []string) int {
 	}
 }
 
-// parseArgs extracts the --allow-multiple (-m) flag and up to 3 positional
+// parseSpeechArgs extracts the --allow-multiple (-m) flag and up to 3 positional
 // slug arguments from the provided slice. Extras beyond 3 are silently ignored.
-func parseArgs(args []string) (allowMultiple bool, slugs []string) {
+func parseSpeechArgs(args []string) (allowMultiple bool, slugs []string) {
 	for _, arg := range args {
 		switch arg {
 		case "--allow-multiple", "-m":
@@ -110,7 +111,7 @@ func (c *SpeechCommand) resolveTTS() string {
 func (c *SpeechCommand) resolveOmni() string {
 	models, err := c.svc.ListOmniModels()
 	if err != nil || len(models) == 0 {
-	 return ""
+		return ""
 	}
 	for _, m := range models {
 		if m.Default {
@@ -129,7 +130,7 @@ type startedContainer struct {
 // runStart starts combined speech containers (up to 3: stt, tts, omni).
 // Usage: speech start [--allow-multiple|-m] [stt-slug] [tts-slug] [omni-slug]
 func (c *SpeechCommand) runStart(args []string) int {
-	allowMultiple, slugs := parseArgs(args)
+	allowMultiple, slugs := parseSpeechArgs(args)
 
 	// Resolve actual slugs — positional order: 0=stt, 1=tts, 2=omni
 	tgt := struct {
@@ -237,7 +238,7 @@ func (c *SpeechCommand) rollbackStarted(started []startedContainer) {
 // runStop stops combined speech containers.
 // Usage: speech stop [stt-slug] [tts-slug] [omni-slug]
 func (c *SpeechCommand) runStop(args []string) int {
-	_, slugs := parseArgs(args)
+	_, slugs := parseSpeechArgs(args)
 
 	tgt := struct {
 		stt  string
@@ -324,14 +325,14 @@ func (c *SpeechCommand) runInfo() int {
 		fmt.Println(strings.Repeat("-", 95))
 	}
 
-	printSection := func(title string, models []models.Model) {
+	printSection := func(title string, mList []models.Model) {
 		fmt.Printf("\n%s:\n", title)
-		if len(models) == 0 {
+		if len(mList) == 0 {
 			fmt.Println("  (none)")
 			return
 		}
 		sectionHeader(title)
-		for _, m := range models {
+		for _, m := range mList {
 			status := "unknown"
 			s, err := c.svc.GetModelStatus(m.Slug)
 			if err == nil {
