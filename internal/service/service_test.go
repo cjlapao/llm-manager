@@ -271,26 +271,101 @@ func TestContainerService_StopComfyUI_NoDocker(t *testing.T) {
 	}
 }
 
-// --- ContainerService.StartSpeech / StopSpeech tests ---
+// --- Speech model list wrapper tests ---
 
-func TestContainerService_StartSpeech_NoDocker(t *testing.T) {
+func TestContainerService_ListSpeechModels_Empty(t *testing.T) {
 	db := newTestDB(t)
 	svc := NewContainerService(db, config.DefaultConfig())
-
-	err := svc.StartSpeech()
-	if err == nil {
-		t.Error("StartSpeech() without Docker should return error")
+	models, err := svc.ListSpeechModels()
+	if err != nil {
+		t.Fatalf("ListSpeechModels() error: %v", err)
+	}
+	if len(models) != 0 {
+		t.Errorf("ListSpeechModels() = %d models, want 0", len(models))
 	}
 }
 
-func TestContainerService_StopSpeech_NoDocker(t *testing.T) {
+func TestContainerService_ListSpeechModels_WithSubtypes(t *testing.T) {
 	db := newTestDB(t)
-	svc := NewContainerService(db, config.DefaultConfig())
-
-	err := svc.StopSpeech()
-	if err != nil {
-		t.Errorf("StopSpeech() without Docker should not error, got: %v", err)
+	for _, subType := range []string{"stt", "tts", "omni"} {
+		m := &models.Model{
+			Slug:      "speech-" + subType + "-test",
+			Type:      "speech",
+			SubType:   subType,
+			Name:      "Speech " + subType + " Model",
+			HFRepo:    "test/speech-" + subType,
+			Container: "speech-" + subType + "-container",
+			Port:      8081,
+			Default:   false,
+		}
+		if err := db.CreateModel(m); err != nil {
+			t.Fatalf("CreateModel(%s) error: %v", m.Slug, err)
+		}
 	}
+	svc := NewContainerService(db, config.DefaultConfig())
+	all, err := svc.ListSpeechModels()
+	if err != nil {
+		t.Fatalf("ListSpeechModels() error: %v", err)
+	}
+	if len(all) != 3 {
+		t.Errorf("ListSpeechModels() = %d models, want 3", len(all))
+	}
+	stt, err := svc.ListSTTModels()
+	if err != nil || len(stt) != 1 || stt[0].SubType != "stt" {
+		t.Errorf("ListSTTModels() = %d models (sub=%s), want 1 (stt)", len(stt), sttSub(stt))
+	}
+	tts, err := svc.ListTTSModels()
+	if err != nil || len(tts) != 1 || tts[0].SubType != "tts" {
+		t.Errorf("ListTTSModels() = %d models (sub=%s), want 1 (tts)", len(tts), sttSub(tts))
+	}
+	omni, err := svc.ListOmniModels()
+	if err != nil || len(omni) != 1 || omni[0].SubType != "omni" {
+		t.Errorf("ListOmniModels() = %d models (sub=%s), want 1 (omni)", len(omni), sttSub(omni))
+	}
+}
+
+func TestContainerService_ListSpeechModels_NoMatchOtherTypes(t *testing.T) {
+	db := newTestDB(t)
+	seedTestModel(t, db, "llm-test")
+	svc := NewContainerService(db, config.DefaultConfig())
+	models, err := svc.ListSpeechModels()
+	if err != nil {
+		t.Fatalf("ListSpeechModels() error: %v", err)
+	}
+	if len(models) != 0 {
+		t.Errorf("ListSpeechModels() should return 0 when only LLM models exist, got %d", len(models))
+	}
+}
+
+func TestGetComposeProjectPrefix_RAG(t *testing.T) {
+	got := getComposeProjectPrefix("rag")
+	want := "rag-"
+	if got != want {
+		t.Errorf("getComposeProjectPrefix(\x22rag\x22) = %q, want %q", got, want)
+	}
+}
+
+func TestGetComposeProjectPrefix_Speech(t *testing.T) {
+	got := getComposeProjectPrefix("speech")
+	want := "speech-"
+	if got != want {
+		t.Errorf("getComposeProjectPrefix(\x22speech\x22) = %q, want %q", got, want)
+	}
+}
+
+func TestGetComposeProjectPrefix_LLM(t *testing.T) {
+	got := getComposeProjectPrefix("llm")
+	want := "llm-"
+	if got != want {
+		t.Errorf("getComposeProjectPrefix(\x22llm\x22) = %q, want %q", got, want)
+	}
+}
+
+func sttSub(ms []models.Model) string {
+	if len(ms) == 0 {
+		return ""
+	}
+	return ms[0].SubType
 }
 
 // --- ContainerService.ensureCompose tests ---

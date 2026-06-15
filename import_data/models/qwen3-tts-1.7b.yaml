@@ -1,0 +1,53 @@
+# ═══════════════════════════════════════════════════════════════
+# Qwen3 Reranker 0.6B — FP16
+# Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x)
+# vLLM >= 0.19.0 | SM121 (Blackwell)
+# gpu_memory_utilization: 0.05
+# ═══════════════════════════════════════════════════════════════
+
+slug: qwen3-tts-1.7b
+name: "Qwen3 TTS 1.7B"
+engine: vllm
+engine_version: pgx-llm-v3
+hf_repo: "Qwen/Qwen3-TTS-1.7B"
+container: rag-qwen3-tts-1.7b
+port: 8004
+type: speech
+subtype: tts
+
+environment:
+  VLLM_LOAD_FORMAT_DEVICE: cuda
+  HF_HUB_ENABLE_HF_TRANSFER: 1
+  CUDA_VISIBLE_DEVICES: 0
+  VOICES_ROOT: /app/voices
+  MODEL_BASE: Qwen/Qwen3-TTS-12Hz-1.7B-Base
+  MODEL_CUSTOM: Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+  MODEL_DESIGN: Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+
+input_token_cost: 0.000003
+output_token_cost: 0.000015
+cache_creation_input_token_cost: 0.00000375
+cache_read_input_token_cost: 0.0000003
+
+profile:
+  total_params_b: 1.8
+  active_params_b: 1.8
+  is_moe: false
+  attention_layers: 28
+  gdn_layers: 0
+  num_kv_heads: 8
+  head_dim: 128
+  supports_mtp: false
+  default_context: 32768
+  max_context: 32768
+  quant_bytes_per_param: 2.0
+
+command:
+  - ${{ .hf_repo }}
+  - "--model ${{ .hf_repo }}"
+  - "--served-model-name ${{ .slug }}"
+  - "--enforce-eager"
+  - "--trust-remote-code"
+
+capabilities:
+  - reranker

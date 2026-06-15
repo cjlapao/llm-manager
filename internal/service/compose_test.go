@@ -3,6 +3,8 @@ package service
 import (
 	"strings"
 	"testing"
+
+	"github.com/user/llm-manager/internal/database/models"
 )
 
 func TestNewComposeGenerator_ComfyUITemplateParses(t *testing.T) {
@@ -155,6 +157,119 @@ func TestGenerateComfyUICompose_GpuServiceStructure(t *testing.T) {
 		if !strings.Contains(yaml, needle) {
 			t.Errorf("YAML missing deploy structure %q:\n%s", needle, yaml)
 		}
+	}
+}
+
+func TestHealthCheck_ChatModel_IncludesHealthcheck(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	model := &models.Model{
+		Slug:      "test-chat-model",
+		Type:      "llm",
+		SubType:   "chat",
+		Name:      "Test Chat Model",
+		Container: "llm-test-chat",
+		Port:      8080,
+	}
+
+	cfg := EngineComposeConfig{
+		Image:      "vllm/vllm-openai:latest",
+		Entrypoint: []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:    map[string]string{},
+		Volumes:    []string{},
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	// Verify healthcheck section is present
+	healthcheckChecks := []struct {
+		name   string
+		needle string
+	}{
+		{"healthcheck key", "healthcheck:"},
+		{"test command", `test: ["CMD", "curl", "-f", "http://localhost:8000/health"]`},
+		{"interval", "interval: 30s"},
+		{"timeout", "timeout: 10s"},
+		{"retries", "retries: 10"},
+		{"start_period", "start_period: 180s"},
+	}
+
+	for _, tc := range healthcheckChecks {
+		if !strings.Contains(yaml, tc.needle) {
+			t.Errorf("YAML missing %q:\n%s", tc.needle, yaml)
+		}
+	}
+}
+
+func TestHealthCheck_NonChatModel_NoHealthcheck(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	// SubType is empty — should NOT include healthcheck
+	model := &models.Model{
+		Slug:      "test-embedding-model",
+		Type:      "llm",
+		SubType:   "embedding",
+		Name:      "Test Embedding Model",
+		Container: "llm-test-embed",
+		Port:      8081,
+	}
+
+	cfg := EngineComposeConfig{
+		Image:      "vllm/vllm-openai:latest",
+		Entrypoint: []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:    map[string]string{},
+		Volumes:    []string{},
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if strings.Contains(yaml, "healthcheck:") {
+		t.Errorf("non-chat model YAML should not contain healthcheck:\n%s", yaml)
+	}
+}
+
+func TestHealthCheck_NonLLMType_NoHealthcheck(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	// Type is not "llm" — should NOT include healthcheck even if SubType is "chat"
+	model := &models.Model{
+		Slug:      "test-rag-model",
+		Type:      "rag",
+		SubType:   "chat",
+		Name:      "Test RAG Model",
+		Container: "rag-test",
+		Port:      8082,
+	}
+
+	cfg := EngineComposeConfig{
+		Image:      "some/image:latest",
+		Entrypoint: []string{"/entrypoint.sh"},
+		EnvVars:    map[string]string{},
+		Volumes:    []string{},
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if strings.Contains(yaml, "healthcheck:") {
+		t.Errorf("non-LLM type YAML should not contain healthcheck:\n%s", yaml)
 	}
 }
 
