@@ -579,6 +579,9 @@ type yamlVersion struct {
 	Nvidia        bool              `yaml:"nvidia"`
 	GPUCount      string            `yaml:"gpu_count"`
 	CommandArgs   []string          `yaml:"command_args"`
+	Healthcheck   map[string]interface{} `yaml:"healthcheck"`
+	Ulimits       map[string]interface{} `yaml:"ulimits"`
+	IPC           string            `yaml:"ipc"`
 	Port          int               `yaml:"port"`
 }
 
@@ -652,6 +655,20 @@ func (s *EngineService) ImportEngineFile(yamlPath string) (created, skipped int,
 			cmdJSON = string(b)
 		}
 
+		// Build healthcheck JSON
+		hcJSON := ""
+		if len(v.Healthcheck) > 0 {
+			b, _ := json.Marshal(v.Healthcheck)
+			hcJSON = string(b)
+		}
+
+		// Build ulimits JSON
+		ulJSON := ""
+		if len(v.Ulimits) > 0 {
+			b, _ := json.Marshal(v.Ulimits)
+			ulJSON = string(b)
+		}
+
 		isDefault := v.Default && firstDefault
 		if isDefault {
 			firstDefault = false
@@ -675,6 +692,9 @@ func (s *EngineService) ImportEngineFile(yamlPath string) (created, skipped int,
 			DeployEnableNvidia: v.Nvidia,
 			DeployGPUCount:     v.GPUCount,
 			CommandArgs:        cmdJSON,
+			HealthcheckJSON:    hcJSON,
+			UlimitsJSON:        ulJSON,
+			IPC:                v.IPC,
 		}
 
 		created2, err := s.CreateOrSkipEngineVersion(ev)
