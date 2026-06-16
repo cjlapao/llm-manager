@@ -209,6 +209,17 @@ func (s *EngineService) ShowComposition(model *models.Model, ev *models.EngineVe
 	// Build deploy section
 	cfg.DeploySection = s.BuildDeploySection(ev.DeployEnableNvidia, ev.DeployGPUCount)
 
+	// Build healthcheck section (custom overrides auto-injected)
+	cfg.HealthCheckSection = s.BuildHealthcheckSection(ev.HealthcheckJSON)
+
+	// Build ulimits section
+	cfg.UlimitsSection = s.BuildUlimitsSection(ev.UlimitsJSON)
+
+	// Set IPC override (non-empty value replaces hardcoded "host")
+	if ev.IPC != "" {
+		cfg.IPCOverride = ev.IPC
+	}
+
 	return generator.Generate(model, cfg)
 }
 
@@ -256,6 +267,17 @@ func (s *EngineService) BuildComposeConfig(model *models.Model) (*EngineComposeC
 
 	// Build deploy section
 	cfg.DeploySection = s.BuildDeploySection(ev.DeployEnableNvidia, ev.DeployGPUCount)
+
+	// Build healthcheck section (custom overrides auto-injected)
+	cfg.HealthCheckSection = s.BuildHealthcheckSection(ev.HealthcheckJSON)
+
+	// Build ulimits section
+	cfg.UlimitsSection = s.BuildUlimitsSection(ev.UlimitsJSON)
+
+	// Set IPC override (non-empty value replaces hardcoded "host")
+	if ev.IPC != "" {
+		cfg.IPCOverride = ev.IPC
+	}
 
 	return cfg, nil
 }
@@ -545,6 +567,98 @@ func (s *EngineService) BuildDeploySection(enableNvidia bool, gpuCount string) s
             - driver: nvidia
               count: "%s"
               capabilities: [gpu]`, count)
+}
+
+// =============================================================================
+// Healthcheck Config Builder
+// =============================================================================
+
+// BuildHealthcheckSection renders a YAML healthcheck block from a JSON string.
+// If jsonStr is empty, returns "".
+// Otherwise parses the JSON into a map and renders each key-value as a
+// indented YAML property under `healthcheck:` with 4-space indentation.
+func (s *EngineService) BuildHealthcheckSection(jsonStr string) string {
+	if jsonStr == "" {
+		return ""
+	}
+
+	var hc map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &hc); err != nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("    healthcheck:\n")
+	for k, v := range hc {
+		sb.WriteString(fmt.Sprintf("      %s: %s\n", k, formatHealthcheckValue(v)))
+	}
+	return sb.String()
+}
+
+// formatHealthcheckValue formats a single healthcheck value for YAML rendering.
+func formatHealthcheckValue(v interface{}) string {
+	switch val := v.(type) {
+	case string:
+		return fmt.Sprintf("%q", val)
+	case float64:
+		// JSON unmarshals all numbers as float64
+		if val == float64(int(val)) {
+			return fmt.Sprintf("%d", int(val))
+		}
+		return fmt.Sprintf("%.0f", val)
+	case []interface{}:
+		parts := make([]string, len(val))
+		for i, item := range val {
+			parts[i] = fmt.Sprintf("%q", item)
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// =============================================================================
+// Ulimits Config Builder
+// =============================================================================
+
+// BuildUlimitsSection renders a YAML ulimits block from a JSON string.
+// If jsonStr is empty, returns "".
+// Otherwise parses the JSON into a map and renders each key-value as
+// `key: value` under `ulimits:` with 4-space indentation.
+func (s *EngineService) BuildUlimitsSection(jsonStr string) string {
+	if jsonStr == "" {
+		return ""
+	}
+
+	var ul map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &ul); err != nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("    ulimits:\n")
+	for k, v := range ul {
+		sb.WriteString(fmt.Sprintf("      %s: %s\n", k, formatUlimitsValue(v)))
+	}
+	return sb.String()
+}
+
+// formatUlimitsValue formats a single ulimits value for YAML rendering.
+func formatUlimitsValue(v interface{}) string {
+	switch val := v.(type) {
+	case float64:
+		if val == -1 {
+			return "-1"
+		}
+		if val == float64(int(val)) {
+			return fmt.Sprintf("%d", int(val))
+		}
+		return fmt.Sprintf("%.0f", val)
+	case string:
+		return val
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 // =============================================================================
