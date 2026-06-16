@@ -57,6 +57,7 @@ type Model struct {
 	SpeculativeDecoding         *string   `gorm:"column:speculative_decoding"`
 	NumSpeculativeTokens        *int      `gorm:"column:num_speculative_tokens"`
 	GpuMemoryUtilization        *float64  `gorm:"column:gpu_memory_utilization"`
+	HealthcheckJSON             string    `gorm:"type:text;column:healthcheck_json"`
 	CreatedAt                   time.Time `gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt                   time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }
@@ -204,4 +205,31 @@ func parseParamBlock(raw string) map[string]interface{} {
 func (m *Model) HasVariants() bool {
 	variants, ok := m.getVariantsMap()
 	return ok && len(variants) > 0
+}
+
+// GetHealthcheck parses HealthcheckJSON into a map[string]interface{}.
+// Returns an empty map (not nil) when the JSON is empty or invalid.
+func (m *Model) GetHealthcheck() map[string]interface{} {
+	if m.HealthcheckJSON == "" {
+		return make(map[string]interface{})
+	}
+	var hc map[string]interface{}
+	if err := json.Unmarshal([]byte(m.HealthcheckJSON), &hc); err != nil {
+		return make(map[string]interface{})
+	}
+	return hc
+}
+
+// SetHealthcheck serializes a map[string]interface{} to JSON and stores it in HealthcheckJSON.
+func (m *Model) SetHealthcheck(hc map[string]interface{}) error {
+	if hc == nil || len(hc) == 0 {
+		m.HealthcheckJSON = ""
+		return nil
+	}
+	b, err := json.Marshal(hc)
+	if err != nil {
+		return err
+	}
+	m.HealthcheckJSON = string(b)
+	return nil
 }

@@ -581,3 +581,206 @@ func TestUlimits_Empty_NoRender(t *testing.T) {
 		t.Errorf("YAML should NOT contain ulimits block when empty:\n%s", yaml)
 	}
 }
+
+// TestHealthCheck_Model_OverridesEngine verifies that when a model has a
+// non-empty HealthcheckJSON, the model-level healthcheck takes priority over
+// the engine-level healthcheck (passed in cfg.HealthCheckSection).
+func TestHealthCheck_Model_OverridesEngine(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	model := &models.Model{
+		Slug:            "test-chat-model",
+		Type:            "llm",
+		SubType:         "chat",
+		Name:            "Test Chat Model",
+		Container:       "llm-test-chat",
+		Port:            8080,
+		HealthcheckJSON: `{"test": ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"], "interval": "15s", "timeout": "3s", "retries": 5, "start_period": "300s"}`,
+	}
+
+	// Engine-level healthcheck (should be overridden by model)
+	engineHC := `    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s`
+
+	cfg := EngineComposeConfig{
+		Image:                "vllm/vllm-openai:latest",
+		Entrypoint:           []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:              map[string]string{},
+		Volumes:              []string{},
+		HealthCheckSection:   engineHC, // engine healthcheck
+		ModelHealthcheckJSON: `{"test": ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"], "interval": "15s", "timeout": "3s", "retries": 5, "start_period": "300s"}`,
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	// Model-level healthcheck should be present
+	if !strings.Contains(yaml, `test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]`) {
+		t.Errorf("YAML should contain model-level healthcheck test command:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, `interval: "15s"`) {
+		t.Errorf("YAML should contain model-level interval 15s:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, `timeout: "3s"`) {
+		t.Errorf("YAML should contain model-level timeout 3s:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "retries: 5") {
+		t.Errorf("YAML should contain model-level retries 5:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, `start_period: "300s"`) {
+		t.Errorf("YAML should contain model-level start_period 300s:\n%s", yaml)
+	}
+
+	// Engine-level healthcheck values should NOT be present
+	if strings.Contains(yaml, "retries: 10") {
+		t.Errorf("YAML should NOT contain engine-level retries 10:\n%s", yaml)
+	}
+	if strings.Contains(yaml, "start_period: 180s") {
+		t.Errorf("YAML should NOT contain engine-level start_period 180s:\n%s", yaml)
+	}
+}
+
+// TestHealthCheck_Engine_UsedWhenModelHasNone verifies that when a model has no
+// HealthcheckJSON configured, the engine-level healthcheck is used.
+func TestHealthCheck_Engine_UsedWhenModelHasNone(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	// Model with no healthcheck
+	model := &models.Model{
+		Slug:            "test-chat-model",
+		Type:            "llm",
+		SubType:         "chat",
+		Name:            "Test Chat Model",
+		Container:       "llm-test-chat",
+		Port:            8080,
+		HealthcheckJSON: "",
+	}
+
+	// Engine-level custom healthcheck
+	engineHC := `    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 240s`
+
+	cfg := EngineComposeConfig{
+		Image:              "vllm/vllm-openai:latest",
+		Entrypoint:         []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:            map[string]string{},
+		Volumes:            []string{},
+		HealthCheckSection: engineHC,
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	// Engine healthcheck should be present
+	if !strings.Contains(yaml, `test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]`) {
+		t.Errorf("YAML should contain engine-level healthcheck:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "timeout: 5s") {
+		t.Errorf("YAML should contain engine-level timeout 5s:\n%s", yaml)
+	}
+
+	// Auto-injected defaults should NOT be present
+	if strings.Contains(yaml, "retries: 10") {
+		t.Errorf("YAML should NOT contain auto-injected retries 10:\n%s", yaml)
+	}
+}
+
+// TestHealthCheck_AutoInjected_WhenNeitherModelNorEngineHasOne verifies that when
+// neither model nor engine has a healthcheck configured, the auto-injected default
+// is used for chat-type LLM models.
+func TestHealthCheck_AutoInjected_WhenNeitherModelNorEngineHasOne(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	// Chat model with no model or engine healthcheck
+	model := &models.Model{
+		Slug:            "test-chat-model",
+		Type:            "llm",
+		SubType:         "chat",
+		Name:            "Test Chat Model",
+		Container:       "llm-test-chat",
+		Port:            8080,
+		HealthcheckJSON: "",
+	}
+
+	cfg := EngineComposeConfig{
+		Image:              "vllm/vllm-openai:latest",
+		Entrypoint:         []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:            map[string]string{},
+		Volumes:            []string{},
+		HealthCheckSection: "",
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	// Auto-injected healthcheck should be present
+	if !strings.Contains(yaml, "healthcheck:") {
+		t.Errorf("YAML should contain auto-injected healthcheck:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, `test: ["CMD", "curl", "-f", "http://localhost:8000/health"]`) {
+		t.Errorf("YAML should contain auto-injected test command:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "retries: 10") {
+		t.Errorf("YAML should contain auto-injected retries 10:\n%s", yaml)
+	}
+}
+
+// TestHealthCheck_NonChatModel_NoAutoInject verifies that non-chat models do not
+// get auto-injected healthcheck when neither model nor engine has one.
+func TestHealthCheck_NonChatModel_NoAutoInject(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	// Embedding model (not chat) with no model or engine healthcheck
+	model := &models.Model{
+		Slug:            "test-embed-model",
+		Type:            "llm",
+		SubType:         "embedding",
+		Name:            "Test Embed Model",
+		Container:       "llm-test-embed",
+		Port:            8081,
+		HealthcheckJSON: "",
+	}
+
+	cfg := EngineComposeConfig{
+		Image:              "vllm/vllm-openai:latest",
+		Entrypoint:         []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:            map[string]string{},
+		Volumes:            []string{},
+		HealthCheckSection: "",
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if strings.Contains(yaml, "healthcheck:") {
+		t.Errorf("non-chat model YAML should not contain healthcheck:\n%s", yaml)
+	}
+}

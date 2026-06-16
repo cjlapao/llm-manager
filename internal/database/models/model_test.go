@@ -510,3 +510,82 @@ func TestModel_HasThinkingCapability_FromLiteLLMParams(t *testing.T) {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Healthcheck JSON field tests.
+// ---------------------------------------------------------------------------
+
+func TestModel_GetHealthcheck_Empty(t *testing.T) {
+	m := &Model{Slug: "test", HealthcheckJSON: ""}
+	hc := m.GetHealthcheck()
+	if hc == nil || len(hc) != 0 {
+		t.Errorf("expected empty map for empty HealthcheckJSON, got %v", hc)
+	}
+}
+
+func TestModel_GetHealthcheck_InvalidJSON(t *testing.T) {
+	m := &Model{Slug: "test", HealthcheckJSON: "not valid json"}
+	hc := m.GetHealthcheck()
+	if hc == nil || len(hc) != 0 {
+		t.Errorf("expected empty map for invalid JSON, got %v", hc)
+	}
+}
+
+func TestModel_GetHealthcheck_ValidJSON(t *testing.T) {
+	jsonStr := `{"test": "CMD curl -f http://localhost:8000/health", "interval": 30000000000, "retries": 3}`
+	m := &Model{Slug: "test", HealthcheckJSON: jsonStr}
+	hc := m.GetHealthcheck()
+	if hc == nil {
+		t.Fatal("expected non-nil healthcheck map")
+	}
+	if hc["test"] != "CMD curl -f http://localhost:8000/health" {
+		t.Errorf("expected test=CMD curl..., got %v", hc["test"])
+	}
+	if hc["retries"] != float64(3) {
+		t.Errorf("expected retries=3, got %v", hc["retries"])
+	}
+}
+
+func TestModel_SetHealthcheck_RoundTrip(t *testing.T) {
+	m := &Model{Slug: "test"}
+	hc := map[string]interface{}{
+		"test":        "CMD curl -f http://localhost:8000/health",
+		"interval":    float64(10000000000),
+		"retries":     float64(5),
+		"startPeriod": float64(6000000000),
+	}
+	if err := m.SetHealthcheck(hc); err != nil {
+		t.Fatalf("failed to set healthcheck: %v", err)
+	}
+	got := m.GetHealthcheck()
+	if got == nil {
+		t.Fatal("expected non-nil healthcheck map")
+	}
+	if got["test"] != "CMD curl -f http://localhost:8000/health" {
+		t.Errorf("expected test=CMD curl..., got %v", got["test"])
+	}
+	if got["retries"] != float64(5) {
+		t.Errorf("expected retries=5, got %v", got["retries"])
+	}
+}
+
+func TestModel_SetHealthcheck_NilClears(t *testing.T) {
+	m := &Model{Slug: "test"}
+	m.SetHealthcheck(map[string]interface{}{"test": "CMD curl"})
+	if m.HealthcheckJSON == "" {
+		t.Fatal("expected non-empty HealthcheckJSON after set")
+	}
+	m.SetHealthcheck(nil)
+	if m.HealthcheckJSON != "" {
+		t.Errorf("expected empty HealthcheckJSON after nil set, got %q", m.HealthcheckJSON)
+	}
+}
+
+func TestModel_SetHealthcheck_EmptyMapClears(t *testing.T) {
+	m := &Model{Slug: "test"}
+	m.SetHealthcheck(map[string]interface{}{"test": "CMD curl"})
+	m.SetHealthcheck(map[string]interface{}{})
+	if m.HealthcheckJSON != "" {
+		t.Errorf("expected empty HealthcheckJSON after empty map set, got %q", m.HealthcheckJSON)
+	}
+}
