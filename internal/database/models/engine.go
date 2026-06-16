@@ -47,9 +47,12 @@ type EngineVersion struct {
 	SyslogFacility     string    `gorm:"size:64;default:'local3';column:syslog_facility"`
 	DeployEnableNvidia bool      `gorm:"type:boolean;default:false;column:deploy_enable_nvidia"`
 	DeployGPUCount     string    `gorm:"size:16;default:'';column:deploy_gpu_count"`
-	CommandArgs        string    `gorm:"type:text;default:'';column:command_args"`
-	CreatedAt          time.Time `gorm:"autoCreateTime;column:created_at"`
-	UpdatedAt          time.Time `gorm:"autoUpdateTime;column:updated_at"`
+	CommandArgs         string    `gorm:"type:text;default:'';column:command_args"`
+	HealthcheckJSON     string    `gorm:"type:text;column:healthcheck_json"`
+	UlimitsJSON         string    `gorm:"type:text;column:ulimits_json"`
+	IPC                 string    `gorm:"size:32;default:'';column:ipc"`
+	CreatedAt           time.Time `gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt           time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }
 
 // TableName returns the database table name for EngineVersion.
@@ -128,6 +131,71 @@ func (e *EngineVersion) GetCommandArgs() []string {
 		return nil
 	}
 	return args
+}
+
+// GetHealthcheck parses HealthcheckJSON into a map[string]interface{}.
+// Returns an empty map (not nil) when the JSON is empty or invalid.
+func (e *EngineVersion) GetHealthcheck() map[string]interface{} {
+	if e.HealthcheckJSON == "" {
+		return make(map[string]interface{})
+	}
+	var hc map[string]interface{}
+	if err := json.Unmarshal([]byte(e.HealthcheckJSON), &hc); err != nil {
+		return make(map[string]interface{})
+	}
+	return hc
+}
+
+// SetHealthcheck serializes a map[string]interface{} to JSON and stores it in HealthcheckJSON.
+func (e *EngineVersion) SetHealthcheck(hc map[string]interface{}) error {
+	if hc == nil || len(hc) == 0 {
+		e.HealthcheckJSON = ""
+		return nil
+	}
+	b, err := json.Marshal(hc)
+	if err != nil {
+		return err
+	}
+	e.HealthcheckJSON = string(b)
+	return nil
+}
+
+// GetUlimits parses UlimitsJSON into a map[string]interface{}.
+// Returns an empty map (not nil) when the JSON is empty or invalid.
+func (e *EngineVersion) GetUlimits() map[string]interface{} {
+	if e.UlimitsJSON == "" {
+		return make(map[string]interface{})
+	}
+	var ul map[string]interface{}
+	if err := json.Unmarshal([]byte(e.UlimitsJSON), &ul); err != nil {
+		return make(map[string]interface{})
+	}
+	return ul
+}
+
+// SetUlimits serializes a map[string]interface{} to JSON and stores it in UlimitsJSON.
+func (e *EngineVersion) SetUlimits(ul map[string]interface{}) error {
+	if ul == nil || len(ul) == 0 {
+		e.UlimitsJSON = ""
+		return nil
+	}
+	b, err := json.Marshal(ul)
+	if err != nil {
+		return err
+	}
+	e.UlimitsJSON = string(b)
+	return nil
+}
+
+// GetIPC returns the IPC namespace setting (e.g., "host", "share", "none").
+// Returns an empty string when not set.
+func (e *EngineVersion) GetIPC() string {
+	return e.IPC
+}
+
+// SetIPC sets the IPC namespace setting.
+func (e *EngineVersion) SetIPC(ipc string) {
+	e.IPC = ipc
 }
 
 // SetCommandArgs serializes a []string to JSON and stores it in CommandArgs.

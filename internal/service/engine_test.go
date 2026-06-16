@@ -378,3 +378,103 @@ func TestJSONConsistency(t *testing.T) {
 		t.Errorf("JSON round-trip failed: %s → %v", string(b), decoded)
 	}
 }
+
+func TestEngineVersion_HealthcheckUlimitsIPC(t *testing.T) {
+	ev := models.EngineVersion{}
+
+	// --- Healthcheck ---
+	// Empty → empty map
+	hc := ev.GetHealthcheck()
+	if hc == nil || len(hc) != 0 {
+		t.Errorf("expected empty map for empty healthcheck, got %v", hc)
+	}
+
+	// Set and get with mixed types (string, int, array — typical Docker healthcheck)
+	mixedHC := map[string]interface{}{
+		"test":      "/usr/bin/check-health",
+		"interval":  json.Number("10000000000"),
+		"retries":   float64(3),
+		"startPeriod": float64(5000000000),
+	}
+	if err := ev.SetHealthcheck(mixedHC); err != nil {
+		t.Fatalf("failed to set healthcheck: %v", err)
+	}
+	gotHC := ev.GetHealthcheck()
+	if gotHC == nil {
+		t.Fatal("expected non-nil healthcheck map")
+	}
+	if gotHC["test"] != "/usr/bin/check-health" {
+		t.Errorf("expected test=/usr/bin/check-health, got %v", gotHC["test"])
+	}
+	if gotHC["retries"] != float64(3) {
+		t.Errorf("expected retries=3, got %v", gotHC["retries"])
+	}
+
+	// Nil → clears
+	if err := ev.SetHealthcheck(nil); err != nil {
+		t.Fatalf("failed to set nil healthcheck: %v", err)
+	}
+	if ev.GetHealthcheck() == nil || len(ev.GetHealthcheck()) != 0 {
+		t.Error("expected empty map after setting nil")
+	}
+
+	// --- Ulimits ---
+	// Empty → empty map
+	ul := ev.GetUlimits()
+	if ul == nil || len(ul) != 0 {
+		t.Errorf("expected empty map for empty ulimits, got %v", ul)
+	}
+
+	// Set and get with mixed types (typical Docker ulimits: nproc=soft/int, nofile={soft:int,hard:int})
+	mixedUL := map[string]interface{}{
+		"nproc":  float64(65535),
+		"nofile": map[string]interface{}{"soft": float64(65535), "hard": float64(65535)},
+	}
+	if err := ev.SetUlimits(mixedUL); err != nil {
+		t.Fatalf("failed to set ulimits: %v", err)
+	}
+	gotUL := ev.GetUlimits()
+	if gotUL == nil {
+		t.Fatal("expected non-nil ulimits map")
+	}
+	if gotUL["nproc"] != float64(65535) {
+		t.Errorf("expected nproc=65535, got %v", gotUL["nproc"])
+	}
+	nofile, ok := gotUL["nofile"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected nofile to be map, got %T", gotUL["nofile"])
+	}
+	if nofile["soft"] != float64(65535) || nofile["hard"] != float64(65535) {
+		t.Errorf("expected nofile={soft:65535, hard:65535}, got %v", nofile)
+	}
+
+	// Nil → clears
+	if err := ev.SetUlimits(nil); err != nil {
+		t.Fatalf("failed to set nil ulimits: %v", err)
+	}
+	if ev.GetUlimits() == nil || len(ev.GetUlimits()) != 0 {
+		t.Error("expected empty map after setting nil")
+	}
+
+	// --- IPC ---
+	// Empty → empty string
+	if got := ev.GetIPC(); got != "" {
+		t.Errorf("expected empty IPC, got %q", got)
+	}
+
+	// Set and get
+	ev.SetIPC("host")
+	if got := ev.GetIPC(); got != "host" {
+		t.Errorf("expected IPC=host, got %q", got)
+	}
+
+	ev.SetIPC("share")
+	if got := ev.GetIPC(); got != "share" {
+		t.Errorf("expected IPC=share, got %q", got)
+	}
+
+	ev.SetIPC("")
+	if got := ev.GetIPC(); got != "" {
+		t.Errorf("expected empty IPC after clearing, got %q", got)
+	}
+}
