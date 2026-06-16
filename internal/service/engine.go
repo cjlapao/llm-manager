@@ -210,10 +210,13 @@ func (s *EngineService) ShowComposition(model *models.Model, ev *models.EngineVe
 	cfg.DeploySection = s.BuildDeploySection(ev.DeployEnableNvidia, ev.DeployGPUCount)
 
 	// Build healthcheck section (custom overrides auto-injected)
-	cfg.HealthCheckSection = s.BuildHealthcheckSection(ev.HealthcheckJSON)
+	cfg.HealthCheckSection = BuildHealthcheckSection(ev.HealthcheckJSON)
+
+	// Pass model healthcheck JSON for model-level override in GenerateWithOptions
+	cfg.ModelHealthcheckJSON = model.HealthcheckJSON
 
 	// Build ulimits section
-	cfg.UlimitsSection = s.BuildUlimitsSection(ev.UlimitsJSON)
+	cfg.UlimitsSection = BuildUlimitsSection(ev.UlimitsJSON)
 
 	// Set IPC override (non-empty value replaces hardcoded "host")
 	if ev.IPC != "" {
@@ -269,10 +272,13 @@ func (s *EngineService) BuildComposeConfig(model *models.Model) (*EngineComposeC
 	cfg.DeploySection = s.BuildDeploySection(ev.DeployEnableNvidia, ev.DeployGPUCount)
 
 	// Build healthcheck section (custom overrides auto-injected)
-	cfg.HealthCheckSection = s.BuildHealthcheckSection(ev.HealthcheckJSON)
+	cfg.HealthCheckSection = BuildHealthcheckSection(ev.HealthcheckJSON)
+
+	// Pass model healthcheck JSON for model-level override in GenerateWithOptions
+	cfg.ModelHealthcheckJSON = model.HealthcheckJSON
 
 	// Build ulimits section
-	cfg.UlimitsSection = s.BuildUlimitsSection(ev.UlimitsJSON)
+	cfg.UlimitsSection = BuildUlimitsSection(ev.UlimitsJSON)
 
 	// Set IPC override (non-empty value replaces hardcoded "host")
 	if ev.IPC != "" {
@@ -577,7 +583,7 @@ func (s *EngineService) BuildDeploySection(enableNvidia bool, gpuCount string) s
 // If jsonStr is empty, returns "".
 // Otherwise parses the JSON into a map and renders each key-value as a
 // indented YAML property under `healthcheck:` with 4-space indentation.
-func (s *EngineService) BuildHealthcheckSection(jsonStr string) string {
+func BuildHealthcheckSection(jsonStr string) string {
 	if jsonStr == "" {
 		return ""
 	}
@@ -625,7 +631,7 @@ func formatHealthcheckValue(v interface{}) string {
 // If jsonStr is empty, returns "".
 // Otherwise parses the JSON into a map and renders each key-value as
 // `key: value` under `ulimits:` with 4-space indentation.
-func (s *EngineService) BuildUlimitsSection(jsonStr string) string {
+func BuildUlimitsSection(jsonStr string) string {
 	if jsonStr == "" {
 		return ""
 	}
@@ -680,23 +686,23 @@ type yamlEngine struct {
 
 // yamlVersion represents an engine version definition.
 type yamlVersion struct {
-	Slug          string            `yaml:"slug"`
-	Version       string            `yaml:"version"`
-	ContainerName string            `yaml:"container_name"`
-	Image         string            `yaml:"image"`
-	Entrypoint    []string          `yaml:"entrypoint"`
-	Default       bool              `yaml:"default"`
-	Latest        bool              `yaml:"latest"`
-	Volumes       map[string]string `yaml:"volumes"`
-	Environment   map[string]string `yaml:"environment"`
-	Logging       yamlLogging       `yaml:"logging"`
-	Nvidia        bool              `yaml:"nvidia"`
-	GPUCount      string            `yaml:"gpu_count"`
-	CommandArgs   []string          `yaml:"command_args"`
+	Slug          string                 `yaml:"slug"`
+	Version       string                 `yaml:"version"`
+	ContainerName string                 `yaml:"container_name"`
+	Image         string                 `yaml:"image"`
+	Entrypoint    []string               `yaml:"entrypoint"`
+	Default       bool                   `yaml:"default"`
+	Latest        bool                   `yaml:"latest"`
+	Volumes       map[string]string      `yaml:"volumes"`
+	Environment   map[string]string      `yaml:"environment"`
+	Logging       yamlLogging            `yaml:"logging"`
+	Nvidia        bool                   `yaml:"nvidia"`
+	GPUCount      string                 `yaml:"gpu_count"`
+	CommandArgs   []string               `yaml:"command_args"`
 	Healthcheck   map[string]interface{} `yaml:"healthcheck"`
 	Ulimits       map[string]interface{} `yaml:"ulimits"`
-	IPC           string            `yaml:"ipc"`
-	Port          int               `yaml:"port"`
+	IPC           string                 `yaml:"ipc"`
+	Port          int                    `yaml:"port"`
 }
 
 // yamlLogging represents logging configuration.

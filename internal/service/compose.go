@@ -189,16 +189,17 @@ func derefOrFalse(p *bool) bool {
 
 // EngineComposeConfig carries pre-merged compose data from the caller.
 type EngineComposeConfig struct {
-	Image              string
-	Entrypoint         []string
-	EnvVars            map[string]string
-	Volumes            []string
-	CommandArgs        []string
-	LoggingSection     string
-	DeploySection      string
-	HealthCheckSection string
-	UlimitsSection     string
-	IPCOverride        string
+	Image                string
+	Entrypoint           []string
+	EnvVars              map[string]string
+	Volumes              []string
+	CommandArgs          []string
+	LoggingSection       string
+	DeploySection        string
+	HealthCheckSection   string
+	ModelHealthcheckJSON string
+	UlimitsSection       string
+	IPCOverride          string
 }
 
 // ComposeTemplateData is what gets passed to the Go template.
@@ -316,8 +317,18 @@ func (g *ComposeGenerator) GenerateWithOptions(model *models.Model, cfg EngineCo
 		IPCOverride:        cfg.IPCOverride,
 	}
 
-	// Add healthcheck for chat-type LLM models (only if no custom healthcheck was provided)
-	if data.HealthCheckSection == "" && model.Type == "llm" && model.SubType == "chat" {
+	// Add healthcheck for chat-type LLM models with override priority:
+	// 1. Model-level healthcheck (highest priority)
+	// 2. Engine-level healthcheck (passed in cfg.HealthCheckSection)
+	// 3. Auto-injected default for chat-type LLMs
+	// 4. No healthcheck
+	//
+	// Check model first, then fall through to engine, then auto-inject.
+	if cfg.ModelHealthcheckJSON != "" {
+		// Model has its own healthcheck — use it exclusively
+		data.HealthCheckSection = BuildHealthcheckSection(cfg.ModelHealthcheckJSON)
+	} else if data.HealthCheckSection == "" && model.Type == "llm" && model.SubType == "chat" {
+		// No model or engine healthcheck — auto-inject for chat-type LLMs
 		data.HealthCheckSection = `    healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -325,6 +336,7 @@ func (g *ComposeGenerator) GenerateWithOptions(model *models.Model, cfg EngineCo
       retries: 10
       start_period: 180s`
 	}
+	// else: engine HealthCheckSection is already set from cfg, or no healthcheck needed
 
 	var buf bytes.Buffer
 	if err := g.tmpl.Execute(&buf, data); err != nil {
