@@ -197,6 +197,8 @@ type EngineComposeConfig struct {
 	LoggingSection     string
 	DeploySection      string
 	HealthCheckSection string
+	UlimitsSection     string
+	IPCOverride        string
 }
 
 // ComposeTemplateData is what gets passed to the Go template.
@@ -212,16 +214,22 @@ type ComposeTemplateData struct {
 	LoggingSection     string
 	DeploySection      string
 	HealthCheckSection string
+	UlimitsSection     string
+	IPCOverride        string
 }
 
 const composeTemplate = `services:
   {{.ServiceName}}:
     image: {{.Image}}
     container_name: {{.Container}}
+{{- if .IPCOverride}}
+    ipc: {{.IPCOverride}}
+{{- else}}
     ipc: host
-    entrypoint: [{{range $i, $e := .Entrypoint}}{{if $i}}, {{end}}"{{$e}}"{{end}}]
+{{- end}}
+    entrypoint: [{{range $i, $e := .Entrypoint}}{{if $i}}, {{end}}\"{{$e}}\"{{end}}]
     ports:
-      - "{{.Port}}:8000"
+      - \"{{.Port}}:8000\"
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
       - HF_TOKEN=${HF_TOKEN}
@@ -238,6 +246,9 @@ const composeTemplate = `services:
     command: >
 {{- range .CommandArgs}}
       {{.}} {{end}}
+{{- end}}
+{{- if .UlimitsSection}}
+{{.UlimitsSection}}
 {{- end}}
 {{- if .LoggingSection}}
 {{.LoggingSection}}
@@ -301,10 +312,12 @@ func (g *ComposeGenerator) GenerateWithOptions(model *models.Model, cfg EngineCo
 		LoggingSection:     cfg.LoggingSection,
 		DeploySection:      cfg.DeploySection,
 		HealthCheckSection: cfg.HealthCheckSection,
+		UlimitsSection:     cfg.UlimitsSection,
+		IPCOverride:        cfg.IPCOverride,
 	}
 
-	// Add healthcheck for chat-type LLM models
-	if model.Type == "llm" && model.SubType == "chat" {
+	// Add healthcheck for chat-type LLM models (only if no custom healthcheck was provided)
+	if data.HealthCheckSection == "" && model.Type == "llm" && model.SubType == "chat" {
 		data.HealthCheckSection = `    healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

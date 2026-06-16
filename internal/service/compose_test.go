@@ -370,3 +370,214 @@ func TestGenerateComfyUICompose_TableDriven(t *testing.T) {
 		})
 	}
 }
+
+// TestHealthCheck_Custom_OverridesAutoInjected verifies that when an engine
+// version provides a custom HealthcheckJSON on a chat-type LLM model, the
+// custom healthcheck is rendered instead of the auto-injected default.
+func TestHealthCheck_Custom_OverridesAutoInjected(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	model := &models.Model{
+		Slug:      "test-chat-model",
+		Type:      "llm",
+		SubType:   "chat",
+		Name:      "Test Chat Model",
+		Container: "llm-test-chat",
+		Port:      8080,
+	}
+
+	// Custom healthcheck YAML block (different from auto-injected default)
+	customHC := `    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 240s`
+
+	cfg := EngineComposeConfig{
+		Image:              "vllm/vllm-openai:latest",
+		Entrypoint:         []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:            map[string]string{},
+		Volumes:            []string{},
+		HealthCheckSection: customHC, // simulates custom healthcheck passed in
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	// Custom healthcheck should be present
+	if !strings.Contains(yaml, `test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]`) {
+		t.Errorf("YAML should contain custom healthcheck test command:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "timeout: 5s") {
+		t.Errorf("YAML should contain custom timeout 5s:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "retries: 3") {
+		t.Errorf("YAML should contain custom retries 3:\n%s", yaml)
+	}
+
+	// Auto-injected defaults should NOT be present
+	if strings.Contains(yaml, `test: ["CMD", "curl", "-f", "http://localhost:8000/health"]`) {
+		t.Errorf("YAML should NOT contain auto-injected healthcheck:\n%s", yaml)
+	}
+	if strings.Contains(yaml, "retries: 10") {
+		t.Errorf("YAML should NOT contain auto-injected retries 10:\n%s", yaml)
+	}
+}
+
+// TestUlimits_Rendered verifies that when an engine version provides UlimitsJSON,
+// a properly formatted ulimits block appears in the compose YAML.
+func TestUlimits_Rendered(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	model := &models.Model{
+		Slug:      "test-llm-model",
+		Type:      "llm",
+		SubType:   "completion",
+		Name:      "Test LLM Model",
+		Container: "llm-test",
+		Port:      8080,
+	}
+
+	// Pre-rendered ulimits YAML block
+	ulimitsBlock := `    ulimits:
+      memlock: -1
+      stack: 67108864`
+
+	cfg := EngineComposeConfig{
+		Image:          "vllm/vllm-openai:latest",
+		Entrypoint:     []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:        map[string]string{},
+		Volumes:        []string{},
+		UlimitsSection: ulimitsBlock,
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	// Verify ulimits block is present with correct values
+	if !strings.Contains(yaml, "ulimits:") {
+		t.Errorf("YAML should contain ulimits block:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "memlock: -1") {
+		t.Errorf("YAML should contain memlock: -1:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "stack: 67108864") {
+		t.Errorf("YAML should contain stack: 67108864:\n%s", yaml)
+	}
+}
+
+// TestIPC_Override verifies that when an engine version provides a non-empty
+// IPC value, the compose YAML renders that value instead of the default "host".
+func TestIPC_Override(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	model := &models.Model{
+		Slug:      "test-llm-model",
+		Type:      "llm",
+		SubType:   "completion",
+		Name:      "Test LLM Model",
+		Container: "llm-test",
+		Port:      8080,
+	}
+
+	cfg := EngineComposeConfig{
+		Image:       "vllm/vllm-openai:latest",
+		Entrypoint:  []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:     map[string]string{},
+		Volumes:     []string{},
+		IPCOverride: "share",
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if !strings.Contains(yaml, "ipc: share") {
+		t.Errorf("YAML should contain 'ipc: share':\n%s", yaml)
+	}
+}
+
+// TestIPC_Empty_DefaultsToHost verifies that when an engine version has an
+// empty IPC field, the compose YAML renders the default "ipc: host".
+func TestIPC_Empty_DefaultsToHost(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	model := &models.Model{
+		Slug:      "test-llm-model",
+		Type:      "llm",
+		SubType:   "completion",
+		Name:      "Test LLM Model",
+		Container: "llm-test",
+		Port:      8080,
+	}
+
+	cfg := EngineComposeConfig{
+		Image:       "vllm/vllm-openai:latest",
+		Entrypoint:  []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:     map[string]string{},
+		Volumes:     []string{},
+		IPCOverride: "",
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if !strings.Contains(yaml, "ipc: host") {
+		t.Errorf("YAML should contain default 'ipc: host':\n%s", yaml)
+	}
+}
+
+// TestUlimits_Empty_NoRender verifies that when an engine version has no
+// ulimits configured, the compose YAML does not contain an ulimits block.
+func TestUlimits_Empty_NoRender(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	model := &models.Model{
+		Slug:      "test-llm-model",
+		Type:      "llm",
+		SubType:   "completion",
+		Name:      "Test LLM Model",
+		Container: "llm-test",
+		Port:      8080,
+	}
+
+	cfg := EngineComposeConfig{
+		Image:          "vllm/vllm-openai:latest",
+		Entrypoint:     []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:        map[string]string{},
+		Volumes:        []string{},
+		UlimitsSection: "",
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if strings.Contains(yaml, "ulimits:") {
+		t.Errorf("YAML should NOT contain ulimits block when empty:\n%s", yaml)
+	}
+}
