@@ -63,6 +63,54 @@ type ImportOverrides struct {
 	Override      bool   // if true, delete existing DB record + LiteLLM deployments, then re-import from YAML
 }
 
+// filterEngineErrors validates that the engine slug is known by querying
+// registered engine types (slug, name) from the database, then merges them with
+// built-in defaults before filtering out duplicate engine errors from baseErrs
+func (s *ModelService) filterEngineErrors(baseErrors []error, y *yamlparser.ModelYAML) []error {
+	if len(baseErrors) == 0 || y.Engine == "" {
+		return baseErrors
+	}
+
+	var dbTypes []models.EngineType
+	var err error
+	engineSet := make(map[string]struct{}, len(yamlparser.ValidEngineTypes))
+
+	if s.db != nil {
+		dbTypes, err = s.db.ListEngineTypes()
+		if err != nil {
+			dbTypes = []models.EngineType{} // fallback to empty DB result
+		}
+	}
+
+	for _, std := range yamlparser.ValidEngineTypes {
+		engineSet[std] = struct{}{}
+	}
+
+	for _, et := range dbTypes {
+		engineSet[et.Slug] = struct{}{}
+	}
+
+	engineKnown := false
+	if _, ok := engineSet[y.Engine]; ok {
+		engineKnown = true
+	}
+
+	if !engineKnown {
+		return baseErrors // Return all errors as-is if engine isn't in any known list
+	}
+
+	result := make([]error, 0, len(baseErrors))
+	for _, e := range baseErrors {
+		if e != nil && strings.Contains(e.Error(), "must be one of") {
+			continue // This was the engine-slug validation we already confirmed passes
+		}
+		if e != nil {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
 // configValues builds a flat map of uppercase ENV keys -> values, used to resolve
 // ${{ .config.XXX }} references in model YAML during import. Keys come from both
 // environment variables and the loaded config struct; env vars always win.
@@ -141,13 +189,14 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		}
 	}
 
-	// Validate — skip capability validation when CLI overrides are provided
+	// Validate engine against both built-in defaults and DB-sourced engines.
 	var validationErrs []error
 	if len(overrides.Capabilities) > 0 {
-		// Validate only non-capability fields when overrides are present
-		validationErrs = yamlparser.ValidateNonCapabilities(y)
+		baseErrs := yamlparser.ValidateNonCapabilities(y)
+		validationErrs = s.filterEngineErrors(baseErrs, y)
 	} else {
-		validationErrs = yamlparser.Validate(y)
+		baseErrs := yamlparser.Validate(y)
+		validationErrs = s.filterEngineErrors(baseErrs, y)
 	}
 	if len(validationErrs) > 0 {
 		var msgParts []string

@@ -116,10 +116,11 @@ func (s *ModelService) UpdateModelWithYAML(slug string, yamlPath string) (*model
 		return nil, fmt.Errorf("template expansion failed: %w", err)
 	}
 
-	if errs := yamlparser.Validate(y); len(errs) > 0 {
+	allErrs := s.filterEngineErrors(yamlparser.Validate(y), y)
+	if len(allErrs) > 0 {
 		var msg strings.Builder
 		msg.WriteString("validation errors:\n")
-		for _, e := range errs {
+		for _, e := range allErrs {
 			fmt.Fprintf(&msg, "  - %s\n", e)
 		}
 		return nil, fmt.Errorf("invalid model YAML:%s", msg.String())
