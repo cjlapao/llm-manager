@@ -10,7 +10,7 @@ name: "Qwen3.6 27B NVFP4"
 engine: vllm
 engine_version: pgx-llm-v3
 hf_repo: "unsloth/Qwen3.6-27B-NVFP4"
-container: llm-qwen3.6-27b-nvfp4
+container: qwen3.6-27b-nvfp4
 port: 8017
 type: llm
 subtype: chat

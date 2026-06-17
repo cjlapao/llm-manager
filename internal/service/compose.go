@@ -228,9 +228,9 @@ const composeTemplate = `services:
 {{- else}}
     ipc: host
 {{- end}}
-    entrypoint: [{{range $i, $e := .Entrypoint}}{{if $i}}, {{end}}\"{{$e}}\"{{end}}]
+    entrypoint: [{{range $i, $e := .Entrypoint}}{{if $i}}, {{end}}'{{$e}}'{{end}}]
     ports:
-      - \"{{.Port}}:8000\"
+      - '{{.Port}}:8000'
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
       - HF_TOKEN=${HF_TOKEN}
@@ -303,7 +303,7 @@ func (g *ComposeGenerator) GenerateWithOptions(model *models.Model, cfg EngineCo
 
 	data := ComposeTemplateData{
 		ServiceName:        fmt.Sprintf("%s-%s", model.Type, model.Slug),
-		Container:          model.Container,
+		Container:          fmt.Sprintf("%s-%s", model.Type, model.Container),
 		Port:               model.Port,
 		Image:              cfg.Image,
 		Entrypoint:         cfg.Entrypoint,

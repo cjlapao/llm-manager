@@ -1,6 +1,7 @@
 package yamlparser
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -120,6 +121,27 @@ type ModelYAML struct {
 	Profile *ModelProfile `yaml:"profile"`
 	// Optional health check URL for TTS voice verification.
 	HealthCheckVoice *string `yaml:"health_check_voice"`
+	// Optional healthcheck configuration block for container health checks.
+	// Populated by ParseYAML from the top-level "healthcheck:" YAML key
+	// (not automatically captured by standard yaml.Unmarshal).
+	HealthCheckJSON string `json:"health_check_json,omitempty"`
+
+	// Raw healthcheck block as a yaml.Node — allows direct child extraction
+	// into flat JSON without the wrapper-key nesting problem.
+	HealthCheckNode yaml.Node `yaml:"healthcheck,omitempty"`
+}
+
+// knownKeys is the set of top-level YAML keys that ModelYAML handles directly.
+// Anything not in here is treated as an extra block (e.g. "healthcheck:")
+// and serialized into HealthCheckJSON.
+var knownKeys = map[string]struct{}{
+	"slug": {}, "name": {}, "type": {}, "subtype": {}, "engine": {},
+	"engine_version": {}, "hf_repo": {}, "container": {}, "port": {},
+	"environment": {}, "command": {}, "input_token_cost": {},
+	"output_token_cost": {}, "cache_creation_input_token_cost": {},
+	"cache_read_input_token_cost": {}, "capabilities": {},
+	"litellm_params": {}, "model_info": {}, "profile": {},
+	"health_check_voice": {},
 }
 
 // ParseYAML reads and parses a YAML file into a ModelYAML struct.
@@ -131,7 +153,65 @@ func ParseYAML(path string) (*ModelYAML, error) {
 
 	var y ModelYAML
 	if err := yaml.Unmarshal(data, &y); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML file %s: %w", path, err)
+		return nil, fmt.Errorf("failed to parse YAML file: %w", err)
+	}
+
+	// Extract extra top-level keys (e.g., healthcheck:) not captured
+	// by known struct tags. Uses yaml.Node traversal for accuracy.
+	//
+	// Note: "healthcheck:" is handled specially — if HealthCheckNode was populated
+	// by the struct tag above, its children are extracted directly into flat JSON
+	// so that BuildHealthcheckSection receives the expected format (no wrapper
+	// key around the inner map).
+	var rootNode yaml.Node
+	if err := yaml.Unmarshal(data, &rootNode); err == nil && len(rootNode.Content) > 0 {
+		top := rootNode.Content[0]
+		if top.Kind == yaml.MappingNode {
+			// Extract the "healthcheck:" block as flat JSON (no wrapper key).
+			// Iterate over top-level nodes; when we hit the "healthcheck" key,
+			// unmarshal the YAML node into a Go value, then json.Marshal it.
+			for i := 0; i < len(top.Content); i += 2 {
+				k := top.Content[i].Value
+				if k == "healthcheck" {
+					valBytes, _ := yaml.Marshal(top.Content[i+1])
+					var val interface{}
+					if yaml.Unmarshal(valBytes, &val) == nil {
+						if b, err := json.Marshal(val); err == nil {
+							y.HealthCheckJSON = string(b)
+						}
+					}
+				}
+			}
+
+			// Then: handle remaining unknown keys (not "healthcheck":).
+			extra := make(map[string]interface{})
+			for i := 0; i < len(top.Content); i += 2 {
+				k := top.Content[i].Value
+				// Skip healthcheck — already handled above via HealthCheckNode
+				if k == "healthcheck" {
+					continue
+				}
+				valBytes, _ := yaml.Marshal(top.Content[i+1])
+				if _, known := knownKeys[k]; known {
+					continue // skip keys handled by ModelYAML struct fields
+				}
+				var val interface{}
+				if e := yaml.Unmarshal(valBytes, &val); e == nil {
+					extra[k] = val
+				}
+			}
+			if len(extra) > 0 {
+				b, e := json.Marshal(extra)
+				if e == nil {
+					// Only set if HC wasn't found via HealthCheckNode,
+					// or merge additional keys. For simplicity, append
+					// extra (non-healthcheck) keys as additional JSON in model_info.
+					if y.HealthCheckJSON == "" {
+						y.HealthCheckJSON = string(b)
+					}
+				}
+			}
+		}
 	}
 
 	return &y, nil

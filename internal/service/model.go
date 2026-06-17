@@ -265,6 +265,8 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		model.NumSpeculativeTokens = y.Profile.NumSpeculativeTokens
 		model.GpuMemoryUtilization = y.Profile.GpuMemoryUtilization
 	}
+	// Wire healthcheck JSON from YAML -> DB.
+	model.HealthcheckJSON = y.HealthCheckJSON
 
 	// Marshal litellm_params and model_info to JSON for DB storage
 	if len(litellmParams) > 0 {
@@ -584,6 +586,11 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 			NumSpeculativeTokens: model.NumSpeculativeTokens,
 			GpuMemoryUtilization: model.GpuMemoryUtilization,
 		}
+	}
+
+	// Export healthcheck JSON from DB -> YAML.
+	if model.HealthcheckJSON != "" {
+		y.HealthCheckJSON = model.HealthcheckJSON
 	}
 
 	return y, nil

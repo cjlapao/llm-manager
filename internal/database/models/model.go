@@ -3,6 +3,7 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -232,4 +233,13 @@ func (m *Model) SetHealthcheck(hc map[string]interface{}) error {
 	}
 	m.HealthcheckJSON = string(b)
 	return nil
+}
+
+// GetContainerName returns the actual Docker container name for this model.
+// It is the model type prefixed to the raw container value (e.g., "speech-qwen3-tts-1.7b").
+func (m *Model) GetContainerName() string {
+	if m.Container == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s-%s", m.Type, m.Container)
 }

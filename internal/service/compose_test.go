@@ -784,3 +784,117 @@ func TestHealthCheck_NonChatModel_NoAutoInject(t *testing.T) {
 		t.Errorf("non-chat model YAML should not contain healthcheck:\n%s", yaml)
 	}
 }
+
+// TestEntrypoint_UsesSingleQuotes verifies that the compose template renders
+// entrypoint items with single-quoted strings (not escaped double-quotes),
+// fixing Bug 1 where \\" rendered literal backslash-quote sequences that
+// Docker Compose could not parse as valid inline array syntax.
+func TestEntrypoint_UsesSingleQuotes(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	model := &models.Model{
+		Slug:      "test-model",
+		Type:      "speech",
+		SubType:   "tts",
+		Name:      "Test TTS Model",
+		Container: "speech-test-tts",
+		Port:      8004,
+	}
+
+	cfg := EngineComposeConfig{
+		Image:      "myimage:v1",
+		Entrypoint: []string{"python3", "-m", "vllm.entrypoints.openai.api_server"},
+		EnvVars:    map[string]string{},
+		Volumes:    []string{},
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	// Should contain single-quoted entries like 'python3'
+	if !strings.Contains(yaml, "'python3'") {
+		t.Errorf("entrypoint should use single-quoted entries:\n%s", yaml)
+	}
+	// Should NOT contain escaped double-quotes like \"python3\"
+	if strings.Contains(yaml, `\\"python3\\"`) || strings.Contains(yaml, `\\\"python3\\\"`) {
+		t.Errorf("entrypoint should NOT contain escaped quote sequences:\n%s", yaml)
+	}
+	// Entry line pattern: entrypoint: ['python3', '-m', ...]
+	lines := strings.Split(yaml, "\n")
+	var entryFound bool
+	for i, line := range lines {
+		if strings.Contains(line, "entrypoint: [") {
+			entryFound = true
+			// Check first item is single-quoted
+			if !strings.Contains(line, "'python3'") {
+				t.Errorf("entryline at line %d should contain single-quoted 'python3':\n%s", i+1, line)
+			}
+		}
+	}
+	if !entryFound {
+		t.Error("composeline should contain an entrypoint directive")
+	}
+}
+
+// TestHealthCheckJSON_InGeneratedComposes verifies that model-level healthcheck
+// JSON is correctly rendered as a YAML healthcheck block in the generated compose
+// output (Bug 2 — importing healthcheck from YAML into DB and re-rendering).
+func TestHealthCheckJSON_InGeneratedComposes(t *testing.T) {
+	gen, err := NewComposeGenerator()
+	if err != nil {
+		t.Fatalf("NewComposeGenerator returned error: %v", err)
+	}
+
+	model := &models.Model{
+		Slug:            "tts-health-model",
+		Type:            "speech",
+		SubType:         "tts",
+		Name:            "TTS Health Model",
+		Container:       "speech-tts-health",
+		Port:            8004,
+		HealthcheckJSON: `{"test": ["CMD", "curl", "-fsS", "http://localhost:8000/v1/models"], "interval": "30s", "timeout": "5s", "retries": 3, "start_period": "600s"}`,
+	}
+
+	cfg := EngineComposeConfig{
+		Image:                "myimage:v1",
+		Entrypoint:           []string{"python3", "-m", "app"},
+		EnvVars:              map[string]string{},
+		Volumes:              []string{},
+		HealthCheckSection:   "",
+		ModelHealthcheckJSON: model.HealthcheckJSON,
+	}
+
+	yaml, err := gen.Generate(model, cfg)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	// Verify healthcheck section is present
+	if !strings.Contains(yaml, "healthcheck:") {
+		t.Fatalf("Generated YAML should contain healthcheck:\\n%s", yaml)
+	}
+	// Verify all key fields from the JSON
+	expectedFields := []string{
+		`test: ["CMD", "curl", "-fsS", "http://localhost:8000/v1/models"]`,
+		`interval: "30s"`,
+		`timeout: "5s"`,
+		`retries: 3`,
+		`start_period: "600s"`,
+	}
+	for _, f := range expectedFields {
+		if !strings.Contains(yaml, f) {
+			t.Errorf("YAML missing expected healthcheck field %q:\n%s", f, yaml)
+		}
+	}
+	// Port mapping should render as single-quoted string
+	if !strings.Contains(yaml, "\x278004:8000\x27") {
+		t.Fatalf("port mapping should be \x278004:8000\x27, got:\n%s", yaml)
+	}
+
+	t.Logf("healthcheck compose output:\n%s", yaml)
+}

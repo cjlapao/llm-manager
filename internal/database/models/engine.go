@@ -47,12 +47,12 @@ type EngineVersion struct {
 	SyslogFacility     string    `gorm:"size:64;default:'local3';column:syslog_facility"`
 	DeployEnableNvidia bool      `gorm:"type:boolean;default:false;column:deploy_enable_nvidia"`
 	DeployGPUCount     string    `gorm:"size:16;default:'';column:deploy_gpu_count"`
-	CommandArgs         string    `gorm:"type:text;default:'';column:command_args"`
-	HealthcheckJSON     string    `gorm:"type:text;column:healthcheck_json"`
-	UlimitsJSON         string    `gorm:"type:text;column:ulimits_json"`
-	IPC                 string    `gorm:"size:32;default:'';column:ipc"`
-	CreatedAt           time.Time `gorm:"autoCreateTime;column:created_at"`
-	UpdatedAt           time.Time `gorm:"autoUpdateTime;column:updated_at"`
+	CommandArgs        string    `gorm:"type:text;default:'';column:command_args"`
+	HealthcheckJSON    string    `gorm:"type:text;column:healthcheck_json"`
+	UlimitsJSON        string    `gorm:"type:text;column:ulimits_json"`
+	IPC                string    `gorm:"size:32;default:'';column:ipc"`
+	CreatedAt          time.Time `gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt          time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }
 
 // TableName returns the database table name for EngineVersion.

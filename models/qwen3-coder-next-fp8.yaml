@@ -10,7 +10,7 @@ name: "Qwen3 Coder Next FP8"
 engine: vllm
 engine_version: pgx-llm-v3
 hf_repo: "Qwen/Qwen3-Coder-Next-FP8"
-container: llm-qwen3-coder-next-fp8
+container: qwen3-coder-next-fp8
 port: 8010
 type: llm
 subtype: chat

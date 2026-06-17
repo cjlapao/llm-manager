@@ -391,9 +391,9 @@ func TestEngineVersion_HealthcheckUlimitsIPC(t *testing.T) {
 
 	// Set and get with mixed types (string, int, array — typical Docker healthcheck)
 	mixedHC := map[string]interface{}{
-		"test":      "/usr/bin/check-health",
-		"interval":  json.Number("10000000000"),
-		"retries":   float64(3),
+		"test":        "/usr/bin/check-health",
+		"interval":    json.Number("10000000000"),
+		"retries":     float64(3),
 		"startPeriod": float64(5000000000),
 	}
 	if err := ev.SetHealthcheck(mixedHC); err != nil {

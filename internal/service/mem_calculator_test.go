@@ -144,7 +144,7 @@ func TestCalculateMemory_Qwen36_27b_NVFP4(t *testing.T) {
 		DefaultContext:     derefInt(sp.DefaultContext),
 		MaxContext:         derefInt(sp.MaxContext),
 		QuantBytesPerParam: derefFloat64(sp.QuantBytesPerParam),
-		MaxNumSeqs:         1,    // runtime uses --max-num-seqs 1
+		MaxNumSeqs:         1, // runtime uses --max-num-seqs 1
 		SubType:            yamlData.SubType,
 	}
 
@@ -174,7 +174,7 @@ func TestCalculateMemory_Qwen36_27b_NVFP4(t *testing.T) {
 	// Note: the YAML has num_speculative_tokens=3 but the runtime showed
 	// it was overridden to 1 via CLI. We test both.
 	t.Run("mtp_3_tokens", func(t *testing.T) {
-		kvDtypeBytes := 1.0  // fp8
+		kvDtypeBytes := 1.0 // fp8
 		contextLen := 262144
 		numSequences := 1 // profile default
 		mtpTokens := 3

@@ -1,6 +1,7 @@
 package yamlparser
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1073,5 +1074,77 @@ func TestValidate_ProfileZeroNumSpeculativeTokens(t *testing.T) {
 	errs := Validate(y)
 	if len(errs) == 0 {
 		t.Error("Validate(zero num_speculative_tokens) should return error")
+	}
+}
+
+// TestParseYAML_HealthCheckFlatJSON verifies that a "healthcheck:" YAML block
+// is extracted as FLAT JSON (no wrapper key), so BuildHealthcheckSection can
+// render individual fields correctly. Regression test for the double-nesting
+// bug where the whole map was dumped as Go text.
+func TestParseYAML_HealthCheckFlatJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	yamlContent := `slug: qwen3-tts-1.7b
+name: "Qwen3 TTS 1.7B"
+engine: vllm
+port: 8004
+type: speech
+subtype: tts
+healthcheck:
+  test: ["CMD", "curl", "-fsS", "http://localhost:8000/v1/models"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 600s
+`
+	path := filepath.Join(tmpDir, "model-import.yaml")
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	y, err := ParseYAML(path)
+	if err != nil {
+		t.Fatalf("ParseYAML() error: %v", err)
+	}
+
+	if y.HealthCheckJSON == "" {
+		t.Fatal("HealthCheckJSON should not be empty when healthcheck block is present")
+	}
+
+	// The JSON must NOT contain the wrapper key "healthcheck" mapping to an inner map.
+	// It should be flat: {"test":[...],"interval":"30s",...}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(y.HealthCheckJSON), &parsed); err != nil {
+		t.Fatalf("HealthCheckJSON is not valid JSON: %v\n%s", err, y.HealthCheckJSON)
+	}
+
+	expectedKeys := map[string]bool{
+		"test":         true,
+		"interval":     true,
+		"timeout":      true,
+		"retries":      true,
+		"start_period": true,
+	}
+	for k := range expectedKeys {
+		if _, ok := parsed[k]; !ok {
+			t.Errorf("HealthCheckJSON missing expected key %q.\nJSON: %s", k, y.HealthCheckJSON)
+		}
+	}
+
+	// Verify types match what docker-compose expects (BEFORE deleting keys)
+	if val, ok := parsed["test"].([]interface{}); !ok || len(val) != 4 {
+		t.Errorf("HealthCheck JSON 'test' should be []interface{} with 4 elements, got %#v", parsed["test"])
+	}
+	if val, ok := parsed["interval"].(string); !ok || val != "30s" {
+		t.Errorf("HealthCheck JSON 'interval' should be string \"30s\", got type=%T value=%#v", parsed["interval"], parsed["interval"])
+	}
+	if val, ok := parsed["retries"].(float64); !ok || int(val) != 3 {
+		t.Errorf("HealthCheck JSON 'retries' should be float64(3), got %#v", parsed["retries"])
+	}
+
+	delete(parsed, "test") // already verified above
+
+	// Check there are exactly 5 keys — no more (no wrapper key).
+	if len(parsed) != 4 {
+		t.Errorf("Expected exactly 4 extra keys (after removing 'test'), got %d.\nJSON: %s", len(parsed), y.HealthCheckJSON)
 	}
 }

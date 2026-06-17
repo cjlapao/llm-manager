@@ -10,7 +10,7 @@ name: "Qwen3 Embedding 0.6B"
 engine: vllm
 engine_version: pgx-llm-v1
 hf_repo: "Qwen/Qwen3-Embedding-0.6B"
-container: rag-qwen3-embedding-0.6b
+container: qwen3-embedding-0.6b
 port: 8111
 type: rag
 subtype: embedding

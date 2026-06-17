@@ -559,11 +559,11 @@ func (s *ContainerService) checkStaleContainer(slug string) error {
 	if err != nil {
 		return nil // unknown model, skip
 	}
-	if model.Container == "" {
+	if model.GetContainerName() == "" {
 		return nil
 	}
 
-	cmd := exec.Command("docker", "inspect", model.Container)
+	cmd := exec.Command("docker", "inspect", model.GetContainerName())
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil // container doesn't exist
@@ -583,21 +583,21 @@ func (s *ContainerService) checkStaleContainer(slug string) error {
 			labels, _ := inspectResult["Config"].(map[string]interface{})
 			if labels != nil {
 				if _, hasComposeLabel := labels["com.docker.compose.project"]; hasComposeLabel {
-					return fmt.Errorf("running compose container %q from a previous session", model.Container)
+					return fmt.Errorf("running compose container %q from a previous session", model.GetContainerName())
 				}
 			}
-			return fmt.Errorf("container %q is running (not compose-managed)", model.Container)
+			return fmt.Errorf("container %q is running (not compose-managed)", model.GetContainerName())
 		}
 
 		// Stopped containers (exited, created, dead, etc.) — compose can't
 		// recreate them either.
 		if status == "exited" || status == "created" || status == "dead" || status == "removing" {
-			return fmt.Errorf("stopped compose container %q from a previous session", model.Container)
+			return fmt.Errorf("stopped compose container %q from a previous session", model.GetContainerName())
 		}
 	}
 
 	// Container exists but we couldn't determine state — assume stale.
-	return fmt.Errorf("container %q exists in unknown state", model.Container)
+	return fmt.Errorf("container %q exists in unknown state", model.GetContainerName())
 }
 
 // removeContainer forcefully removes a container by name.
@@ -921,7 +921,7 @@ func (s *ContainerService) StartContainer(slug string, allowMultiple bool, overr
 		return fmt.Errorf("model not found: %w", err)
 	}
 
-	if model.Container == "" {
+	if model.GetContainerName() == "" {
 		return fmt.Errorf("model %s has no container configured", slug)
 	}
 
@@ -959,9 +959,9 @@ func (s *ContainerService) StartContainer(slug string, allowMultiple bool, overr
 	// This covers containers that were manually created, left over from crashed sessions,
 	// or created by a different compose project that used the same container name.
 	// docker compose down won't touch these.
-	if model.Container != "" {
-		exec.Command("docker", "stop", model.Container).Run()     // stop if running, ignore errors
-		exec.Command("docker", "rm", "-f", model.Container).Run() // force remove, ignore errors
+	if model.GetContainerName() != "" {
+		exec.Command("docker", "stop", model.GetContainerName()).Run()     // stop if running, ignore errors
+		exec.Command("docker", "rm", "-f", model.GetContainerName()).Run() // force remove, ignore errors
 	}
 
 	// Debug: log memory calculation values
@@ -998,7 +998,7 @@ func (s *ContainerService) StartContainerDryRun(slug string, overrides StartOver
 		return fmt.Errorf("model not found: %w", err)
 	}
 
-	if model.Container == "" {
+	if model.GetContainerName() == "" {
 		return fmt.Errorf("model %s has no container configured", slug)
 	}
 
@@ -1018,11 +1018,11 @@ func (s *ContainerService) StopContainer(slug string) error {
 		return fmt.Errorf("model not found: %w", err)
 	}
 
-	if model.Container == "" {
+	if model.GetContainerName() == "" {
 		return fmt.Errorf("model %s has no container configured", slug)
 	}
 
-	cmd := exec.Command("docker", "stop", model.Container)
+	cmd := exec.Command("docker", "stop", model.GetContainerName())
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to stop container %s: %w", slug, err)
 	}
@@ -1048,11 +1048,11 @@ func (s *ContainerService) GetContainerLogs(slug string, lines int) (string, err
 		return "", fmt.Errorf("model not found: %w", err)
 	}
 
-	if model.Container == "" {
+	if model.GetContainerName() == "" {
 		return "", fmt.Errorf("model %s has no container configured", slug)
 	}
 
-	args := []string{"logs", "--tail", fmt.Sprintf("%d", lines), model.Container}
+	args := []string{"logs", "--tail", fmt.Sprintf("%d", lines), model.GetContainerName()}
 	cmd := exec.Command("docker", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1069,11 +1069,11 @@ func (s *ContainerService) queryDockerStatus(slug string) (string, error) {
 		return "unknown", nil
 	}
 
-	if model.Container == "" {
+	if model.GetContainerName() == "" {
 		return "unknown", nil
 	}
 
-	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Status}}", model.Container)
+	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Status}}", model.GetContainerName())
 	output, err := cmd.Output()
 	if err != nil {
 		return "unknown", nil
@@ -1402,7 +1402,7 @@ func (s *ContainerService) StartModelBySlug(slug string) error {
 		return fmt.Errorf("model not found: %w", err)
 	}
 
-	if model.Container == "" {
+	if model.GetContainerName() == "" {
 		return fmt.Errorf("model %s has no container configured", slug)
 	}
 
@@ -1419,17 +1419,17 @@ func (s *ContainerService) StartModelBySlug(slug string) error {
 	// This covers containers that were manually created, left over from crashed sessions,
 	// or created by a different compose project that used the same container name.
 	// docker compose up cannot reuse a name that is already in use (even if stopped).
-	fmt.Fprintf(os.Stderr, "  Cleaning up stale container %s...\n", model.Container)
-	exec.Command("docker", "stop", model.Container).Run()     // stop if running, ignore errors
-	exec.Command("docker", "rm", "-f", model.Container).Run() // force remove, ignore errors
+	fmt.Fprintf(os.Stderr, "  Cleaning up stale container %s...\n", model.GetContainerName())
+	exec.Command("docker", "stop", model.GetContainerName()).Run()     // stop if running, ignore errors
+	exec.Command("docker", "rm", "-f", model.GetContainerName()).Run() // force remove, ignore errors
 
 	// Always create fresh via compose
 	composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
 	composeUp.Dir = composeDir
 	if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
-		return fmt.Errorf("failed to create container %s: %s (%w)", model.Container, string(composeOut), composeErr)
+		return fmt.Errorf("failed to create container %s: %s (%w)", model.GetContainerName(), string(composeOut), composeErr)
 	}
-	fmt.Printf("Container %s created\n", model.Container)
+	fmt.Printf("Container %s created\n", model.GetContainerName())
 
 	return nil
 }
@@ -1442,11 +1442,11 @@ func (s *ContainerService) StopModelBySlug(slug string) error {
 		return fmt.Errorf("model not found: %w", err)
 	}
 
-	if model.Container == "" {
+	if model.GetContainerName() == "" {
 		return fmt.Errorf("model %s has no container configured", slug)
 	}
 
-	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", model.Container)
+	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", model.GetContainerName())
 	output, err := cmd.Output()
 	if err != nil {
 		// Container doesn't exist or can't be inspected — nothing to stop
@@ -1455,13 +1455,13 @@ func (s *ContainerService) StopModelBySlug(slug string) error {
 
 	state := strings.TrimSpace(string(output))
 	if state == "running" {
-		stopCmd := exec.Command("docker", "stop", model.Container)
+		stopCmd := exec.Command("docker", "stop", model.GetContainerName())
 		if err := stopCmd.Run(); err != nil {
 			return fmt.Errorf("failed to stop container %s: %w", slug, err)
 		}
-		fmt.Printf("Container %s stopped\n", model.Container)
+		fmt.Printf("Container %s stopped\n", model.GetContainerName())
 	} else {
-		fmt.Printf("Container %s is not running (state: %s)\n", model.Container, state)
+		fmt.Printf("Container %s is not running (state: %s)\n", model.GetContainerName(), state)
 	}
 
 	return nil
@@ -1525,7 +1525,7 @@ func (s *ContainerService) StartModelBySlugWithAllow(slug string, allowMultiple 
 		return fmt.Errorf("model not found: %w", err)
 	}
 
-	if model.Container == "" {
+	if model.GetContainerName() == "" {
 		return fmt.Errorf("model %s has no container configured", slug)
 	}
 
@@ -1551,17 +1551,17 @@ func (s *ContainerService) StartModelBySlugWithAllow(slug string, allowMultiple 
 	// This covers containers that were manually created, left over from crashed sessions,
 	// or created by a different compose project that used the same container name.
 	// docker compose up cannot reuse a name that is already in use (even if stopped).
-	fmt.Fprintf(os.Stderr, "  Cleaning up stale container %s...\n", model.Container)
-	exec.Command("docker", "stop", model.Container).Run()     // stop if running, ignore errors
-	exec.Command("docker", "rm", "-f", model.Container).Run() // force remove, ignore errors
+	fmt.Fprintf(os.Stderr, "  Cleaning up stale container %s...\n", model.GetContainerName())
+	exec.Command("docker", "stop", model.GetContainerName()).Run()     // stop if running, ignore errors
+	exec.Command("docker", "rm", "-f", model.GetContainerName()).Run() // force remove, ignore errors
 
 	// Always create fresh via compose
 	composeUp := exec.Command("docker", "compose", "--project-name", projectName, "-f", ymlPath, "up", "-d")
 	composeUp.Dir = composeDir
 	if composeOut, composeErr := composeUp.CombinedOutput(); composeErr != nil {
-		return fmt.Errorf("failed to create container %s: %s (%w)", model.Container, string(composeOut), composeErr)
+		return fmt.Errorf("failed to create container %s: %s (%w)", model.GetContainerName(), string(composeOut), composeErr)
 	}
-	fmt.Printf("Container %s created\n", model.Container)
+	fmt.Printf("Container %s created\n", model.GetContainerName())
 
 	return nil
 }
@@ -1642,8 +1642,8 @@ func (s *ContainerService) GetModelStatus(slug string) (ModelStatus, error) {
 	}
 
 	status := "unknown"
-	if model.Container != "" {
-		cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", model.Container)
+	if model.GetContainerName() != "" {
+		cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", model.GetContainerName())
 		output, inspectErr := cmd.Output()
 		if inspectErr == nil {
 			status = strings.TrimSpace(string(output))
