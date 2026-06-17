@@ -116,7 +116,9 @@ func (s *ModelService) UpdateModelWithYAML(slug string, yamlPath string) (*model
 		return nil, fmt.Errorf("template expansion failed: %w", err)
 	}
 
-	allErrs := s.filterEngineErrors(yamlparser.Validate(y), y)
+	baseErrs := yamlparser.Validate(y)
+	extraErrs := s.validateEngineAndVersion(y)
+	allErrs := append(baseErrs, extraErrs...)
 	if len(allErrs) > 0 {
 		var msg strings.Builder
 		msg.WriteString("validation errors:\n")

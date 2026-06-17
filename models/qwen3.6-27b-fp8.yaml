@@ -60,7 +60,7 @@ command:
   - "--attention-backend flashinfer"
   - "--moe-backend marlin"
   - "--load-format instanttensor"
-  - "--chat-template /app/templates/qwen3.5-chat-template.jinja"
+  - "--chat-template /app/templates/qwen3.6-chat-template.jinja"
 
 capabilities:
   - reasoning

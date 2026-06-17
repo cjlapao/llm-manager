@@ -58,7 +58,7 @@ command:
   - "--enable-expert-parallel"
   - "--mm-encoder-tp-mode data"
   - "--load-format instanttensor"
-  - "--chat-template /app/templates/qwen3.6-35b-a3b-chat-template.jinja"
+  - "--chat-template /app/templates/qwen3.6-chat-template.jinja"
 
 capabilities:
   - reasoning

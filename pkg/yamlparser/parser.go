@@ -6,7 +6,6 @@ import (
 	"os"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,21 +14,6 @@ import (
 // when no database is available. Custom engines imported via YAML files will
 // register their own slugs (e.g., "qwen-voice") which must be passed explicitly.
 var ValidEngineTypes = []string{"vllm", "sglang", "llama.cpp"}
-
-// IsEngineType checks if the given engine string is valid (one of validEngines).
-// If validEngines is nil or empty, falls back to ValidEngineTypes.
-// Used by Validate() for flexible engine type checking at import time.
-func IsEngineType(engine string, validEngines []string) bool {
-	if len(validEngines) == 0 {
-		validEngines = ValidEngineTypes
-	}
-	for _, e := range validEngines {
-		if strings.EqualFold(e, engine) {
-			return true
-		}
-	}
-	return false
-}
 
 // ValidTypes is the enum of valid model types.
 var ValidTypes = []string{"llm", "rag", "speech", "comfyui", "auto-complete"}
@@ -236,7 +220,6 @@ func ParseYAML(path string) (*ModelYAML, error) {
 }
 
 // Validate checks the ModelYAML for required fields and valid values.
-// Returns a slice of error strings (empty means valid).
 func Validate(y *ModelYAML) []error {
 	var errs []error
 
@@ -283,17 +266,6 @@ func Validate(y *ModelYAML) []error {
 
 	if y.Engine == "" {
 		errs = append(errs, fmt.Errorf("engine is required"))
-	} else {
-		valid := false
-		for _, e := range ValidEngineTypes {
-			if y.Engine == e {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			errs = append(errs, fmt.Errorf("engine must be one of %v (got %q)", ValidEngineTypes, y.Engine))
-		}
 	}
 
 	if y.Port < 1 || y.Port > 65535 {
@@ -333,7 +305,7 @@ func InjectCapabilitiesFromTypeSubtype(y *ModelYAML) {
 }
 
 // ValidateNonCapabilities checks the ModelYAML for required fields and valid values,
-// except for capabilities. Use this when CLI overrides will replace YAML capabilities.
+// except for capabilities.
 func ValidateNonCapabilities(y *ModelYAML) []error {
 	var errs []error
 
@@ -349,17 +321,6 @@ func ValidateNonCapabilities(y *ModelYAML) []error {
 
 	if y.Engine == "" {
 		errs = append(errs, fmt.Errorf("engine is required"))
-	} else {
-		valid := false
-		for _, e := range ValidEngineTypes {
-			if y.Engine == e {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			errs = append(errs, fmt.Errorf("engine must be one of %v (got %q)", ValidEngineTypes, y.Engine))
-		}
 	}
 
 	if y.Port < 1 || y.Port > 65535 {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/user/llm-manager/internal/config"
+	"github.com/user/llm-manager/internal/database/models"
 	"github.com/user/llm-manager/internal/database"
 	"github.com/user/llm-manager/pkg/yamlparser"
 )
@@ -189,6 +190,18 @@ func TestImportModel_SucceedsWithoutOpenAIAPIURL(t *testing.T) {
 	}
 	if err := db.AutoMigrate(); err != nil {
 		t.Fatalf("AutoMigrate() error: %v", err)
+	}
+	// Register known engine types so validateEngineAndVersion passes.
+	for _, slug := range []string{"vllm", "sglang", "llama.cpp"} {
+		if _, err := db.GetEngineTypeBySlug(slug); err != nil {
+			nameMap := map[string]string{
+				"vllm":      "vLLM",
+				"sglang":    "Sglang",
+				"llama.cpp": "llama.cpp",
+			}
+			et := models.EngineType{Slug: slug, Name: nameMap[slug]}
+			db.CreateEngineType(&et)
+		}
 	}
 	t.Cleanup(func() {
 		db.Close()

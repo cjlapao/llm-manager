@@ -58,7 +58,7 @@ command:
   - "--disable-custom-all-reduce"
   - "--load-format instanttensor"
   - "--async-scheduling"
-  - "--chat-template /app/templates/qwen3.6-27b-chat-template.jinja"
+  - "--chat-template /app/templates/qwen3.6-chat-template.jinja"
   - "--default-chat-template-kwargs '{\"preserve_thinking\": true}'"
 
 capabilities:
