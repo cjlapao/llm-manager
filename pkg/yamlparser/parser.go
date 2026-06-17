@@ -6,12 +6,30 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-// ValidEngineTypes lists the allowed engine types.
+// ValidEngineTypes lists the allowed core engine types. These are fallback defaults
+// when no database is available. Custom engines imported via YAML files will
+// register their own slugs (e.g., "qwen-voice") which must be passed explicitly.
 var ValidEngineTypes = []string{"vllm", "sglang", "llama.cpp"}
+
+// IsEngineType checks if the given engine string is valid (one of validEngines).
+// If validEngines is nil or empty, falls back to ValidEngineTypes.
+// Used by Validate() for flexible engine type checking at import time.
+func IsEngineType(engine string, validEngines []string) bool {
+	if len(validEngines) == 0 {
+		validEngines = ValidEngineTypes
+	}
+	for _, e := range validEngines {
+		if strings.EqualFold(e, engine) {
+			return true
+		}
+	}
+	return false
+}
 
 // ValidTypes is the enum of valid model types.
 var ValidTypes = []string{"llm", "rag", "speech", "comfyui", "auto-complete"}

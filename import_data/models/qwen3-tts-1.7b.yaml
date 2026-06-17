@@ -7,8 +7,8 @@
 
 slug: qwen3-tts-1.7b
 name: "Qwen3 TTS 1.7B"
-engine: vllm
-engine_version: pgx-llm-v3
+engine: qwen-voice
+engine_version: qwen3-voice-v1
 hf_repo: "Qwen/Qwen3-TTS-1.7B"
 container: qwen3-tts-1.7b
 port: 8004

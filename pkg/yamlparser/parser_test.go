@@ -1148,3 +1148,25 @@ healthcheck:
 		t.Errorf("Expected exactly 4 extra keys (after removing 'test'), got %d.\nJSON: %s", len(parsed), y.HealthCheckJSON)
 	}
 }
+
+func TestIsEngineType(t *testing.T) {
+	tests := []struct {
+		input     string
+		validEng  []string
+		wantValid bool
+	}{
+		{"vllm", nil, true},              // fallback to ValidEngineTypes
+		{"sglang", nil, true},
+		{"llama.cpp", nil, true},
+		{"invalid", nil, false},
+		{"qwen-voice", []string{"qwen-voice"}, true},   // custom engine
+		{"QWEN-VOICE", []string{"qwen-voice"}, true},   // case insensitive
+		{"vllm", []string{"sglang"}, false},            // not in custom list
+	}
+	for _, tc := range tests {
+		got := IsEngineType(tc.input, tc.validEng)
+		if got != tc.wantValid {
+			t.Errorf("IsEngineType(%q, %v) = %v, want %v", tc.input, tc.validEng, got, tc.wantValid)
+		}
+	}
+}
