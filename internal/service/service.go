@@ -97,9 +97,20 @@ func (s *ModelService) UpdateModel(slug string, updates map[string]interface{}) 
 	return s.db.UpdateModel(slug, updates)
 }
 
-// DeleteModel deletes a model by slug.
+// DeleteModel deletes a model by slug. If the deleted model was tracked as
+// the latest-started model (LATEST_MODEL), that reference is cleared to avoid
+// a stale pointer.
 func (s *ModelService) DeleteModel(slug string) error {
-	return s.db.DeleteModel(slug)
+	if err := s.db.DeleteModel(slug); err != nil {
+		return err
+	}
+	configSvc := NewConfigService(s.db)
+	if latest, err := configSvc.GetLatestModel(); err == nil && latest == slug {
+		if err := configSvc.UnsetLatestModel(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to clear latest model: %v\n", err)
+		}
+	}
+	return nil
 }
 
 // UpdateModelWithYAML updates a model's fields using values from a YAML file.
@@ -851,18 +862,13 @@ func (s *ContainerService) checkGPUMemory(slug string, overrides StartOverrides)
 			return nil // non-fatal
 		}
 		poolNeeded := int(overrideUtil * float64(TotalGPUMB))
-		// Compute total memory footprint from profile to match CanFitDynamic's safety margin base.
-		// This ensures the safety margin is a percentage of the full model footprint
-		// (weights + KV cache + overhead), identical to the auto-calc path.
-		memEst, err := CalculateMemory(profile, getKVDtypeBytes(model.CommandArgs), checkContext, checkSeqs, mtpTokens, freeMB)
-		if err == nil && memEst != nil {
-			poolNeeded = memEst.TotalMB
-		}
-		safetyMargin := ComputeSafetyMargin(poolNeeded, s.cfg.SafetyMarginPct)
-		available := freeMB - safetyMargin
+
+		// When gpu_memory_utilization is explicitly set, skip the safety margin.
+		// The user has chosen the utilization level — just verify the pool fits.
+		available := freeMB
 
 		fmt.Fprintf(os.Stderr, "  [gpu-memory] using override: %.2f (pool: %d MB)\n", overrideUtil, poolNeeded)
-		fmt.Fprintf(os.Stderr, "  Available RAM: %d MB (free %d MB - %d MB safety margin)\n", available, freeMB, safetyMargin)
+		fmt.Fprintf(os.Stderr, "  Available RAM: %d MB (free %d MB)\n", available, freeMB)
 
 		if poolNeeded > available {
 			fmt.Fprintf(os.Stderr, "  ERROR: insufficient memory for gpu_memory_utilization=%.2f\n", overrideUtil)

@@ -58,6 +58,7 @@ type Model struct {
 	SpeculativeDecoding         *string   `gorm:"column:speculative_decoding"`
 	NumSpeculativeTokens        *int      `gorm:"column:num_speculative_tokens"`
 	GpuMemoryUtilization        *float64  `gorm:"column:gpu_memory_utilization"`
+	SpeculativeModel            *string   `gorm:"column:speculative_model"`
 	HealthcheckJSON             string    `gorm:"type:text;column:healthcheck_json"`
 	CreatedAt                   time.Time `gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt                   time.Time `gorm:"autoUpdateTime;column:updated_at"`

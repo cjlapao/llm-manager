@@ -17,6 +17,19 @@ func init() {
 	RegisterCommand("llm", func(root *RootCommand) Command { return NewLlmCommand(root) })
 }
 
+// splitArgs separates command-line args into positional arguments (anything that
+// doesn't start with "-") and flags (anything starting with "-").
+func splitArgs(args []string) (positional []string, flags []string) {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			flags = append(flags, arg)
+		} else {
+			positional = append(positional, arg)
+		}
+	}
+	return
+}
+
 // LlmCommand manages LLM model containers (start, stop, restart, swap, status, logs).
 type LlmCommand struct {
 	cfg *RootCommand
@@ -42,22 +55,10 @@ func (c *LlmCommand) Run(args []string) int {
 	case "start":
 		return c.runStart(args[1:])
 	case "stop":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Error: 'stop' requires a model slug\n")
-			return 1
-		}
 		return c.runStop(args[1:])
 	case "restart":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Error: 'restart' requires a model slug\n")
-			return 1
-		}
-		return c.runRestart(args[1])
+		return c.runRestart(args[1:])
 	case "swap":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Error: 'swap' requires a target model slug\n")
-			return 1
-		}
 		return c.runSwap(args[1:])
 	case "status":
 		if len(args) < 2 {
@@ -65,10 +66,6 @@ func (c *LlmCommand) Run(args []string) int {
 		}
 		return c.runStatus(args[1])
 	case "logs":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Error: 'logs' requires a model slug\n")
-			return 1
-		}
 		return c.runLogs(args[1:])
 	case "help", "-h", "--help":
 		c.PrintHelp()
@@ -109,7 +106,10 @@ func (c *LlmCommand) runStart(args []string) int {
 	dryRun := false
 	wait := false
 	overrides := service.StartOverrides{}
-	for _, arg := range args[1:] {
+	// flags start after [0] if slug was passed, otherwise nothing
+	flagArgs := args
+	if len(args) > 0 { flagArgs = args[1:] }
+	for _, arg := range flagArgs {
 		switch arg {
 		case "--dry-run", "-n":
 			dryRun = true
@@ -129,11 +129,15 @@ func (c *LlmCommand) runStart(args []string) int {
 			// next arg is the value
 		case "--speculative-tokens":
 			// next arg is the value
+		case "--speculative-model":
+			// next arg is the value
 		}
 	}
 
 	// Parse numeric overrides (simple positional: --flag value)
-	for i := 1; i < len(args); i++ {
+	startIdx := 1
+	if len(args) < 2 { startIdx = 0 }
+	for i := startIdx; i < len(args); i++ {
 		switch args[i] {
 		case "--max-model-len":
 			if i+1 < len(args) {
@@ -174,6 +178,12 @@ func (c *LlmCommand) runStart(args []string) int {
 				var val int
 				fmt.Sscanf(args[i+1], "%d", &val)
 				overrides.NumSpeculativeTokens = &val
+				i++
+			}
+		case "--speculative-model":
+			if i+1 < len(args) {
+				val := args[i+1]
+				overrides.SpeculativeModel = &val
 				i++
 			}
 		}
@@ -238,9 +248,27 @@ func (c *LlmCommand) runStart(args []string) int {
 
 // ── stop ───────────────────────────────────────────────────────────────────
 
-// runStop stops a model container.
+// runStop stops a model container. If no slug is provided, uses the latest-started model.
 func (c *LlmCommand) runStop(args []string) int {
-	slug := args[0]
+	slug := ""
+	if len(args) > 0 {
+		slug = args[0]
+	}
+
+	isLatest := slug == "latest"
+	if slug == "" || isLatest {
+		resolved, err := resolveLatestSlug(c.cfg.db)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		slug = resolved
+		if isLatest {
+			fmt.Printf("Resolving 'latest' to model: %s\n", slug)
+		} else {
+			fmt.Printf("Using latest model: %s\n", slug)
+		}
+	}
 
 	if err := c.svc.StopContainer(slug); err != nil {
 		fmt.Fprintf(os.Stderr, "Error stopping container: %v\n", err)
@@ -253,8 +281,28 @@ func (c *LlmCommand) runStop(args []string) int {
 
 // ── restart ───────────────────────────────────────────────────────────────
 
-// runRestart restarts a model container.
-func (c *LlmCommand) runRestart(slug string) int {
+// runRestart restarts a model container. If no slug is provided, uses the latest-started model.
+func (c *LlmCommand) runRestart(args []string) int {
+	slug := ""
+	if len(args) > 0 {
+		slug = args[0]
+	}
+
+	isLatest := slug == "latest"
+	if slug == "" || isLatest {
+		resolved, err := resolveLatestSlug(c.cfg.db)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		slug = resolved
+		if isLatest {
+			fmt.Printf("Resolving 'latest' to model: %s\n", slug)
+		} else {
+			fmt.Printf("Using latest model: %s\n", slug)
+		}
+	}
+
 	if err := c.svc.RestartContainer(slug); err != nil {
 		fmt.Fprintf(os.Stderr, "Error restarting container: %v\n", err)
 		return 1
@@ -266,11 +314,31 @@ func (c *LlmCommand) runRestart(slug string) int {
 
 // ── swap ─────────────────────────────────────────────────────────────────
 
-// runSwap performs a GPU-safe model swap.
+// runSwap performs a GPU-safe model swap. If no slug is provided, uses the latest-started model.
 func (c *LlmCommand) runSwap(args []string) int {
-	slug := args[0]
+	slug := ""
+	if len(args) > 0 {
+		slug = args[0]
+	}
+	isLatest := slug == "latest"
+	if slug == "" || isLatest {
+		resolved, err := resolveLatestSlug(c.cfg.db)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		slug = resolved
+		if isLatest {
+			fmt.Printf("Resolving 'latest' to model: %s\n", slug)
+		} else {
+			fmt.Printf("Using latest model: %s\n", slug)
+		}
+	}
+
 	allowMultiple := false
-	for _, arg := range args[1:] {
+	swapFlags := args
+	if len(args) > 0 { swapFlags = args[1:] }
+	for _, arg := range swapFlags {
 		if arg == "--allow-multiple" || arg == "-m" {
 			allowMultiple = true
 		}
@@ -399,15 +467,37 @@ func (c *LlmCommand) runStatus(slug string) int {
 
 // runLogs shows container logs.
 func (c *LlmCommand) runLogs(args []string) int {
-	slug := args[0]
+	// Split into positional args (slug candidate) and flag args
+	positional, allFlags := splitArgs(args)
+
+	slug := ""
+	if len(positional) > 0 {
+		slug = positional[0]
+	}
+
+	isLatest := slug == "latest"
+	if slug == "" || isLatest {
+		resolved, err := resolveLatestSlug(c.cfg.db)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		slug = resolved
+		if isLatest {
+			fmt.Printf("Resolving 'latest' to model: %s\n", slug)
+		} else {
+			fmt.Printf("Using latest model: %s\n", slug)
+		}
+	}
+
 	lines := 50
 	follow := false
-	for i := 1; i < len(args); i++ {
-		if args[i] == "-f" || args[i] == "--follow" {
+	for _, arg := range allFlags {
+		if arg == "-f" || arg == "--follow" {
 			follow = true
 		} else {
-			if n, _ := fmt.Sscanf(args[i], "%d", &lines); n == 0 {
-				fmt.Fprintf(os.Stderr, "Warning: invalid log line count %q, using default 50\n", args[i])
+			if n, _ := fmt.Sscanf(arg, "%d", &lines); n == 0 {
+				fmt.Fprintf(os.Stderr, "Warning: invalid log line count %q, using default 50\n", arg)
 			}
 		}
 	}
@@ -447,7 +537,7 @@ func (c *LlmCommand) resolveContainer(slug string) (string, error) {
 
 	model, err := c.cfg.db.GetModel(slug)
 	if err == nil && model.Container != "" {
-		return model.Container, nil
+		return model.GetContainerName(), nil
 	}
 
 	fmt.Fprintf(os.Stderr, "Unknown service or model: %s\n\n", slug)
@@ -487,13 +577,13 @@ USAGE:
   llm-manager llm [SUBCOMMAND] [ARGS]
 
 SUBCOMMANDS:
-  start [<slug>]        Start a model container
-  stop <slug>           Stop a model container
-  restart <slug>        Restart a model container
-  swap <slug>           GPU-safe model swap (stop all LLMs, drop cache, start target)
+  start [<slug>]     Start a model container (defaults to latest if omitted)
+  stop [<slug>]      Stop a model container (defaults to latest if omitted)
+  restart [<slug>]   Restart a model container (defaults to latest if omitted)
+  swap [<slug>]      GPU-safe model swap (defaults to latest if omitted)
   status [slug]         Show all container status and latest model info
   status <slug>         Show status of a specific container
-  logs <slug> [-f] [lines]  Show container logs (-f for follow mode)
+  logs [<slug>] [-f] [lines]  Show container logs (-f for follow mode, defaults to latest)
 
 FLAGS:
   --dry-run, -n           Preview startup (memory checks, diagnostics) without
@@ -518,11 +608,16 @@ EXAMPLES:
   llm-manager llm start latest
   llm-manager llm start qwen3_6 --allow-multiple
   llm-manager llm start qwen3_6 --wait
+  llm-manager llm stop                    Stop the latest model
   llm-manager llm stop qwen3_6
+  llm-manager llm restart                 Restart the latest model
   llm-manager llm restart qwen3_6
+  llm-manager llm swap                    Swap to the latest model
   llm-manager llm swap qwen3_6
   llm-manager llm status
   llm-manager llm status qwen3_6
-  llm-manager llm logs qwen3_6 -f
+  llm-manager llm logs              Show logs from latest model
+  llm-manager llm logs -f           Follow logs from latest model
+  llm-manager llm logs qwen3_6 -f   Follow logs for specific model
   llm-manager llm logs comfyui 100`)
 }
