@@ -120,12 +120,35 @@ func (c *ModelCommand) runList() int {
 		}
 
 		if container != "" {
-			// Query live Docker status
-			cmd := exec.Command("docker", "inspect", "-f", "{{.State.Status}}", container)
+			// Query live Docker container name (type + prefix)
+			fullContainer := m.GetContainerName()
+			container = fullContainer
+
+			// Fetch status in one pass: "running", "exited", "created", etc.
+			cmd := exec.Command("docker", "inspect", "-f", "{{.State.Status}}",
+				fullContainer)
 			if output, err := cmd.Output(); err == nil {
-				status = strings.TrimSpace(string(output))
+				rawStatus := strings.TrimSpace(string(output))
+
+				// "exited" → show as "stopped"; but non-zero exit = error
+				if rawStatus == "exited" {
+					exitCheck := exec.Command("docker", "inspect",
+						"-f", "{{.State.ExitCode}}", fullContainer)
+					if exitOut, e := exitCheck.Output(); e == nil {
+						var code int
+						fmt.Sscanf(strings.TrimSpace(string(exitOut)), "%d", &code)
+						if code != 0 {
+							status = fmt.Sprintf("error (%d)", code)
+						} else {
+							status = "stopped"
+						}
+					} else {
+						status = "stopped"
+					}
+				} else {
+					status = rawStatus
+				}
 			}
-			container = m.Container
 		}
 
 		// Check HF cache

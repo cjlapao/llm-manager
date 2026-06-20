@@ -181,3 +181,8 @@ func (s *ConfigService) GetLatestModel() (string, error) {
 func (s *ConfigService) SetLatestModel(slug string) error {
 	return s.Set("LLM_MANAGER_LATEST_MODEL", slug)
 }
+
+// UnsetLatestModel removes the latest-started model reference.
+func (s *ConfigService) UnsetLatestModel() error {
+	return s.Unset("LLM_MANAGER_LATEST_MODEL")
+}
