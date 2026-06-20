@@ -140,13 +140,13 @@ func (c *ImportCommand) runImportFolder(folderPath string, overwrite bool) int {
 
 		if service.IsEngineYAML(data) {
 			fmt.Printf("  %s — engine config\n", filepath.Base(path))
-			created, skippedCount, err := c.eng.ImportEngineFile(path)
+			created, updated, skippedCount, err := c.eng.ImportEngineFile(path, service.EngineImportOverrides{Overwrite: overwrite})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "    ✗ Error importing engine: %v\n", err)
 				skipped++
 				continue
 			}
-			fmt.Printf("    ✓ Engine imported: %d created, %d skipped\n", created, skippedCount)
+			fmt.Printf("    ✓ Engine imported: %d created, %d updated, %d skipped\n", created, updated, skippedCount)
 			imported++
 		} else {
 			// Try model import — if it fails validation, skip silently
@@ -206,23 +206,23 @@ func (c *ImportCommand) runImportFile(yamlPath string, overwrite bool) int {
 	}
 
 	if service.IsEngineYAML(data) {
-		return c.runEngineImport(yamlPath)
+		return c.runEngineImport(yamlPath, overwrite)
 	}
 
 	return c.runModelImport(yamlPath, overwrite)
 }
 
 // runEngineImport imports an engine configuration from a YAML file.
-func (c *ImportCommand) runEngineImport(yamlPath string) int {
+func (c *ImportCommand) runEngineImport(yamlPath string, overwrite bool) int {
 	fmt.Printf("Importing engine from %s...\n", yamlPath)
 
-	created, skipped, err := c.eng.ImportEngineFile(yamlPath)
+	created, updated, skipped, err := c.eng.ImportEngineFile(yamlPath, service.EngineImportOverrides{Overwrite: overwrite})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error importing engine: %v\n", err)
 		return 1
 	}
 
-	fmt.Printf("Imported engine: %d version(s) created, %d skipped\n", created, skipped)
+	fmt.Printf("Imported engine: %d version(s) created, %d updated, %d skipped\n", created, updated, skipped)
 	return 0
 }
 
@@ -269,8 +269,8 @@ ARGUMENTS:
   --folder      Import all .yml/.yaml files from a directory
 
 OPTIONS:
-  --overwrite    Delete existing DB + LiteLLM records before re-importing
-                (model import only; silently ignored for engine import)
+  --overwrite    For engine import: update existing engine type + upsert versions
+                For model import: delete existing DB record + LiteLLM deployments, then re-import
 
 EXAMPLES:
   llm-manager import model.yaml
@@ -278,6 +278,7 @@ EXAMPLES:
   llm-manager import ./engines/vllm.yml
   llm-manager import --folder ./models/
   llm-manager import --folder ./models/ --overwrite
-  llm-manager engine import ./engines/vllm.yml    (pre-validates engine type)
+  llm-manager engine import ./engines/vllm.yml --overwrite
+  llm-manager engine version import ./engines/vllm.yml --overwrite
 `)
 }

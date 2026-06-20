@@ -1031,6 +1031,23 @@ func TestValidate_ProfileValidSpeculativeDecoding(t *testing.T) {
 	}
 }
 
+func TestValidate_ProfileValidDflashSpeculativeDecoding(t *testing.T) {
+	dflash := "dflash"
+	y := &ModelYAML{
+		Slug:   "dflash-model",
+		Name:   "DFlash Model",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			SpeculativeDecoding: &dflash,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) != 0 {
+		t.Errorf("Validate(valid dflash speculative_decoding) returned %d errors: %v", len(errs), errs)
+	}
+}
+
 func TestValidate_ProfileEmptySpeculativeDecoding(t *testing.T) {
 	empty := ""
 	y := &ModelYAML{

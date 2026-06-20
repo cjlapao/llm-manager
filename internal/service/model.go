@@ -349,6 +349,7 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		model.MaxNumBatchedTokens = y.Profile.MaxNumBatchedTokens
 		model.SpeculativeDecoding = y.Profile.SpeculativeDecoding
 		model.NumSpeculativeTokens = y.Profile.NumSpeculativeTokens
+		model.SpeculativeModel = y.Profile.SpeculativeModel
 		model.GpuMemoryUtilization = y.Profile.GpuMemoryUtilization
 	}
 	// Wire healthcheck JSON from YAML -> DB.
@@ -670,6 +671,7 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 			MaxNumBatchedTokens:  model.MaxNumBatchedTokens,
 			SpeculativeDecoding:  model.SpeculativeDecoding,
 			NumSpeculativeTokens: model.NumSpeculativeTokens,
+			SpeculativeModel:     model.SpeculativeModel,
 			GpuMemoryUtilization: model.GpuMemoryUtilization,
 		}
 	}

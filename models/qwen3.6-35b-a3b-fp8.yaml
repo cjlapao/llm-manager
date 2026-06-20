@@ -59,6 +59,7 @@ command:
   - "--mm-encoder-tp-mode data"
   - "--load-format instanttensor"
   - "--chat-template /app/templates/qwen3.6-chat-template.jinja"
+  - "--default-chat-template-kwargs '{\"preserve_thinking\": true}'"
 
 capabilities:
   - reasoning

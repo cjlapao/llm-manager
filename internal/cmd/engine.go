@@ -70,6 +70,8 @@ SUBCOMMANDS:
   version get <type>/<slug>         Show details for an engine version
   version delete <type>/<slug>      Delete an engine version (refuses if used by models)
   version show-composition <type>/<slug>  Print generated docker-compose YAML for a version
+  version import <file.yml> [--overwrite]  Import engine versions from YAML file
+                                           (--overwrite updates existing records)
 
 EXAMPLES:
   llm-manager engine list
@@ -77,7 +79,8 @@ EXAMPLES:
   llm-manager engine delete vllm
   llm-manager engine version list --type vllm
   llm-manager engine version get vllm/pgx-llm-v1
-  llm-manager engine version show-composition vllm/pgx-llm-v1`)
+  llm-manager engine version show-composition vllm/pgx-llm-v1
+  llm-manager engine version import ./engines/vllm.yml --overwrite`)
 }
 
 // ---------------------------------------------------------------------------
@@ -104,8 +107,8 @@ func (c *EngineCommand) cmdList(args []string) int {
 		return 0
 	}
 
-	fmt.Printf("%-20s %-30s %s\n", "SLUG", "NAME", "DESCRIPTION")
-	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("%-20s %-30s %-12s %s\n", "SLUG", "NAME", "PROVIDER", "DESCRIPTION")
+	fmt.Println(strings.Repeat("-", 90))
 	for _, t := range types {
 		if filterType != "" && t.Slug != filterType {
 			continue
@@ -118,7 +121,11 @@ func (c *EngineCommand) cmdList(args []string) int {
 		if desc == "" {
 			desc = "<unset>"
 		}
-		fmt.Printf("%-20s %-30s %s\n", t.Slug, name, desc)
+		provider := t.Provider
+		if provider == "" {
+			provider = "custom"
+		}
+		fmt.Printf("%-20s %-30s %-12s %s\n", t.Slug, name, provider, desc)
 	}
 	return 0
 }
@@ -139,6 +146,7 @@ func (c *EngineCommand) cmdGet(args []string) int {
 	}
 	fmt.Printf("Slug:     %s\n", et.Slug)
 	fmt.Printf("Name:     %s\n", et.Name)
+	fmt.Printf("Provider: %s\n", et.Provider)
 	fmt.Printf("Desc:     %s\n", et.Description)
 	fmt.Printf("Created:  %s\n", et.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Printf("Updated:  %s\n", et.UpdatedAt.Format("2006-01-02 15:04:05"))
@@ -218,7 +226,8 @@ SUBCOMMANDS:
   get <type>/<slug>                       Show details for an engine version
   delete <type>/<slug>                    Delete an engine version
   show-composition <type>/<slug>          Print generated docker-compose YAML
-  import <file.yml>                       Import engine versions from YAML file (pre-validates engine type)`)
+  import <file.yml> [--overwrite]         Import engine versions from YAML file
+                                          (--overwrite updates existing records)`)
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown engine-version subcommand '%s'\n", sub)
@@ -258,7 +267,11 @@ func (c *EngineCommand) cmdVersionList(args []string) int {
 			continue
 		}
 		if !hasOutput {
-			fmt.Printf("Engine: %s\n", t.Slug)
+			provider := t.Provider
+			if provider == "" {
+				provider = "custom"
+			}
+			fmt.Printf("Engine: %s (provider: %s)\n", t.Slug, provider)
 			fmt.Printf("%-20s %-10s %-40s %-10s %-10s\n", "SLUG", "VERSION", "IMAGE", "DEFAULT", "LATEST")
 			fmt.Println(strings.Repeat("-", 100))
 			hasOutput = true
@@ -398,17 +411,34 @@ func (c *EngineCommand) cmdVersionShowComposition(args []string) int {
 // ---------------------------------------------------------------------------
 
 func (c *EngineCommand) cmdImport(args []string) int {
+	var overwrite bool
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: YAML file path required")
 		fmt.Fprintln(os.Stderr, "\nUSAGE:")
-		fmt.Fprintln(os.Stderr, "  llm-manager engine import <file.yml>")
+		fmt.Fprintln(os.Stderr, "  llm-manager engine import <file.yml> [--overwrite]")
 		fmt.Fprintln(os.Stderr, "\nPre-validates the file is an engine-type config before importing.")
 		fmt.Fprintln(os.Stderr, "For general auto-detect import, use:")
 		fmt.Fprintln(os.Stderr, "  llm-manager import <file.yml>")
 		return 1
 	}
 
-	yamlPath := args[0]
+	// Parse flags
+	var yamlPath string
+	for _, arg := range args {
+		if arg == "--overwrite" {
+			overwrite = true
+		} else if strings.HasPrefix(arg, "--") {
+			fmt.Fprintf(os.Stderr, "Error: unknown flag %s (supported: --overwrite)\n", arg)
+			return 1
+		} else {
+			yamlPath = arg
+		}
+	}
+
+	if yamlPath == "" {
+		fmt.Fprintln(os.Stderr, "Error: YAML file path required")
+		return 1
+	}
 
 	// Pre-validate: read file and check it's an engine-type YAML
 	data, err := os.ReadFile(yamlPath)
@@ -418,19 +448,22 @@ func (c *EngineCommand) cmdImport(args []string) int {
 	}
 
 	if !service.IsEngineYAML(data) {
-		fmt.Fprintf(os.Stderr, "Error: %s does not contain a valid engine configuration (missing engine:\nkey with slug)\n", yamlPath)
+		fmt.Fprintf(os.Stderr, "Error: %s does not contain a valid engine configuration (missing engine:key with slug)\n", yamlPath)
 		fmt.Fprintln(os.Stderr, "Use 'llm-manager import <file.yml>' for general import that auto-detects type.")
 		return 1
 	}
 
 	fmt.Printf("Importing engine from %s...\n", yamlPath)
-	created, skipped, err := c.svc.ImportEngineFile(yamlPath)
+	overrides := service.EngineImportOverrides{
+		Overwrite: overwrite,
+	}
+	created, updated, skipped, err := c.svc.ImportEngineFile(yamlPath, overrides)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error importing engine: %v\n", err)
 		return 1
 	}
 
-	fmt.Printf("Imported engine: %d version(s) created, %d skipped\n", created, skipped)
+	fmt.Printf("Imported engine: %d version(s) created, %d updated, %d skipped\n", created, updated, skipped)
 	return 0
 }
 

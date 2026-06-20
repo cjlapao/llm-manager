@@ -13,8 +13,13 @@ import (
 
 // mergeProfileFlagsWithOptions is like mergeProfileFlags but accepts CLI
 // overrides that replace auto-calculated values.
-func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, overrides StartOverrides) []string {
+func mergeProfileFlagsWithOptions(provider string, model *models.Model, existingCmds []string, overrides StartOverrides) []string {
 	if model == nil || model.TotalParamsB == nil || model.QuantBytesPerParam == nil {
+		return existingCmds
+	}
+	// Only apply vLLM profile flags when the engine provider is "vllm".
+	// Non-vLLM providers (custom, sglang, llama.cpp) get pass-through — no modifications.
+	if provider != "vllm" {
 		return existingCmds
 	}
 
@@ -159,10 +164,24 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 		specMethod = *model.SpeculativeDecoding
 	}
 
+	// Determine speculative model: CLI override > DB profile.
+	specModel := ""
+	if overrides.SpeculativeModel != nil && *overrides.SpeculativeModel != "" {
+		specModel = *overrides.SpeculativeModel
+	} else if model.SpeculativeModel != nil && *model.SpeculativeModel != "" {
+		specModel = *model.SpeculativeModel
+	}
+
 	// Inject --speculative-config only when we have both method AND tokens > 0.
 	// If operator provides both via CLI, we trust them (no supports_mtp gate).
 	if specMethod != "" && mtpTokens > 0 {
-		specConfig := fmt.Sprintf("'{\"method\":\"%s\",\"num_speculative_tokens\":%d}'", specMethod, mtpTokens)
+		var jsonParts []string
+		jsonParts = append(jsonParts, fmt.Sprintf("\"method\":\"%s\"", specMethod))
+		if specModel != "" {
+			jsonParts = append(jsonParts, fmt.Sprintf("\"model\":\"%s\"", specModel))
+		}
+		jsonParts = append(jsonParts, fmt.Sprintf("\"num_speculative_tokens\":%d", mtpTokens))
+		specConfig := "'{" + strings.Join(jsonParts, ",") + "}'"
 		result = append(result, "--speculative-config "+specConfig)
 		fmt.Fprintf(os.Stderr, "  [speculative] --speculative-config %s\n", specConfig)
 	}
@@ -191,6 +210,7 @@ func derefOrFalse(p *bool) bool {
 type EngineComposeConfig struct {
 	Image                string
 	Entrypoint           []string
+	Provider             string
 	EnvVars              map[string]string
 	Volumes              []string
 	CommandArgs          []string
@@ -228,7 +248,9 @@ const composeTemplate = `services:
 {{- else}}
     ipc: host
 {{- end}}
+{{- if len .Entrypoint}}
     entrypoint: [{{range $i, $e := .Entrypoint}}{{if $i}}, {{end}}'{{$e}}'{{end}}]
+{{- end}}
     ports:
       - '{{.Port}}:8000'
     environment:
@@ -299,7 +321,7 @@ func (g *ComposeGenerator) GenerateWithOptions(model *models.Model, cfg EngineCo
 	}
 
 	// Merge profile-derived flags into command args (with overrides)
-	commandArgs := mergeProfileFlagsWithOptions(model, cfg.CommandArgs, overrides)
+	commandArgs := mergeProfileFlagsWithOptions(cfg.Provider, model, cfg.CommandArgs, overrides)
 
 	data := ComposeTemplateData{
 		ServiceName:        fmt.Sprintf("%s-%s", model.Type, model.Slug),

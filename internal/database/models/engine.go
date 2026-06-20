@@ -14,6 +14,7 @@ type EngineType struct {
 	Slug        string    `gorm:"uniqueIndex;size:128;not null;column:slug"`
 	Name        string    `gorm:"size:256;column:name"`
 	Description string    `gorm:"type:text;default:'';column:description"`
+	Provider    string    `gorm:"size:32;default:'custom';column:provider"`
 	CreatedAt   time.Time `gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt   time.Time `gorm:"autoUpdateTime;column:updated_at"`
 }
@@ -27,6 +28,11 @@ func (e *EngineType) BeforeCreate(tx *gorm.DB) error {
 		e.ID = uuid.New()
 	}
 	return nil
+}
+
+// IsValidProvider checks whether p is a recognized engine provider.
+func IsValidProvider(p string) bool {
+	return p == "vllm" || p == "sglang" || p == "llama.cpp" || p == "custom"
 }
 
 // EngineVersion represents a specific version of an inference engine with its Docker recipe.
