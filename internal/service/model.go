@@ -63,6 +63,72 @@ type ImportOverrides struct {
 	Override      bool   // if true, delete existing DB record + LiteLLM deployments, then re-import from YAML
 }
 
+// validateEngineAndVersion checks that model's Engine and EngineVersion fields match
+// entries registered in the database. Returns a slice of error strings (empty means valid).
+// EngineType falls back to built-in defaults; engine version is validated only when
+// the parent engine type already exists in the DB (avoids import-order issues).
+func (s *ModelService) validateEngineAndVersion(y *yamlparser.ModelYAML) []error {
+	var errs []error
+
+	if s.db == nil {
+		return errs // No DB available — skip validation entirely (backward compat).
+	}
+
+	engineTypes, err := s.db.ListEngineTypes()
+	if err != nil || y.Engine == "" {
+		return errs
+	}
+
+	found := false
+	for _, et := range engineTypes {
+		if et.Slug == y.Engine {
+			found = true
+			break
+		}
+	}
+	if !found {
+		slugList := make([]string, len(engineTypes))
+		for i, et := range engineTypes {
+			slugList[i] = et.Slug
+		}
+		errs = append(errs, fmt.Errorf("engine %q not found in known engines: %v", y.Engine, slugList))
+	}
+
+	// Validate engine version only if it's provided AND the parent engine type
+	// is already in the DB (import-order-safe).
+	if y.EngineVersion != "" && foundInDB(y.Engine, engineTypes) {
+		allVersions, _ := s.db.ListEngineVersions()
+		if len(allVersions) > 0 {
+			versionFound := false
+			for _, ev := range allVersions {
+				if ev.Slug == y.EngineVersion {
+					versionFound = true
+					break
+				}
+			}
+			if !versionFound {
+				verList := make([]string, len(allVersions))
+				for i, ev := range allVersions {
+					verList[i] = ev.Slug
+				}
+				errs = append(errs, fmt.Errorf("engine_version %q not found in known versions: %v", y.EngineVersion, verList))
+			}
+		}
+	}
+
+	return errs
+}
+
+// foundInDB checks if a given slug is present in a list of EngineType records.
+func foundInDB(slug string, types []models.EngineType) bool {
+	for _, t := range types {
+		if t.Slug == slug {
+			return true
+		}
+	}
+	return false
+}
+
 // configValues builds a flat map of uppercase ENV keys -> values, used to resolve
 // ${{ .config.XXX }} references in model YAML during import. Keys come from both
 // environment variables and the loaded config struct; env vars always win.
@@ -141,14 +207,34 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		}
 	}
 
-	// Validate — skip capability validation when CLI overrides are provided
-	var validationErrs []error
-	if len(overrides.Capabilities) > 0 {
-		// Validate only non-capability fields when overrides are present
-		validationErrs = yamlparser.ValidateNonCapabilities(y)
-	} else {
-		validationErrs = yamlparser.Validate(y)
+	// Query DB-sourced engine slugs for duplicate checking (case-sensitive).
+	var engineTypeSet map[string]struct{}
+	if s.db != nil {
+		engineTypes, err := s.db.ListEngineTypes()
+		if err == nil {
+			engineTypeSet = make(map[string]struct{}, len(engineTypes))
+			for _, et := range engineTypes {
+				engineTypeSet[et.Slug] = struct{}{}
+			}
+		}
 	}
+
+	// Validate YAML structure (non-capability, basic field checks).
+	var validationErrs []error
+	hasCliCapsOverride := len(overrides.Capabilities) > 0
+
+	if hasCliCapsOverride {
+		baseErrs := yamlparser.ValidateNonCapabilities(y)
+		validationErrs = baseErrs
+	} else {
+		baseErrs := yamlparser.Validate(y)
+		validationErrs = baseErrs
+	}
+
+	// Additional DB-level validation for engine + engine_version slugs.
+	dbErrs := s.validateEngineAndVersion(y)
+	validationErrs = append(validationErrs, dbErrs...)
+
 	if len(validationErrs) > 0 {
 		var msgParts []string
 		for _, e := range validationErrs {
@@ -157,7 +243,7 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		return nil, fmt.Errorf("YAML validation failed: %s", strings.Join(msgParts, "; "))
 	}
 
-	// Check for duplicate slug (skip override if just cleared)
+	// Check for duplicate slug (skip override if just cleared) or unknown engine type.
 	if _, err := s.db.GetModel(y.Slug); err == nil {
 		if !overrides.Override {
 			return nil, fmt.Errorf("model %s already exists", y.Slug)
@@ -263,8 +349,11 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		model.MaxNumBatchedTokens = y.Profile.MaxNumBatchedTokens
 		model.SpeculativeDecoding = y.Profile.SpeculativeDecoding
 		model.NumSpeculativeTokens = y.Profile.NumSpeculativeTokens
+		model.SpeculativeModel = y.Profile.SpeculativeModel
 		model.GpuMemoryUtilization = y.Profile.GpuMemoryUtilization
 	}
+	// Wire healthcheck JSON from YAML -> DB.
+	model.HealthcheckJSON = y.HealthCheckJSON
 
 	// Marshal litellm_params and model_info to JSON for DB storage
 	if len(litellmParams) > 0 {
@@ -582,8 +671,14 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 			MaxNumBatchedTokens:  model.MaxNumBatchedTokens,
 			SpeculativeDecoding:  model.SpeculativeDecoding,
 			NumSpeculativeTokens: model.NumSpeculativeTokens,
+			SpeculativeModel:     model.SpeculativeModel,
 			GpuMemoryUtilization: model.GpuMemoryUtilization,
 		}
+	}
+
+	// Export healthcheck JSON from DB -> YAML.
+	if model.HealthcheckJSON != "" {
+		y.HealthCheckJSON = model.HealthcheckJSON
 	}
 
 	return y, nil

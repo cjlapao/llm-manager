@@ -128,6 +128,7 @@ func (m *sqliteManager) ensureLegacyColumns() error {
 		{"models", "max_num_batched_tokens", "INTEGER"},
 		{"models", "speculative_decoding", "TEXT"},
 		{"models", "num_speculative_tokens", "INTEGER"},
+		{"models", "speculative_model", "TEXT"},
 	}
 	for _, c := range columns {
 		colRef := c.col

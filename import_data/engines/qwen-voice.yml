@@ -2,16 +2,13 @@ engine:
   slug: qwen3-voice
   name: Qwen3 Voice
   description: "Qwen3 Voice custom engine for TTS and ASR"
+  provider: custom
 
 versions:
-  - slug: qwen3-voice-v1
-    version: "001"
-    container_name: vllm-node
-    image: cjlapao/pgx-vllm-gb10-nvfp4:230426
-    entrypoint:
-      - python3
-      - -m
-      - vllm.entrypoints.openai.api_server
+  - slug: v1
+    version: "1"
+    container_name: speech-node
+    image: ghcr.io/cjlapao/qwen3-audio-gb10:latest
     default: true
     latest: true
     volumes:
@@ -26,7 +23,4 @@ versions:
       facility: local3
     nvidia: true
     gpu_count: all
-    command_args:
-      - --tensor-parallel-size
-      - "{{.GPU_COUNT}}"
     port: 8000

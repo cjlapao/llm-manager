@@ -1,6 +1,7 @@
 package yamlparser
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -9,7 +10,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ValidEngineTypes lists the allowed engine types.
+// ValidEngineTypes lists the allowed core engine types. These are fallback defaults
+// when no database is available. Custom engines imported via YAML files will
+// register their own slugs (e.g., "qwen-voice") which must be passed explicitly.
 var ValidEngineTypes = []string{"vllm", "sglang", "llama.cpp"}
 
 // ValidTypes is the enum of valid model types.
@@ -84,8 +87,9 @@ type ModelProfile struct {
 	// New fields for runtime tuning
 	MaxNumSeqs           *int    `yaml:"max_num_seqs"`
 	MaxNumBatchedTokens  *int    `yaml:"max_num_batched_tokens"`
-	SpeculativeDecoding  *string `yaml:"speculative_decoding"` // e.g., "mtp"
+	SpeculativeDecoding  *string `yaml:"speculative_decoding"` // e.g., "mtp", "dflash"
 	NumSpeculativeTokens *int    `yaml:"num_speculative_tokens"`
+	SpeculativeModel     *string `yaml:"speculative_model"`
 	// GpuMemoryUtilization is an optional override for gpu_memory_utilization.
 	// When set, the auto-calculated memory utilization is bypassed and this
 	// value is used directly. Value must be in (0, 1).
@@ -120,6 +124,27 @@ type ModelYAML struct {
 	Profile *ModelProfile `yaml:"profile"`
 	// Optional health check URL for TTS voice verification.
 	HealthCheckVoice *string `yaml:"health_check_voice"`
+	// Optional healthcheck configuration block for container health checks.
+	// Populated by ParseYAML from the top-level "healthcheck:" YAML key
+	// (not automatically captured by standard yaml.Unmarshal).
+	HealthCheckJSON string `json:"health_check_json,omitempty"`
+
+	// Raw healthcheck block as a yaml.Node — allows direct child extraction
+	// into flat JSON without the wrapper-key nesting problem.
+	HealthCheckNode yaml.Node `yaml:"healthcheck,omitempty"`
+}
+
+// knownKeys is the set of top-level YAML keys that ModelYAML handles directly.
+// Anything not in here is treated as an extra block (e.g. "healthcheck:")
+// and serialized into HealthCheckJSON.
+var knownKeys = map[string]struct{}{
+	"slug": {}, "name": {}, "type": {}, "subtype": {}, "engine": {},
+	"engine_version": {}, "hf_repo": {}, "container": {}, "port": {},
+	"environment": {}, "command": {}, "input_token_cost": {},
+	"output_token_cost": {}, "cache_creation_input_token_cost": {},
+	"cache_read_input_token_cost": {}, "capabilities": {},
+	"litellm_params": {}, "model_info": {}, "profile": {},
+	"health_check_voice": {},
 }
 
 // ParseYAML reads and parses a YAML file into a ModelYAML struct.
@@ -131,14 +156,71 @@ func ParseYAML(path string) (*ModelYAML, error) {
 
 	var y ModelYAML
 	if err := yaml.Unmarshal(data, &y); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML file %s: %w", path, err)
+		return nil, fmt.Errorf("failed to parse YAML file: %w", err)
+	}
+
+	// Extract extra top-level keys (e.g., healthcheck:) not captured
+	// by known struct tags. Uses yaml.Node traversal for accuracy.
+	//
+	// Note: "healthcheck:" is handled specially — if HealthCheckNode was populated
+	// by the struct tag above, its children are extracted directly into flat JSON
+	// so that BuildHealthcheckSection receives the expected format (no wrapper
+	// key around the inner map).
+	var rootNode yaml.Node
+	if err := yaml.Unmarshal(data, &rootNode); err == nil && len(rootNode.Content) > 0 {
+		top := rootNode.Content[0]
+		if top.Kind == yaml.MappingNode {
+			// Extract the "healthcheck:" block as flat JSON (no wrapper key).
+			// Iterate over top-level nodes; when we hit the "healthcheck" key,
+			// unmarshal the YAML node into a Go value, then json.Marshal it.
+			for i := 0; i < len(top.Content); i += 2 {
+				k := top.Content[i].Value
+				if k == "healthcheck" {
+					valBytes, _ := yaml.Marshal(top.Content[i+1])
+					var val interface{}
+					if yaml.Unmarshal(valBytes, &val) == nil {
+						if b, err := json.Marshal(val); err == nil {
+							y.HealthCheckJSON = string(b)
+						}
+					}
+				}
+			}
+
+			// Then: handle remaining unknown keys (not "healthcheck":).
+			extra := make(map[string]interface{})
+			for i := 0; i < len(top.Content); i += 2 {
+				k := top.Content[i].Value
+				// Skip healthcheck — already handled above via HealthCheckNode
+				if k == "healthcheck" {
+					continue
+				}
+				valBytes, _ := yaml.Marshal(top.Content[i+1])
+				if _, known := knownKeys[k]; known {
+					continue // skip keys handled by ModelYAML struct fields
+				}
+				var val interface{}
+				if e := yaml.Unmarshal(valBytes, &val); e == nil {
+					extra[k] = val
+				}
+			}
+			if len(extra) > 0 {
+				b, e := json.Marshal(extra)
+				if e == nil {
+					// Only set if HC wasn't found via HealthCheckNode,
+					// or merge additional keys. For simplicity, append
+					// extra (non-healthcheck) keys as additional JSON in model_info.
+					if y.HealthCheckJSON == "" {
+						y.HealthCheckJSON = string(b)
+					}
+				}
+			}
+		}
 	}
 
 	return &y, nil
 }
 
 // Validate checks the ModelYAML for required fields and valid values.
-// Returns a slice of error strings (empty means valid).
 func Validate(y *ModelYAML) []error {
 	var errs []error
 
@@ -185,17 +267,6 @@ func Validate(y *ModelYAML) []error {
 
 	if y.Engine == "" {
 		errs = append(errs, fmt.Errorf("engine is required"))
-	} else {
-		valid := false
-		for _, e := range ValidEngineTypes {
-			if y.Engine == e {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			errs = append(errs, fmt.Errorf("engine must be one of %v (got %q)", ValidEngineTypes, y.Engine))
-		}
 	}
 
 	if y.Port < 1 || y.Port > 65535 {
@@ -235,7 +306,7 @@ func InjectCapabilitiesFromTypeSubtype(y *ModelYAML) {
 }
 
 // ValidateNonCapabilities checks the ModelYAML for required fields and valid values,
-// except for capabilities. Use this when CLI overrides will replace YAML capabilities.
+// except for capabilities.
 func ValidateNonCapabilities(y *ModelYAML) []error {
 	var errs []error
 
@@ -251,17 +322,6 @@ func ValidateNonCapabilities(y *ModelYAML) []error {
 
 	if y.Engine == "" {
 		errs = append(errs, fmt.Errorf("engine is required"))
-	} else {
-		valid := false
-		for _, e := range ValidEngineTypes {
-			if y.Engine == e {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			errs = append(errs, fmt.Errorf("engine must be one of %v (got %q)", ValidEngineTypes, y.Engine))
-		}
 	}
 
 	if y.Port < 1 || y.Port > 65535 {
@@ -351,12 +411,12 @@ func validateProfile(p *ModelProfile) []error {
 	}
 	if p.SpeculativeDecoding != nil {
 		switch *p.SpeculativeDecoding {
-		case "mtp":
+		case "mtp", "dflash":
 			// valid
 		case "":
 			// empty is fine (disabled)
 		default:
-			errs = append(errs, fmt.Errorf("profile.speculative_decoding must be one of mtp (got %q)", *p.SpeculativeDecoding))
+			errs = append(errs, fmt.Errorf("profile.speculative_decoding must be one of mtp, dflash (got %q)", *p.SpeculativeDecoding))
 		}
 	}
 	if p.NumSpeculativeTokens != nil && *p.NumSpeculativeTokens <= 0 {

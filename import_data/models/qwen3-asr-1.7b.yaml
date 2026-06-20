@@ -5,25 +5,22 @@
 # gpu_memory_utilization: 0.05
 # ═══════════════════════════════════════════════════════════════
 
-slug: qwen3-tts-1.7b
-name: "Qwen3 TTS 1.7B"
+slug: qwen3-asr-1.7b
+name: "Qwen3 ASR 1.7B"
 engine: qwen3-voice
-engine_version: v1
-hf_repo: "Qwen/Qwen3-TTS-1.7B"
-container: qwen3-tts-1.7b
+engine_version: qwen3-voice-v1
+hf_repo: "Qwen/Qwen3-ASR-1.7B"
+container: speech-qwen3-asr-1.7b
 port: 8004
 type: speech
-subtype: tts
+subtype: stt
 
 environment:
-  SERVICE_MODE: tts
+  SERVICE_MODE: asr
   VLLM_LOAD_FORMAT_DEVICE: cuda
   HF_HUB_ENABLE_HF_TRANSFER: 1
   CUDA_VISIBLE_DEVICES: 0
-  VOICES_ROOT: /app/voices
-  MODEL_BASE: Qwen/Qwen3-TTS-12Hz-1.7B-Base
-  MODEL_CUSTOM: Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
-  MODEL_DESIGN: Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+  MODEL_BASE: Qwen/Qwen3-ASR-1.7B
 
 input_token_cost: 0.000003
 output_token_cost: 0.000015
@@ -31,8 +28,8 @@ cache_creation_input_token_cost: 0.00000375
 cache_read_input_token_cost: 0.0000003
 
 profile:
-  total_params_b: 1.8
-  active_params_b: 1.8
+  total_params_b: 2.4
+  active_params_b: 2.4
   is_moe: false
   attention_layers: 28
   gdn_layers: 0
@@ -42,14 +39,7 @@ profile:
   default_context: 32768
   max_context: 32768
   quant_bytes_per_param: 2.0
-  
 
-healthcheck:
-  test: ["CMD", "curl", "-fsS", "http://localhost:8000/v1/models"]
-  interval: 30s
-  timeout: 5s
-  retries: 3
-  start_period: 600s
 
 capabilities:
-  - reranker
+  - speech_recognition

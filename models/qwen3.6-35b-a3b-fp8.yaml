@@ -10,7 +10,7 @@ name: "Qwen3.6 35B-A3B FP8"
 engine: vllm
 engine_version: pgx-llm-v3
 hf_repo: "Qwen/Qwen3.6-35B-A3B-FP8"
-container: llm-qwen3.6-35b-a3b-fp8
+container: qwen3.6-35b-a3b-fp8
 port: 8013
 type: llm
 subtype: chat
@@ -58,7 +58,8 @@ command:
   - "--enable-expert-parallel"
   - "--mm-encoder-tp-mode data"
   - "--load-format instanttensor"
-  - "--chat-template /app/templates/qwen3.6-35b-a3b-chat-template.jinja"
+  - "--chat-template /app/templates/qwen3.6-chat-template.jinja"
+  - "--default-chat-template-kwargs '{\"preserve_thinking\": true}'"
 
 capabilities:
   - reasoning

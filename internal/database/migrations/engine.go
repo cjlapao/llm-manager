@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-//go:embed 001_create_schema/*.sql 002_add_default_column/*.sql 003_create_engine_tables/*.sql 004_add_model_profile_columns/*.sql 005_add_runtime_tuning_columns/*.sql 006_add_cache_cost_columns/*.sql 007_add_comfyui_engine/*.sql 008_add_gpu_memory_utilization/*.sql
+//go:embed 001_create_schema/*.sql 002_add_default_column/*.sql 003_create_engine_tables/*.sql 004_add_model_profile_columns/*.sql 005_add_runtime_tuning_columns/*.sql 006_add_cache_cost_columns/*.sql 007_add_comfyui_engine/*.sql 008_add_gpu_memory_utilization/*.sql 009_add_engine_config_columns/*.sql 010_add_model_healthcheck_column/*.sql 011_add_engine_provider/*.sql 012_add_speculative_model_column/*.sql
 var migrationFS embed.FS
 
 // Direction indicates which way a migration runs.
@@ -65,6 +65,10 @@ func (e *Engine) loadMigrations() error {
 		{6, "add_cache_cost_columns", "006_add_cache_cost_columns/up.sql", "006_add_cache_cost_columns/down.sql"},
 		{7, "add_comfyui_engine", "007_add_comfyui_engine/up.sql", "007_add_comfyui_engine/down.sql"},
 		{8, "add_gpu_memory_utilization", "008_add_gpu_memory_utilization/up.sql", "008_add_gpu_memory_utilization/down.sql"},
+		{9, "add_engine_config_columns", "009_add_engine_config_columns/up.sql", "009_add_engine_config_columns/down.sql"},
+		{10, "add_model_healthcheck_column", "010_add_model_healthcheck_column/up.sql", "010_add_model_healthcheck_column/down.sql"},
+		{11, "add_engine_provider", "011_add_engine_provider/up.sql", "011_add_engine_provider/down.sql"},
+		{12, "add_speculative_model_column", "012_add_speculative_model_column/up.sql", "012_add_speculative_model_column/down.sql"},
 	}
 
 	for _, f := range files {

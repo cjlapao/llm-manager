@@ -137,7 +137,7 @@ func TestIntegration_ImportEngineAndModel(t *testing.T) {
 
 	// Import engine
 	engSvc := service.NewEngineService(db)
-	created, skipped, err := engSvc.ImportEngineFile(enginePath)
+	created, _, skipped, err := engSvc.ImportEngineFile(enginePath, service.EngineImportOverrides{})
 	if err != nil {
 		t.Fatalf("ImportEngineFile error: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestIntegration_ImportFolderMixed(t *testing.T) {
 		}
 
 		if service.IsEngineYAML(data) {
-			_, _, err := service.NewEngineService(db).ImportEngineFile(filepath.Join(dir, entry.Name()))
+			_, _, _, err := service.NewEngineService(db).ImportEngineFile(filepath.Join(dir, entry.Name()), service.EngineImportOverrides{})
 			if err == nil {
 				imported++
 			} else {
@@ -270,7 +270,7 @@ func TestIntegration_ImportOverride(t *testing.T) {
 	// Import model first
 	modelPath := writeFile(t, dir, "test-model.yml", testModelYAML)
 	engSvc := service.NewEngineService(db)
-	_, _, _ = engSvc.ImportEngineFile(writeFile(t, dir, "vllm.yml", testEngineYAML))
+	_, _, _, _ = engSvc.ImportEngineFile(writeFile(t, dir, "vllm.yml", testEngineYAML), service.EngineImportOverrides{})
 
 	modelSvc := service.NewModelService(db, config.DefaultConfig())
 	modelSvc.SetEngineService(engSvc)
@@ -309,7 +309,7 @@ func TestIntegration_ComposeGeneration(t *testing.T) {
 
 	// Import engine + model
 	engSvc := service.NewEngineService(db)
-	_, _, err := engSvc.ImportEngineFile(writeFile(t, dir, "vllm.yml", testEngineYAML))
+	_, _, _, err := engSvc.ImportEngineFile(writeFile(t, dir, "vllm.yml", testEngineYAML), service.EngineImportOverrides{})
 	if err != nil {
 		t.Fatalf("Import engine error: %v", err)
 	}
@@ -453,7 +453,7 @@ func TestIntegration_CRUD_Model(t *testing.T) {
 
 	// Setup engine
 	engSvc := service.NewEngineService(db)
-	_, _, _ = engSvc.ImportEngineFile(writeFile(t, dir, "vllm.yml", testEngineYAML))
+	_, _, _, _ = engSvc.ImportEngineFile(writeFile(t, dir, "vllm.yml", testEngineYAML), service.EngineImportOverrides{})
 
 	// Import model
 	modelPath := writeFile(t, dir, "crud-model.yml", `
@@ -513,7 +513,7 @@ func TestIntegration_BadData_Engine(t *testing.T) {
 
 	// Missing slug
 	path := writeFile(t, dir, "no-slug.yml", badEngineNoSlug)
-	_, _, err := service.NewEngineService(db).ImportEngineFile(path)
+	_, _, _, err := service.NewEngineService(db).ImportEngineFile(path, service.EngineImportOverrides{})
 	if err == nil {
 		t.Error("expected error for engine without slug")
 	}
@@ -532,12 +532,12 @@ versions:
     port: 8000
 `
 	pathDup := writeFile(t, dir, "dup-valid.yml", validEngineYAML)
-	_, _, err = service.NewEngineService(db).ImportEngineFile(pathDup)
+	_, _, _, err = service.NewEngineService(db).ImportEngineFile(pathDup, service.EngineImportOverrides{})
 	if err != nil {
 		t.Fatalf("first import should succeed: %v", err)
 	}
 	// Second import of same slug should not error (idempotent)
-	_, _, err = service.NewEngineService(db).ImportEngineFile(pathDup)
+	_, _, _, err = service.NewEngineService(db).ImportEngineFile(pathDup, service.EngineImportOverrides{})
 	if err != nil {
 		t.Errorf("duplicate import should not error, got: %v", err)
 	}
@@ -556,7 +556,7 @@ versions:
     port: 8000
 `
 	path2 := writeFile(t, dir, "bad-img.yml", invalidImgYAML)
-	_, _, err = service.NewEngineService(db).ImportEngineFile(path2)
+	_, _, _, err = service.NewEngineService(db).ImportEngineFile(path2, service.EngineImportOverrides{})
 	if err == nil {
 		t.Error("expected error for invalid image format")
 	}
@@ -570,7 +570,7 @@ func TestIntegration_BadData_Model(t *testing.T) {
 
 	// Setup engine
 	engSvc := service.NewEngineService(db)
-	_, _, _ = engSvc.ImportEngineFile(writeFile(t, dir, "vllm.yml", testEngineYAML))
+	_, _, _, _ = engSvc.ImportEngineFile(writeFile(t, dir, "vllm.yml", testEngineYAML), service.EngineImportOverrides{})
 
 	modelSvc := service.NewModelService(db, config.DefaultConfig())
 	modelSvc.SetEngineService(engSvc)
@@ -707,7 +707,7 @@ versions:
     command_args: ["--engine-arg"]
     port: 8000
 `
-	_, _, err := service.NewEngineService(db).ImportEngineFile(writeFile(t, dir, "dedup.yml", overlappingEngine))
+	_, _, _, err := service.NewEngineService(db).ImportEngineFile(writeFile(t, dir, "dedup.yml", overlappingEngine), service.EngineImportOverrides{})
 	if err != nil {
 		t.Fatalf("ImportEngine error: %v", err)
 	}

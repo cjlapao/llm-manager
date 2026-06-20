@@ -1,22 +1,23 @@
 # ═══════════════════════════════════════════════════════════════
-# Gemma 4 26B-A4B IT — BF16 (unquantized)
+# Qwen3.6 27B FP8 — FP8
 # Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x)
 # vLLM >= 0.19.0 | SM121 (Blackwell)
-# gpu_memory_utilization: 0.62 (~79GB of 128GB)
+# gpu_memory_utilization: 0.9 (~115GB of 128GB)
 # ═══════════════════════════════════════════════════════════════
 
-slug: gemma-4-26b-a4b-it
-name: "Gemma 4 26B-A4B IT"
+slug: qwen3.6-27b-fp8-max
+name: "Qwen3.6 27B FP8 Max"
 engine: vllm
-engine_version: pgx-llm-v1
-hf_repo: "google/gemma-4-26B-A4B-it"
-container: gemma-4-26b-a4b-it
-port: 8018
+engine_version: v3
+hf_repo: "Qwen/Qwen3.6-27B-FP8"
+container: qwen3.6-27b-fp8-max
+port: 8025
 type: llm
 subtype: chat
 
 environment:
   VLLM_LOAD_FORMAT_DEVICE: cuda
+  VLLM_TEST_FORCE_FP8_MARLIN: 1
 
 input_token_cost: 0.000003
 output_token_cost: 0.000015
@@ -24,39 +25,46 @@ cache_creation_input_token_cost: 0.00000375
 cache_read_input_token_cost: 0.0000003
 
 profile:
-  total_params_b: 26
-  active_params_b: 3.8
-  is_moe: true
-  attention_layers: 26
-  gdn_layers: 0
-  num_kv_heads: 8
-  head_dim: 256
-  supports_mtp: false
+  total_params_b: 27
+  active_params_b: 27
+  is_moe: false
+  attention_layers: 16
+  gdn_layers: 32
+  num_kv_heads: 4
+  head_dim: 128
+  supports_mtp: true
   default_context: 262144
   max_context: 262144
-  quant_bytes_per_param: 2.0
-  max_num_seqs: 4
+  quant_bytes_per_param: 1.0
+  max_num_seqs: 64
   max_num_batched_tokens: 8192
-  
+  speculative_decoding: dflash
+  speculative_model: z-lab/Qwen3.6-27B-DFlash
+  num_speculative_tokens: 8
+  gpu_memory_utilization: 0.85
+
 command:
   - ${{ .hf_repo }}
   - "--model ${{ .hf_repo }}"
   - "--served-model-name ${{ .slug }}"
-  - "--kv-cache-dtype fp8_e4m3"
+  - "--kv-cache-dtype auto"
   - "--dtype auto"
   - "--enable-chunked-prefill"
-  - "--reasoning-parser gemma4"
-  - "--tool-call-parser gemma4"
+  - "--reasoning-parser qwen3"
+  - "--tool-call-parser qwen3_coder"
   - "--enable-auto-tool-choice"
   - "--enable-prefix-caching"
   - "--trust-remote-code"
   - "--trust-request-chat-template"
+  - "--performance-mode interactivity"
   - "--generation-config auto"
   - "--mm-processor-cache-type shm"
   - "--disable-custom-all-reduce"
-  - "--enable-expert-parallel"
+  - "--attention-backend flashinfer"
+  - "--moe-backend marlin"
   - "--load-format instanttensor"
-  - "--chat-template /app/templates/gemma4-tool-chat-template.jinja"
+  - "--chat-template /app/templates/qwen3.6-chat-template.jinja"
+  - "--default-chat-template-kwargs '{\"preserve_thinking\": true}'"
 
 capabilities:
   - reasoning
@@ -64,75 +72,78 @@ capabilities:
   - multi-turn
   - image
   - video
+  - document
 
 litellm_params:
   custom_llm_provider: hosted_vllm
   temperature: 1.0
   top_p: 0.95
-  top_k: 64
+  top_k: 20
   min_p: 0
   presence_penalty: 0.0
   repetition_penalty: 1.0
   extra_body:
-    skip_special_tokens: false
     chat_template_kwargs:
       enable_thinking: true
+      preserve_thinking: true
   variants:
     thinking:
       suffix: -thinking
       temperature: 1.0
       top_p: 0.95
-      top_k: 64
+      top_k: 20
       min_p: 0
       presence_penalty: 0.0
       repetition_penalty: 1.0
       extra_body:
-        skip_special_tokens: false
         chat_template_kwargs:
           enable_thinking: true
+          preserve_thinking: true
     coder-thinking:
       suffix: -coder-thinking
       temperature: 1.0
       top_p: 0.95
-      top_k: 64
+      top_k: 20
       min_p: 0
-      presence_penalty: 0.0
+      presence_penalty: 1.5
       repetition_penalty: 1.0
       extra_body:
-        skip_special_tokens: false
         chat_template_kwargs:
           enable_thinking: true
+          preserve_thinking: true
     coder-fast:
       suffix: -coder-fast
-      temperature: 0.7
+      temperature: 0.6
       top_p: 0.95
-      top_k: 64
+      top_k: 20
       min_p: 0
-      presence_penalty: 0.0
+      presence_penalty: 1.5
       repetition_penalty: 1.0
       extra_body:
-        skip_special_tokens: false
         chat_template_kwargs:
           enable_thinking: false
+          preserve_thinking: false
     instruct:
       suffix: -instruct
       temperature: 0.7
       top_p: 0.8
-      top_k: 64
+      top_k: 20
       min_p: 0
-      presence_penalty: 0.0
+      presence_penalty: 1.5
       repetition_penalty: 1.0
       extra_body:
         chat_template_kwargs:
           enable_thinking: false
+          preserve_thinking: false
     instruct-reasoning:
       suffix: -instruct-reasoning
       temperature: 1.0
       top_p: 0.95
-      top_k: 64
+      top_k: 20
       min_p: 0
       presence_penalty: 0.0
       repetition_penalty: 1.0
       extra_body:
         chat_template_kwargs:
           enable_thinking: false
+          preserve_thinking: false

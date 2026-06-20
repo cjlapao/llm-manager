@@ -19,6 +19,11 @@ type EngineDefaults struct {
 	Environment map[string]string
 }
 
+// EngineImportOverrides holds CLI argument overrides for engine import.
+type EngineImportOverrides struct {
+	Overwrite bool // if true, update existing engine type + upsert versions instead of skip
+}
+
 // vllmDefaults are the hardcoded defaults for the vLLM engine type.
 var vllmDefaults = EngineDefaults{
 	Volumes: map[string]string{
@@ -49,6 +54,11 @@ func GetEngineDefaults(engineType string) EngineDefaults {
 			Environment: make(map[string]string),
 		}
 	}
+}
+
+// isValidProvider checks whether a provider string is one of the supported values.
+func isValidProvider(p string) bool {
+	return p == "vllm" || p == "sglang" || p == "llama.cpp" || p == "custom"
 }
 
 // EngineService handles business logic for engine types and versions.
@@ -102,6 +112,11 @@ func (s *EngineService) CreateOrSkipEngineType(et *models.EngineType) (bool, err
 		return false, fmt.Errorf("create engine type %s: %w", et.Slug, err)
 	}
 	return true, nil
+}
+
+// UpdateEngineType updates an existing engine type by slug with the provided field updates.
+func (s *EngineService) UpdateEngineType(slug string, updates map[string]interface{}) error {
+	return s.db.UpdateEngineType(slug, updates)
 }
 
 // ListModelsByEngineVersion returns models linked to the given engine version slug.
@@ -176,6 +191,11 @@ func (s *EngineService) CreateOrSkipEngineVersion(ev *models.EngineVersion) (boo
 	return true, nil
 }
 
+// UpdateEngineVersion updates an existing engine version by slug with the provided field updates.
+func (s *EngineService) UpdateEngineVersion(slug string, updates map[string]interface{}) error {
+	return s.db.UpdateEngineVersion(slug, updates)
+}
+
 // ShowComposition generates a docker-compose YAML for a model+engine version.
 func (s *EngineService) ShowComposition(model *models.Model, ev *models.EngineVersion) (string, error) {
 	if ev == nil {
@@ -186,9 +206,16 @@ func (s *EngineService) ShowComposition(model *models.Model, ev *models.EngineVe
 		return "", fmt.Errorf("failed to create compose generator: %w", err)
 	}
 
+	// Get provider from engine type
+	et, etErr := s.GetEngineTypeBySlug(ev.EngineTypeSlug)
+	if etErr != nil {
+		return "", fmt.Errorf("get engine type for model %s: %w", model.Slug, etErr)
+	}
+
 	cfg := EngineComposeConfig{
 		Image:       ev.Image,
 		Entrypoint:  parseEntrypoint(ev.Entrypoint),
+		Provider:    et.Provider,
 		EnvVars:     ev.GetEnvironment(),
 		CommandArgs: ev.GetCommandArgs(),
 	}
@@ -209,6 +236,20 @@ func (s *EngineService) ShowComposition(model *models.Model, ev *models.EngineVe
 	// Build deploy section
 	cfg.DeploySection = s.BuildDeploySection(ev.DeployEnableNvidia, ev.DeployGPUCount)
 
+	// Build healthcheck section (custom overrides auto-injected)
+	cfg.HealthCheckSection = BuildHealthcheckSection(ev.HealthcheckJSON)
+
+	// Pass model healthcheck JSON for model-level override in GenerateWithOptions
+	cfg.ModelHealthcheckJSON = model.HealthcheckJSON
+
+	// Build ulimits section
+	cfg.UlimitsSection = BuildUlimitsSection(ev.UlimitsJSON)
+
+	// Set IPC override (non-empty value replaces hardcoded "host")
+	if ev.IPC != "" {
+		cfg.IPCOverride = ev.IPC
+	}
+
 	return generator.Generate(model, cfg)
 }
 
@@ -222,9 +263,16 @@ func (s *EngineService) BuildComposeConfig(model *models.Model) (*EngineComposeC
 		return nil, fmt.Errorf("resolve engine version for model %s: %w", model.Slug, err)
 	}
 
+	// Get provider from engine type
+	et, err := s.GetEngineTypeBySlug(ev.EngineTypeSlug)
+	if err != nil {
+		return nil, fmt.Errorf("get engine type for model %s: %w", model.Slug, err)
+	}
+
 	cfg := &EngineComposeConfig{
 		Image:       ev.Image,
 		Entrypoint:  parseEntrypoint(ev.Entrypoint),
+		Provider:    et.Provider,
 		EnvVars:     ev.GetEnvironment(),
 		CommandArgs: ev.GetCommandArgs(),
 	}
@@ -256,6 +304,20 @@ func (s *EngineService) BuildComposeConfig(model *models.Model) (*EngineComposeC
 
 	// Build deploy section
 	cfg.DeploySection = s.BuildDeploySection(ev.DeployEnableNvidia, ev.DeployGPUCount)
+
+	// Build healthcheck section (custom overrides auto-injected)
+	cfg.HealthCheckSection = BuildHealthcheckSection(ev.HealthcheckJSON)
+
+	// Pass model healthcheck JSON for model-level override in GenerateWithOptions
+	cfg.ModelHealthcheckJSON = model.HealthcheckJSON
+
+	// Build ulimits section
+	cfg.UlimitsSection = BuildUlimitsSection(ev.UlimitsJSON)
+
+	// Set IPC override (non-empty value replaces hardcoded "host")
+	if ev.IPC != "" {
+		cfg.IPCOverride = ev.IPC
+	}
 
 	return cfg, nil
 }
@@ -548,6 +610,98 @@ func (s *EngineService) BuildDeploySection(enableNvidia bool, gpuCount string) s
 }
 
 // =============================================================================
+// Healthcheck Config Builder
+// =============================================================================
+
+// BuildHealthcheckSection renders a YAML healthcheck block from a JSON string.
+// If jsonStr is empty, returns "".
+// Otherwise parses the JSON into a map and renders each key-value as a
+// indented YAML property under `healthcheck:` with 4-space indentation.
+func BuildHealthcheckSection(jsonStr string) string {
+	if jsonStr == "" {
+		return ""
+	}
+
+	var hc map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &hc); err != nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("    healthcheck:\n")
+	for k, v := range hc {
+		sb.WriteString(fmt.Sprintf("      %s: %s\n", k, formatHealthcheckValue(v)))
+	}
+	return sb.String()
+}
+
+// formatHealthcheckValue formats a single healthcheck value for YAML rendering.
+func formatHealthcheckValue(v interface{}) string {
+	switch val := v.(type) {
+	case string:
+		return fmt.Sprintf("%q", val)
+	case float64:
+		// JSON unmarshals all numbers as float64
+		if val == float64(int(val)) {
+			return fmt.Sprintf("%d", int(val))
+		}
+		return fmt.Sprintf("%.0f", val)
+	case []interface{}:
+		parts := make([]string, len(val))
+		for i, item := range val {
+			parts[i] = fmt.Sprintf("%q", item)
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// =============================================================================
+// Ulimits Config Builder
+// =============================================================================
+
+// BuildUlimitsSection renders a YAML ulimits block from a JSON string.
+// If jsonStr is empty, returns "".
+// Otherwise parses the JSON into a map and renders each key-value as
+// `key: value` under `ulimits:` with 4-space indentation.
+func BuildUlimitsSection(jsonStr string) string {
+	if jsonStr == "" {
+		return ""
+	}
+
+	var ul map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &ul); err != nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("    ulimits:\n")
+	for k, v := range ul {
+		sb.WriteString(fmt.Sprintf("      %s: %s\n", k, formatUlimitsValue(v)))
+	}
+	return sb.String()
+}
+
+// formatUlimitsValue formats a single ulimits value for YAML rendering.
+func formatUlimitsValue(v interface{}) string {
+	switch val := v.(type) {
+	case float64:
+		if val == -1 {
+			return "-1"
+		}
+		if val == float64(int(val)) {
+			return fmt.Sprintf("%d", int(val))
+		}
+		return fmt.Sprintf("%.0f", val)
+	case string:
+		return val
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// =============================================================================
 // Engine YAML Import
 // =============================================================================
 
@@ -562,24 +716,28 @@ type yamlEngine struct {
 	Slug        string `yaml:"slug"`
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
+	Provider    string `yaml:"provider"` // optional, defaults to "custom"
 }
 
 // yamlVersion represents an engine version definition.
 type yamlVersion struct {
-	Slug          string            `yaml:"slug"`
-	Version       string            `yaml:"version"`
-	ContainerName string            `yaml:"container_name"`
-	Image         string            `yaml:"image"`
-	Entrypoint    []string          `yaml:"entrypoint"`
-	Default       bool              `yaml:"default"`
-	Latest        bool              `yaml:"latest"`
-	Volumes       map[string]string `yaml:"volumes"`
-	Environment   map[string]string `yaml:"environment"`
-	Logging       yamlLogging       `yaml:"logging"`
-	Nvidia        bool              `yaml:"nvidia"`
-	GPUCount      string            `yaml:"gpu_count"`
-	CommandArgs   []string          `yaml:"command_args"`
-	Port          int               `yaml:"port"`
+	Slug          string                 `yaml:"slug"`
+	Version       string                 `yaml:"version"`
+	ContainerName string                 `yaml:"container_name"`
+	Image         string                 `yaml:"image"`
+	Entrypoint    []string               `yaml:"entrypoint"`
+	Default       bool                   `yaml:"default"`
+	Latest        bool                   `yaml:"latest"`
+	Volumes       map[string]string      `yaml:"volumes"`
+	Environment   map[string]string      `yaml:"environment"`
+	Logging       yamlLogging            `yaml:"logging"`
+	Nvidia        bool                   `yaml:"nvidia"`
+	GPUCount      string                 `yaml:"gpu_count"`
+	CommandArgs   []string               `yaml:"command_args"`
+	Healthcheck   map[string]interface{} `yaml:"healthcheck"`
+	Ulimits       map[string]interface{} `yaml:"ulimits"`
+	IPC           string                 `yaml:"ipc"`
+	Port          int                    `yaml:"port"`
 }
 
 // yamlLogging represents logging configuration.
@@ -590,31 +748,67 @@ type yamlLogging struct {
 }
 
 // ImportEngineFile parses an engine YAML file and creates engine type + versions.
-// Returns (created, skipped, error) where created=inserted count, skipped=duplicate count.
-func (s *EngineService) ImportEngineFile(yamlPath string) (created, skipped int, err error) {
+// Returns (created, updated, skipped, error) where created=inserted count, updated=existing records updated, skipped=invalid entries skipped.
+func (s *EngineService) ImportEngineFile(yamlPath string, overrides EngineImportOverrides) (created, updated, skipped int, err error) {
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
-		return 0, 0, fmt.Errorf("read file: %w", err)
+		return 0, 0, 0, fmt.Errorf("read file: %w", err)
 	}
 
 	var yf yamlFile
 	if err := yaml.Unmarshal(data, &yf); err != nil {
-		return 0, 0, fmt.Errorf("parse YAML: %w", err)
+		return 0, 0, 0, fmt.Errorf("parse YAML: %w", err)
 	}
 
 	if yf.Engine.Slug == "" {
-		return 0, 0, fmt.Errorf("engine slug is required")
+		return 0, 0, 0, fmt.Errorf("engine slug is required")
 	}
 
-	// Create or skip engine type
+	// Create or skip / update engine type
+	provider := yf.Engine.Provider
+	if provider == "" {
+		provider = "custom"
+	}
+	if !isValidProvider(provider) {
+		return 0, 0, 0, fmt.Errorf("invalid provider %q for engine %s: must be one of vllm, sglang, llama.cpp, custom", provider, yf.Engine.Slug)
+	}
+
 	et := &models.EngineType{
 		Slug:        yf.Engine.Slug,
 		Name:        yf.Engine.Name,
 		Description: yf.Engine.Description,
+		Provider:    provider,
 	}
-	_, err = s.CreateOrSkipEngineType(et)
-	if err != nil {
-		return 0, 0, fmt.Errorf("engine type %s: %w", yf.Engine.Slug, err)
+
+	if overrides.Overwrite {
+		// Update existing engine type or create if new
+		existing, getErr := s.GetEngineTypeBySlug(yf.Engine.Slug)
+		if getErr == nil && existing != nil {
+			// Update existing — use UpdateEngineType with a map
+			updates := map[string]interface{}{
+				"name":        yf.Engine.Name,
+				"description": yf.Engine.Description,
+				"provider":    provider,
+			}
+			if err := s.UpdateEngineType(yf.Engine.Slug, updates); err != nil {
+				return 0, 0, 0, fmt.Errorf("engine type %s: update failed: %w", yf.Engine.Slug, err)
+			}
+			updated++
+			fmt.Fprintf(os.Stderr, "  Updated engine type: %s\n", yf.Engine.Slug)
+		} else {
+			// Create new
+			if err := s.CreateEngineType(et); err != nil {
+				return 0, 0, 0, fmt.Errorf("engine type %s: %w", yf.Engine.Slug, err)
+			}
+			created++
+			fmt.Fprintf(os.Stderr, "  Created engine type: %s\n", yf.Engine.Slug)
+		}
+	} else {
+		// Original create-or-skip behavior
+		_, err = s.CreateOrSkipEngineType(et)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("engine type %s: %w", yf.Engine.Slug, err)
+		}
 	}
 
 	// Process versions
@@ -652,6 +846,20 @@ func (s *EngineService) ImportEngineFile(yamlPath string) (created, skipped int,
 			cmdJSON = string(b)
 		}
 
+		// Build healthcheck JSON
+		hcJSON := ""
+		if len(v.Healthcheck) > 0 {
+			b, _ := json.Marshal(v.Healthcheck)
+			hcJSON = string(b)
+		}
+
+		// Build ulimits JSON
+		ulJSON := ""
+		if len(v.Ulimits) > 0 {
+			b, _ := json.Marshal(v.Ulimits)
+			ulJSON = string(b)
+		}
+
 		isDefault := v.Default && firstDefault
 		if isDefault {
 			firstDefault = false
@@ -675,20 +883,72 @@ func (s *EngineService) ImportEngineFile(yamlPath string) (created, skipped int,
 			DeployEnableNvidia: v.Nvidia,
 			DeployGPUCount:     v.GPUCount,
 			CommandArgs:        cmdJSON,
+			HealthcheckJSON:    hcJSON,
+			UlimitsJSON:        ulJSON,
+			IPC:                v.IPC,
 		}
 
-		created2, err := s.CreateOrSkipEngineVersion(ev)
-		if err != nil {
-			return created, skipped, fmt.Errorf("engine version %s/%s: %w", yf.Engine.Slug, v.Slug, err)
-		}
-		if created2 {
-			created++
+		var verCreated, verUpdated int
+		if overrides.Overwrite {
+			// Upsert: update if exists, insert if new
+			existingVer, getErr := s.GetEngineVersionByTypeAndSlug(yf.Engine.Slug, v.Slug)
+			if getErr == nil && existingVer != nil {
+				// Update existing version — build updates map
+				updates := map[string]interface{}{
+					"version":                v.Version,
+					"container_name":         v.ContainerName,
+					"image":                  v.Image,
+					"entrypoint":             ep,
+					"is_default":             isDefault,
+					"is_latest":              isLatest,
+					"environment_json":       envJSON,
+					"volumes_json":           volJSON,
+					"enable_logging":         v.Logging.Enable,
+					"syslog_address":         v.Logging.Address,
+					"syslog_facility":        v.Logging.Facility,
+					"deploy_enable_nvidia":   v.Nvidia,
+					"deploy_gpu_count":       v.GPUCount,
+					"command_args":           cmdJSON,
+					"healthcheck_json":       hcJSON,
+					"ulimits_json":           ulJSON,
+					"ipc":                    v.IPC,
+				}
+				if err := s.UpdateEngineVersion(v.Slug, updates); err != nil {
+					return created, updated, skipped, fmt.Errorf("engine version %s/%s: update failed: %w", yf.Engine.Slug, v.Slug, err)
+				}
+				verUpdated = 1
+				fmt.Fprintf(os.Stderr, "  Updated engine version: %s/%s\n", yf.Engine.Slug, v.Slug)
+			} else {
+				// Insert new version
+				if err := s.CreateEngineVersion(ev); err != nil {
+					return created, updated, skipped, fmt.Errorf("engine version %s/%s: create failed: %w", yf.Engine.Slug, v.Slug, err)
+				}
+				verCreated = 1
+				fmt.Fprintf(os.Stderr, "  Created engine version: %s/%s\n", yf.Engine.Slug, v.Slug)
+			}
 		} else {
+			// Original create-or-skip behavior
+			var createErr error
+			createdBool, createErr := s.CreateOrSkipEngineVersion(ev)
+			if createErr != nil {
+				return created, updated, skipped, fmt.Errorf("engine version %s/%s: %w", yf.Engine.Slug, v.Slug, createErr)
+			}
+			if createdBool {
+				verCreated = 1
+			}
+		}
+		if verCreated > 0 {
+			created++
+		}
+		if verUpdated > 0 {
+			updated++
+		}
+		if !overrides.Overwrite && verCreated == 0 {
 			skipped++
 		}
 	}
 
-	return created, skipped, nil
+	return created, updated, skipped, nil
 }
 
 // IsEngineYAML checks whether the given YAML data represents an engine configuration.

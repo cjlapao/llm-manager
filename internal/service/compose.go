@@ -13,8 +13,13 @@ import (
 
 // mergeProfileFlagsWithOptions is like mergeProfileFlags but accepts CLI
 // overrides that replace auto-calculated values.
-func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, overrides StartOverrides) []string {
+func mergeProfileFlagsWithOptions(provider string, model *models.Model, existingCmds []string, overrides StartOverrides) []string {
 	if model == nil || model.TotalParamsB == nil || model.QuantBytesPerParam == nil {
+		return existingCmds
+	}
+	// Only apply vLLM profile flags when the engine provider is "vllm".
+	// Non-vLLM providers (custom, sglang, llama.cpp) get pass-through — no modifications.
+	if provider != "vllm" {
 		return existingCmds
 	}
 
@@ -159,10 +164,24 @@ func mergeProfileFlagsWithOptions(model *models.Model, existingCmds []string, ov
 		specMethod = *model.SpeculativeDecoding
 	}
 
+	// Determine speculative model: CLI override > DB profile.
+	specModel := ""
+	if overrides.SpeculativeModel != nil && *overrides.SpeculativeModel != "" {
+		specModel = *overrides.SpeculativeModel
+	} else if model.SpeculativeModel != nil && *model.SpeculativeModel != "" {
+		specModel = *model.SpeculativeModel
+	}
+
 	// Inject --speculative-config only when we have both method AND tokens > 0.
 	// If operator provides both via CLI, we trust them (no supports_mtp gate).
 	if specMethod != "" && mtpTokens > 0 {
-		specConfig := fmt.Sprintf("'{\"method\":\"%s\",\"num_speculative_tokens\":%d}'", specMethod, mtpTokens)
+		var jsonParts []string
+		jsonParts = append(jsonParts, fmt.Sprintf("\"method\":\"%s\"", specMethod))
+		if specModel != "" {
+			jsonParts = append(jsonParts, fmt.Sprintf("\"model\":\"%s\"", specModel))
+		}
+		jsonParts = append(jsonParts, fmt.Sprintf("\"num_speculative_tokens\":%d", mtpTokens))
+		specConfig := "'{" + strings.Join(jsonParts, ",") + "}'"
 		result = append(result, "--speculative-config "+specConfig)
 		fmt.Fprintf(os.Stderr, "  [speculative] --speculative-config %s\n", specConfig)
 	}
@@ -189,14 +208,18 @@ func derefOrFalse(p *bool) bool {
 
 // EngineComposeConfig carries pre-merged compose data from the caller.
 type EngineComposeConfig struct {
-	Image              string
-	Entrypoint         []string
-	EnvVars            map[string]string
-	Volumes            []string
-	CommandArgs        []string
-	LoggingSection     string
-	DeploySection      string
-	HealthCheckSection string
+	Image                string
+	Entrypoint           []string
+	Provider             string
+	EnvVars              map[string]string
+	Volumes              []string
+	CommandArgs          []string
+	LoggingSection       string
+	DeploySection        string
+	HealthCheckSection   string
+	ModelHealthcheckJSON string
+	UlimitsSection       string
+	IPCOverride          string
 }
 
 // ComposeTemplateData is what gets passed to the Go template.
@@ -212,16 +235,24 @@ type ComposeTemplateData struct {
 	LoggingSection     string
 	DeploySection      string
 	HealthCheckSection string
+	UlimitsSection     string
+	IPCOverride        string
 }
 
 const composeTemplate = `services:
   {{.ServiceName}}:
     image: {{.Image}}
     container_name: {{.Container}}
+{{- if .IPCOverride}}
+    ipc: {{.IPCOverride}}
+{{- else}}
     ipc: host
-    entrypoint: [{{range $i, $e := .Entrypoint}}{{if $i}}, {{end}}"{{$e}}"{{end}}]
+{{- end}}
+{{- if len .Entrypoint}}
+    entrypoint: [{{range $i, $e := .Entrypoint}}{{if $i}}, {{end}}'{{$e}}'{{end}}]
+{{- end}}
     ports:
-      - "{{.Port}}:8000"
+      - '{{.Port}}:8000'
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
       - HF_TOKEN=${HF_TOKEN}
@@ -238,6 +269,9 @@ const composeTemplate = `services:
     command: >
 {{- range .CommandArgs}}
       {{.}} {{end}}
+{{- end}}
+{{- if .UlimitsSection}}
+{{.UlimitsSection}}
 {{- end}}
 {{- if .LoggingSection}}
 {{.LoggingSection}}
@@ -287,11 +321,11 @@ func (g *ComposeGenerator) GenerateWithOptions(model *models.Model, cfg EngineCo
 	}
 
 	// Merge profile-derived flags into command args (with overrides)
-	commandArgs := mergeProfileFlagsWithOptions(model, cfg.CommandArgs, overrides)
+	commandArgs := mergeProfileFlagsWithOptions(cfg.Provider, model, cfg.CommandArgs, overrides)
 
 	data := ComposeTemplateData{
 		ServiceName:        fmt.Sprintf("%s-%s", model.Type, model.Slug),
-		Container:          model.Container,
+		Container:          fmt.Sprintf("%s-%s", model.Type, model.Container),
 		Port:               model.Port,
 		Image:              cfg.Image,
 		Entrypoint:         cfg.Entrypoint,
@@ -301,10 +335,22 @@ func (g *ComposeGenerator) GenerateWithOptions(model *models.Model, cfg EngineCo
 		LoggingSection:     cfg.LoggingSection,
 		DeploySection:      cfg.DeploySection,
 		HealthCheckSection: cfg.HealthCheckSection,
+		UlimitsSection:     cfg.UlimitsSection,
+		IPCOverride:        cfg.IPCOverride,
 	}
 
-	// Add healthcheck for chat-type LLM models
-	if model.Type == "llm" && model.SubType == "chat" {
+	// Add healthcheck for chat-type LLM models with override priority:
+	// 1. Model-level healthcheck (highest priority)
+	// 2. Engine-level healthcheck (passed in cfg.HealthCheckSection)
+	// 3. Auto-injected default for chat-type LLMs
+	// 4. No healthcheck
+	//
+	// Check model first, then fall through to engine, then auto-inject.
+	if cfg.ModelHealthcheckJSON != "" {
+		// Model has its own healthcheck — use it exclusively
+		data.HealthCheckSection = BuildHealthcheckSection(cfg.ModelHealthcheckJSON)
+	} else if data.HealthCheckSection == "" && model.Type == "llm" && model.SubType == "chat" {
+		// No model or engine healthcheck — auto-inject for chat-type LLMs
 		data.HealthCheckSection = `    healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -312,6 +358,7 @@ func (g *ComposeGenerator) GenerateWithOptions(model *models.Model, cfg EngineCo
       retries: 10
       start_period: 180s`
 	}
+	// else: engine HealthCheckSection is already set from cfg, or no healthcheck needed
 
 	var buf bytes.Buffer
 	if err := g.tmpl.Execute(&buf, data); err != nil {
