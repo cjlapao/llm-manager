@@ -18,8 +18,8 @@ import (
 const (
 	activeAliasName     = "active"
 	activeThinkingAlias = "active-thinking"
-	ragAliasReranker    = "reranker"
-	ragAliasEmbeddings  = "embeddings"
+	ragAliasReranker     = "active-reranker"
+	ragAliasEmbeddings   = "active-embeddings"
 	speechAliasSTT      = "active-stt"
 	speechAliasTTS      = "active-tts"
 	speechAliasOmni     = "active-omni"
