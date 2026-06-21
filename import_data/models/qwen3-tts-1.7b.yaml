@@ -43,7 +43,9 @@ profile:
   max_context: 32768
   quant_bytes_per_param: 2.0
   
-
+litellm_params:
+  custom_llm_provider: hosted_vllm
+  
 healthcheck:
   test: ["CMD", "curl", "-fsS", "http://localhost:8000/v1/models"]
   interval: 30s

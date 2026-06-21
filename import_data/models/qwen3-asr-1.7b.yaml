@@ -40,6 +40,8 @@ profile:
   max_context: 32768
   quant_bytes_per_param: 2.0
 
+litellm_params:
+  custom_llm_provider: hosted_vllm
 
 capabilities:
   - speech_recognition
