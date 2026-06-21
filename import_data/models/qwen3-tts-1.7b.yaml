@@ -11,7 +11,7 @@ engine: qwen3-voice
 engine_version: v1
 hf_repo: "Qwen/Qwen3-TTS-1.7B"
 container: qwen3-tts-1.7b
-port: 8004
+port: 8005
 type: speech
 subtype: tts
 

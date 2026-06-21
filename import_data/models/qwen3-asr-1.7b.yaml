@@ -8,9 +8,9 @@
 slug: qwen3-asr-1.7b
 name: "Qwen3 ASR 1.7B"
 engine: qwen3-voice
-engine_version: qwen3-voice-v1
+engine_version: v1
 hf_repo: "Qwen/Qwen3-ASR-1.7B"
-container: speech-qwen3-asr-1.7b
+container: qwen3-asr-1.7b
 port: 8004
 type: speech
 subtype: stt

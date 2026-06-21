@@ -60,12 +60,13 @@ type MemoryBreakdown struct {
 type MemoryResult struct {
 	TotalMB              int     // worst-case total (for validation)
 	TotalRealisticMB     int     // realistic estimate (for util calc)
-	KVCacheMaxMB         int     // KV at full context
-	KVCacheRealisticMB   int     // KV at realistic batch size
+	KVCacheMaxMB         int     // KV cache total (worst case)
+	KVCacheRealisticMB   int     // practical KV usage estimation
 	GPUMemoryUtilization float64 // rounded up to nearest 0.01
 	DockerLimitGB        int
-	Breakdown            MemoryBreakdown
-	FitsAtMaxContext     bool // true if total_max <= total_gpu_mb
+	Breakdown            MemoryBreakdown 
+	FitsAtMaxContext     bool       // true if total_max <= available MB
+	AvailableMB          int        // live free GPU/system MB at time of calculation
 }
 
 // roundUpTo001 rounds a float up to the nearest 0.01.
@@ -439,4 +440,70 @@ func EstimateMemory(model *models.Model) (*MemoryResult, error) {
 	}
 
 	return CalculateMemory(profile, getKVDtypeBytes(model.CommandArgs), defaultContext, seqs, 0, 0)
+}
+
+// EstimateSpeechMemory calculates GPU memory requirements for speech models
+// (STT/TTS/Omni). Speech inference loads model weights and needs a CUDA
+// context buffer, but does NOT allocate KV cache like generative/text
+// models do.
+//
+// availableMB is the live free GPU/system memory in MB (parsed from
+// /proc/meminfo on unified-memory systems.
+// (single-model scenario with no other consumers).
+func EstimateSpeechMemory(model *models.Model, availableMB int) (*MemoryResult, error) {
+	if model.TotalParamsB == nil || model.QuantBytesPerParam == nil {
+		return nil, nil
+	}
+
+	profile := ModelProfile{
+		TotalParamsB:       *model.TotalParamsB,
+		ActiveParamsB:      derefOrZero(model.ActiveParamsB),
+		IsMoe:              derefOrFalse(model.IsMoe),
+		AttentionLayers:    derefOrZeroInt(model.AttentionLayers),
+		GdnLayers:          derefOrZeroInt(model.GdnLayers),
+		NumKvHeads:         derefOrZeroInt(model.NumKvHeads),
+		HeadDim:            derefOrZeroInt(model.HeadDim),
+		QuantBytesPerParam: *model.QuantBytesPerParam,
+		DefaultContext:     derefOrZeroInt(model.DefaultContext),
+		MaxContext:         derefOrZeroInt(model.MaxContext),
+		SubType:            model.SubType,
+	}
+
+	hasAttention := profile.AttentionLayers > 0
+	cudaMB := float64(3000)
+	if !hasAttention {
+		cudaMB = cudaMB / 2
+	}
+
+	bd := MemoryBreakdown{
+		WeightsMB:     int(profile.TotalParamsB * profile.QuantBytesPerParam * 1024),
+		CUDAContextMB: int(cudaMB),
+		PrefixCacheMB: 1024,
+	}
+
+	totalMax := bd.WeightsMB + bd.CUDAContextMB + bd.PrefixCacheMB
+
+	fitsAtMaxContext := totalMax <= availableMB
+
+	gpuUtil := float64(totalMax) / float64(TotalGPUMB)
+	gpuUtil = roundUpTo001(gpuUtil * 1.02)
+
+	return &MemoryResult{
+		TotalMB:              totalMax,
+		TotalRealisticMB:     totalMax,
+		KVCacheMaxMB:         0,
+		KVCacheRealisticMB:   0,
+		GPUMemoryUtilization: gpuUtil,
+		DockerLimitGB:        int(math.Ceil(float64(totalMax*115) / 102400)),
+		Breakdown:            bd,
+		AvailableMB:          availableMB,
+		FitsAtMaxContext:     fitsAtMaxContext,
+	}, nil
+}
+
+func derefOrZeroInt(v *int) int {
+	if v == nil {
+		return 0
+	}
+	return *v
 }

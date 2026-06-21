@@ -708,8 +708,17 @@ func (s *LiteLLMService) replicateOne(spec DeploymentSpec, existing map[string][
 		ModelInfo:     spec.ModelInfo,
 	}
 
+	// DEBUG: print every POST /model/new payload and response
+	fmt.Fprintf(os.Stderr, "\n[DEBUG] LiteLLM POST /model/new (%s)\n", spec.Name)
+	b, _ := json.MarshalIndent(deployBody, "", "  ")
+	fmt.Fprintf(os.Stderr, "%s\n", string(b))
+
 	resp, err := s.doRequest("POST", "/model/new", deployBody)
-	if err != nil {
+	if resp != nil && err == nil {
+		// DEBUG: raw JSON response
+		rb, _ := json.MarshalIndent(string(resp), "", "  ")
+		fmt.Fprintf(os.Stderr, "[DEBUG] LiteLLM response:\n%s\n", string(rb))
+	} else if err != nil {
 		action := "fresh-create"
 		if exists && len(allIDs) > 0 {
 			action = "deleted-and-recreated"

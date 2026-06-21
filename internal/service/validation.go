@@ -89,6 +89,16 @@ func readMemAvailableMB() (int, error) {
 	return 0, fmt.Errorf("MemAvailable not found in /proc/meminfo")
 }
 
+// isSpeechType returns true if the given subtype indicates a speech model.
+func isSpeechType(subtype string) bool {
+	switch strings.ToLower(subtype) {
+	case "stt", "tts", "omni":
+		return true
+	default:
+		return false
+	}
+}
+
 // CanFitDynamic checks whether a model can fit given current free memory.
 // Uses /proc/meminfo MemAvailable as the source of truth.
 // safetyMarginPct is a percentage string like "5" (5%) of the model's total
