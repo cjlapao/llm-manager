@@ -285,8 +285,8 @@ Track completed steps here so agents can skip already-done work.
 | 2026-06-22 | Branch `refactor/architecture` created | ✅ Done | Pushed to origin |
 | 2026-06-22 | **Step 1: Package README docs** | ✅ Done | service/README.md + cmd/README.md pushed |
 | 2026-06-22 | **Step 2: Extract deep-merge helpers** | ✅ Done | litellm_merge.go (86 lines); litellm.go 1326→1241; vet/build/test all pass + full module build |
-| TBD | Step 3: Split sqlite.go | ⏸ Pending | infrastructure split |
-| TBD | Step 4: Split service.go (1962 lines) | ⏸ Pending | core restructure, blocks others |
+| 2026-06-22 | **Step 3: Split sqlite.go** | ✅ Done | 8 files from 1; sqlite.go 840→228 lines; build clean |
+| 2026-06-22 | **Step 4: Split service.go** | ✅ Done (partial) | model_service.go (429), container_service.go (1355), service_orchestrator (209); full build clean ✅ |
 | TBD | Step 5: Split litellm.go (1326 lines) | ⏸ Pending | after step 4 |
 | TBD | Step 6: Split engine.go (973 lines) | ⏸ Pending | after step 4 |
 | TBD | Step 7: Split speech.go (1026 lines) | ⏸ Pending | cli cleanup |
