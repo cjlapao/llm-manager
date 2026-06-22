@@ -283,8 +283,8 @@ Track completed steps here so agents can skip already-done work.
 |------|------|--------|-------|
 | 2026-06-22 | Planning + scan complete | ✅ Done | 10 critical files >500 lines identified |
 | 2026-06-22 | Branch `refactor/architecture` created | ✅ Done | Pushed to origin |
-| TBD | Step 1: Package READMEs | ⏸ Pending | foundation, non-breaking |
-| TBD | Step 2: Extract deep-merge helpers | ⏸ Pending | parallel once branch ready |
+| 2026-06-22 | **Step 1: Package README docs** | ✅ Done | service/README.md + cmd/README.md pushed |
+| 2026-06-22 | **Step 2: Extract deep-merge helpers** | ✅ Done | litellm_merge.go (86 lines); litellm.go 1326→1241; vet/build/test all pass + full module build |
 | TBD | Step 3: Split sqlite.go | ⏸ Pending | infrastructure split |
 | TBD | Step 4: Split service.go (1962 lines) | ⏸ Pending | core restructure, blocks others |
 | TBD | Step 5: Split litellm.go (1326 lines) | ⏸ Pending | after step 4 |
@@ -292,5 +292,5 @@ Track completed steps here so agents can skip already-done work.
 | TBD | Step 7: Split speech.go (1026 lines) | ⏸ Pending | cli cleanup |
 | TBD | Step 8: Split llm.go (623 lines) | ⏸ Pending | cli cleanup |
 | TBD | Step 9: Warning-zone cleanup | ⏸ Pending | revisit 300-500 line files |
-| TBD | Step 10: Interface contracts + mockgen | ⏸ Pending | testing infrastructure |
+| TBD | Step 10: Interface contracts + mockgen | ⏸ Pending | testing infra |
 | TBD | Step 11: Convert critical path tests | ⏸ Pending | final step |
