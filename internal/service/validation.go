@@ -119,7 +119,7 @@ func CanFitDynamic(profile ModelProfile, kvDtypeBytes float64, contextLen int, n
 	fmt.Fprintf(os.Stderr, "  Profile: %.1fB params, %.1f bytes/param, attention=%d, gdn=%d\n",
 		profile.TotalParamsB, profile.QuantBytesPerParam, profile.AttentionLayers, profile.GdnLayers)
 	fmt.Fprintf(os.Stderr, "  Context: %d tokens, %d sequences, MTP=%d\n", contextLen, numSequences, mtpTokens)
-	fmt.Fprintf(os.Stderr, "  Free GPU (nvidia-smi): %d MB\n", ReadFreeGPUMemory())
+	fmt.Fprintf(os.Stderr, "  Free GPU: %d\n", ReadFreeGPUMemory())
 	fmt.Fprintf(os.Stderr, "  Free RAM (/proc/meminfo): %d MB\n", freeMB)
 	fmt.Fprintf(os.Stderr, "  Weights:           %6d MB (%.1fB × %.1f × 1024)\n",
 		mem.Breakdown.WeightsMB, profile.TotalParamsB, profile.QuantBytesPerParam)

@@ -791,7 +791,7 @@ func (s *ContainerService) checkGPUMemory(slug string, overrides StartOverrides)
 		fmt.Fprintf(os.Stderr, "  Weights:   %6d MB (%.1fB × %.1f × 1024)\n",
 			result.Breakdown.WeightsMB, derefOrZero(model.TotalParamsB), derefOrZero(model.QuantBytesPerParam))
 		fmt.Fprintf(os.Stderr, "  CUDA ctx:  %6d MB\n", result.Breakdown.CUDAContextMB)
-		fmt.Fprintf(os.Stderr, "  Prefix cd: %6d MB\n", result.Breakdown.PrefixCacheMB)
+		fmt.Fprintf(os.Stderr, "  Prefix cache: %6d MB\n", result.Breakdown.PrefixCacheMB)
 		fmt.Fprintf(os.Stderr, "  ──────────────────────────────────\n")
 		fmt.Fprintf(os.Stderr, "  Total:     %6d MB\n", result.TotalRealisticMB)
 		fmt.Fprintf(os.Stderr, "  GPU util:  %.2f (total / %.0f total)  ⚠ Speech: no KV cache allocated\n",
