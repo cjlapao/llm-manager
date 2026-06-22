@@ -4,6 +4,7 @@
 > **Target branch:** `refactor/architecture`  
 > **Current step:** Planning complete — branches ready  
 > **Architecture target:** Package-per-responsibility (split by domain concern, no god-files)
+> **Target language:** Go 1.26.2
 
 ---
 
