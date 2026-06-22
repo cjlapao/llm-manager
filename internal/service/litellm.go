@@ -18,8 +18,11 @@ import (
 const (
 	activeAliasName     = "active"
 	activeThinkingAlias = "active-thinking"
-	ragAliasReranker    = "reranker"
-	ragAliasEmbeddings  = "embeddings"
+	ragAliasReranker     = "active-reranker"
+	ragAliasEmbeddings   = "active-embeddings"
+	speechAliasSTT      = "active-stt"
+	speechAliasTTS      = "active-tts"
+	speechAliasOmni     = "active-omni"
 )
 
 // LiteLLMService handles CRUD operations against the LiteLLM proxy API.
@@ -600,6 +603,46 @@ func buildDeploymentSpecs(params, minfo map[string]interface{},
 			aliasName = ragAliasReranker
 		} else {
 			aliasName = ragAliasEmbeddings
+		}
+
+		specs = append(specs, DeploymentSpec{
+			Name:      aliasName,
+			Type:      "alias",
+			Params:    aliasParams,
+			ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
+		})
+		return specs, nil
+	}
+
+	// Speech models: only an alias (no base deployment), keyed by subtype.
+	if isSpeechType(subType) {
+		aliasParams := make(map[string]interface{})
+		for k, v := range params {
+			if k == "variants" {
+				continue
+			}
+			aliasParams[k] = copyInterfaceToMapStringInterface(v)
+		}
+		aliasParams["model"] = slug
+		aliasParams["custom_llm_provider"] = "hosted_vllm"
+
+		if port > 0 && openAIAURL != "" {
+			base := strings.TrimRight(openAIAURL, "/")
+			aliasParams["api_base"] = fmt.Sprintf("%s:%d/v1", base, port)
+		} else {
+			fmt.Fprintf(os.Stderr, "  [WARN] Speech alias api_base NOT SET: port=%d openAIAURL=%q\n", port, openAIAURL)
+		}
+
+		var aliasName string
+		switch strings.ToLower(subType) {
+		case "stt":
+			aliasName = speechAliasSTT
+		case "tts":
+			aliasName = speechAliasTTS
+		case "omni":
+			aliasName = speechAliasOmni
+		default:
+			aliasName = fmt.Sprintf("active-%s", subType)
 		}
 
 		specs = append(specs, DeploymentSpec{
@@ -1256,7 +1299,7 @@ func (s *LiteLLMService) SyncAll() error {
 	fmt.Println(strings.Repeat("─", 60))
 
 	for _, m := range allModels {
-		if m.Type != "llm" && m.Type != "auto-complete" && m.Type != "rag" {
+		if m.Type != "llm" && m.Type != "auto-complete" && m.Type != "rag" && !isSpeechType(m.SubType) {
 			skipped++
 			continue
 		}

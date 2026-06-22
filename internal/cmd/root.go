@@ -238,10 +238,7 @@ COMMANDS:
   swap        GPU-safe model swap (stop all LLMs, drop cache, start target)
   export      Export a model to a YAML file
   comfyui     Manage ComfyUI and image generation models (start, stop, flux, 3d, status)
-  stt         Manage speech-to-text (STT) models (start, stop, info)
-  tts         Manage text-to-speech (TTS) models (start, stop, info)
-  omni        Manage multimodal Omni models (start, stop, info)
-  speech      Manage speech models (STT, TTS, Omni) — combined start/stop/info
+  speech      Manage speech models — combined: 'speech start/stop/info'; type-specific: 'speech stt|tts|omni [start|stop|info]'
   rag         Manage RAG models - embeddings + rerankers (start, stop, list, info)
   litellm     Manage models in the LiteLLM proxy
 
@@ -269,6 +266,8 @@ EXAMPLES:
   llm-manager llm swap qwen3_6
   llm-manager comfyui start
   llm-manager comfyui flux start flux-schnell
+  llm-manager speech omni start pixtral-voice
+  llm-manager speech stt start whisper-large-v3
   llm-manager speech stop
   llm-manager rag start
   LLM_MANAGER_VERBOSE=true llm-manager

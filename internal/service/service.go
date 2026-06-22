@@ -752,11 +752,57 @@ func (s *ContainerService) checkGPUMemory(slug string, overrides StartOverrides)
 	if err != nil {
 		return nil
 	}
-	if model.Type != "llm" && model.Type != "auto-complete" && model.Type != "rag" {
-		return nil // only check for LLM and RAG models
+	if model.Type != "llm" && model.Type != "auto-complete" && model.Type != "rag" && model.Type != "speech" {
+		return nil // only check for LLM, RAG, and Speech models
 	}
 	if model.TotalParamsB == nil || model.QuantBytesPerParam == nil {
 		return nil // no profile data, skip
+	}
+
+	// For speech models, use EstimateSpeechMemory() since they don't need KV cache analysis.
+	// All other types continue through the LLM-style profile building below.
+	if model.Type == "speech" {
+		freeRAM, _ := readMemAvailableMB()
+		result, err := EstimateSpeechMemory(model, freeRAM)
+		if err != nil {
+			return fmt.Errorf("estimate speech memory: %w", err)
+		}
+		if result == nil {
+			return nil // no data — treat same as missing profile data above
+		}
+		if !result.FitsAtMaxContext {
+			availableGB := float64(result.Breakdown.WeightsMB + result.Breakdown.CUDAContextMB + result.Breakdown.PrefixCacheMB) / 1024.0
+			return fmt.Errorf("speech model %s requires %.1f GB VRAM (weights %.0f MB + CUDA/context overhead %.0f MB) but only %.0f MB available — startup blocked",
+				slug, availableGB,
+				float64(result.Breakdown.WeightsMB)/1024,
+				float64(result.Breakdown.CUDAContextMB+result.Breakdown.PrefixCacheMB)/1024,
+				float64(result.AvailableMB)/1024)
+		}
+		// Display memory breakdown to match LLM behavior
+		fmt.Fprintf(os.Stderr, "\n=== GPU Memory Calculation ===\n")
+		fmt.Fprintf(os.Stderr, "  Profile: %.1fB params, %.1f bytes/param\n",
+			derefOrZero(model.TotalParamsB), derefOrZero(model.QuantBytesPerParam))
+		if model.DefaultContext != nil && *model.DefaultContext > 0 {
+			fmt.Fprintf(os.Stderr, "  Default context window: %d tokens\n", *model.DefaultContext)
+		}
+		if model.MaxContext != nil && *model.MaxContext > 0 {
+			fmt.Fprintf(os.Stderr, "  Max context window: %d tokens\n", *model.MaxContext)
+		}
+		fmt.Fprintf(os.Stderr, "  Weights:   %6d MB (%.1fB × %.1f × 1024)\n",
+			result.Breakdown.WeightsMB, derefOrZero(model.TotalParamsB), derefOrZero(model.QuantBytesPerParam))
+		fmt.Fprintf(os.Stderr, "  CUDA ctx:  %6d MB\n", result.Breakdown.CUDAContextMB)
+		fmt.Fprintf(os.Stderr, "  Prefix cache: %6d MB\n", result.Breakdown.PrefixCacheMB)
+		fmt.Fprintf(os.Stderr, "  ──────────────────────────────────\n")
+		fmt.Fprintf(os.Stderr, "  Total:     %6d MB\n", result.TotalRealisticMB)
+		fmt.Fprintf(os.Stderr, "  GPU util:  %.2f (total / %.0f total)  ⚠ Speech: no KV cache allocated\n",
+			result.GPUMemoryUtilization, float64(result.AvailableMB))
+		fmt.Fprintf(os.Stderr, "  Docker lim: %dg\n", result.DockerLimitGB)
+		fmt.Fprintf(os.Stderr, "  Fits:      %v (need %d MB <= %.0f MB free)\n",
+			result.FitsAtMaxContext, result.TotalRealisticMB, float64(result.AvailableMB))
+		fmt.Fprintf(os.Stderr, "=================================\n")
+		// Store docker limit for later use during container start
+		_ = result.DockerLimitGB // set as override so compose generator gets it
+		return nil
 	}
 
 	// Build profile from DB fields
@@ -1119,24 +1165,24 @@ func (s *ContainerService) StopAllLLMs() error {
 	var stopped int
 	var skippedNonLLM int
 	for _, m := range models {
-		if m.Container == "" {
+		if m.GetContainerName() == "" {
 			continue
 		}
 
 		if m.Type != "llm" {
-			if runningNames[m.Container] {
+			if runningNames[m.GetContainerName()] {
 				skippedNonLLM++
 			}
 			continue
 		}
 
-		if !runningNames[m.Container] {
+		if !runningNames[m.GetContainerName()] {
 			continue // not running, nothing to stop
 		}
 
-		stopCmd := exec.Command("docker", "stop", m.Container)
+		stopCmd := exec.Command("docker", "stop", m.GetContainerName())
 		if err := stopCmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "  ⚠ Failed to stop %s: %v\n", m.Container, err)
+			fmt.Fprintf(os.Stderr, "  ⚠ Failed to stop %s: %v\n", m.GetContainerName(), err)
 		} else {
 			stopped++
 		}
@@ -1502,18 +1548,18 @@ func (s *ContainerService) StopAllBySubType(modelType string, subType string) er
 
 	var stopped int
 	for _, m := range models {
-		if m.Container == "" {
+		if m.GetContainerName() == "" {
 			continue
 		}
 		if m.Type != modelType || m.SubType != subType {
 			continue
 		}
-		if !runningNames[m.Container] {
+		if !runningNames[m.GetContainerName()] {
 			continue
 		}
-		stopCmd := exec.Command("docker", "stop", m.Container)
+		stopCmd := exec.Command("docker", "stop", m.GetContainerName())
 		if err := stopCmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "  Warning: failed to stop %s: %v\n", m.Container, err)
+			fmt.Fprintf(os.Stderr, "  Warning: failed to stop %s: %v\n", m.GetContainerName(), err)
 		} else {
 			stopped++
 		}
@@ -1532,6 +1578,14 @@ func (s *ContainerService) StartModelBySlugWithAllow(slug string, allowMultiple 
 	model, err := s.db.GetModel(slug)
 	if err != nil {
 		return fmt.Errorf("model not found: %w", err)
+	}
+
+	// Check GPU memory availability (speech models too) before any container ops.
+	if model.TotalParamsB != nil && model.QuantBytesPerParam != nil {
+		if err := s.checkGPUMemory(slug, StartOverrides{}); err != nil {
+			// checkGPUMemory already prints the detailed breakdown; log reason only here.
+			return fmt.Errorf("insufficient GPU memory for %s: %w", slug, err)
+		}
 	}
 
 	if model.GetContainerName() == "" {

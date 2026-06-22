@@ -258,7 +258,7 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	// Only LLM-type models need LiteLLM proxy routing (api_base + model name).
 	// rag/embedding, rag/reranker, speech/stt, speech/tts, speech/omni, comfyui
 	// do not route through LiteLLM — clear any auto-generated params.
-	if y.Type != "llm" && y.Type != "auto-complete" {
+	if y.Type != "llm" && y.Type != "auto-complete" && !isSpeechType(y.SubType) {
 		litellmParams = map[string]interface{}{}
 	}
 
@@ -414,7 +414,7 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 	// recreate them now so the model is usable immediately without
 	// requiring a separate 'litellm sync' step.
 	if overrides.Override {
-		if s.litellm != nil && model.Type == "llm" {
+		if s.litellm != nil && (model.Type == "llm" || isSpeechType(model.SubType)) {
 			if syncErr := s.litellm.SyncModel(model.Slug); syncErr != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to sync model to LiteLLM after override import: %v\n", syncErr)
 			} else {

@@ -8,7 +8,7 @@ versions:
   - slug: v1
     version: "1"
     container_name: speech-node
-    image: ghcr.io/cjlapao/qwen3-audio-gb10:latest
+    image: ghcr.io/cjlapao/qwen3-audio-gb10:0.1.0
     default: true
     latest: true
     volumes:
