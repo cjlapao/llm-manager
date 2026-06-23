@@ -1,5 +1,7 @@
 package database
 
+//go:generate counterfeiter -o ../mocks/mock_database_manager.go . DatabaseManager
+
 import (
 	"github.com/user/llm-manager/internal/database/models"
 	"gorm.io/gorm"
