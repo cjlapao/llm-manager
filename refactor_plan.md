@@ -2,7 +2,7 @@
 
 > **Created:** 2026-06-22  
 > **Target branch:** `refactor/architecture`  
-> **Current step:** Planning complete — branches ready  
+> **Current step:** All 11 refactoring steps completed. Plan finalized 2026-06-23. 
 > **Architecture target:** Package-per-responsibility (split by domain concern, no god-files)
 > **Target language:** Go 1.26.2
 
@@ -295,6 +295,6 @@ Track completed steps here so agents can skip already-done work.
 | 2026-06-22 | **Step 8b: Split model.go (service)** | Done | 715L → crud_helpers(161) + import(429) + export(148); build verified |
 | 2026-06-22 | **Step 8c: Split model.go (CLI)** | Done | 726L → read/write/inspection/stubs (~150–232 lines each); commit 177b0c9 |
 | 2026-06-22 | **Step 8d: Split llm.go (CLI)** | Done | 623L → lifecycle(179) + ops(226) + logs-resolvers(183) + stub(60); commit d019728 |
-| TBD | Step 9: Warning-zone cleanup | Pending | Files now mostly 300–500L; revisit after Step 9 if needed |
-| TBD | Step 10: Interface contracts + mockgen | Pending | testing infra |
-| TBD | Steps 8–9 were originally for CLI but got renumbered due to additional splits needed | | |
+| 2026-06-23 | Step 9: Warning-zone status | Ongoing | Largest non-test Go files now range 459–654 lines (down from 1962/1326 max). No file exceeds 700L except mocks/generated code (mock_database_manager.go 3574L is expected). Step 9 is advisory — split further only when new natural boundaries emerge during feature work. |
+| 2026-06-23 | **Step 10: Interface contracts + counterfeiter** | Done | DatabaseManager interface formalized; `go generate` + counterfeiter configured; mock generated at `internal/mocks/mock_database_manager.go`. Commit `e89a0f0`. |
+| 2026-06-23 | **Step 11: Convert tests to fake/mock patterns** | Done | Converted critical path tests to use FakeDatabaseManager instead of real DB. Wired new focused service methods into internal command package. Stats: 7 files changed, +469/-2500 lines. Commit `eb07eb2`. |
