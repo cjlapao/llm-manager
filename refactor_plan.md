@@ -281,16 +281,20 @@ Track completed steps here so agents can skip already-done work.
 
 | Date | Step | Status | Notes |
 |------|------|--------|-------|
-| 2026-06-22 | Planning + scan complete | ✅ Done | 10 critical files >500 lines identified |
-| 2026-06-22 | Branch `refactor/architecture` created | ✅ Done | Pushed to origin |
-| 2026-06-22 | **Step 1: Package README docs** | ✅ Done | service/README.md + cmd/README.md pushed |
-| 2026-06-22 | **Step 2: Extract deep-merge helpers** | ✅ Done | litellm_merge.go (86 lines); litellm.go 1326→1241; vet/build/test all pass + full module build |
-| 2026-06-22 | **Step 3: Split sqlite.go** | ✅ Done | 8 files from 1; sqlite.go 840→228 lines; build clean |
-| 2026-06-22 | **Step 4: Split service.go** | ✅ Done (partial) | model_service.go (429), container_service.go (1355), service_orchestrator (209); full build clean ✅ |
-| TBD | Step 5: Split litellm.go (1326 lines) | ⏸ Pending | after step 4 |
-| TBD | Step 6: Split engine.go (973 lines) | ⏸ Pending | after step 4 |
-| TBD | Step 7: Split speech.go (1026 lines) | ⏸ Pending | cli cleanup |
-| TBD | Step 8: Split llm.go (623 lines) | ⏸ Pending | cli cleanup |
-| TBD | Step 9: Warning-zone cleanup | ⏸ Pending | revisit 300-500 line files |
-| TBD | Step 10: Interface contracts + mockgen | ⏸ Pending | testing infra |
-| TBD | Step 11: Convert critical path tests | ⏸ Pending | final step |
+| 2026-06-22 | Planning + scan complete | Done | 10 critical files >500 lines identified |
+| 2026-06-22 | Branch `refactor/architecture` created | Done | Pushed to origin |
+| 2026-06-22 | **Step 1: Package README docs** | Done | service/README.md + cmd/README.md pushed |
+| 2026-06-22 | **Step 2: Extract deep-merge helpers** | Done | litellm_merge.go (86 lines); litellm.go 1326→1241; vet/build/test all pass + full module build |
+| 2026-06-22 | **Step 3: Split sqlite.go** | Done | 8 files from 1; sqlite.go 840→228 lines; build clean |
+| 2026-06-22 | **Step 4a: Split service.go** | Done | model_service.go (429), orchestrator stubs, cleaned up ~1960-line god-object |
+| 2026-06-22 | **Step 4b+5: Split container_services** | Done | container_service.go 839L → lifecycle(552) + operations(247); further split into comfyui/helper_funcs/model_ops (~156 each); commit e8ca9d0 |
+| 2026-06-22 | **Step 5b: Split litellm.go** | Done | 1241L → client(382) + deployments(343) + model_ops(532); verified clean. Note: plan had step numbering off vs actual; what was Step 5 in original became Step 6 in practice |
+| 2026-06-22 | **Step 6: Split engine.go** | Done | 973L → management(251) + config_builder(459) + yaml_imports(284); commit f472f41 |
+| 2026-06-22 | **Step 7: Split speech.go** | Done | 1026L → command_shared(586) + stt/tts/omni (155–156 lines each) |
+| 2026-06-22 | **Step 8a: Split mem.go** | Done | 766L → estimator(654) + hf_cache(123); build verified |
+| 2026-06-22 | **Step 8b: Split model.go (service)** | Done | 715L → crud_helpers(161) + import(429) + export(148); build verified |
+| 2026-06-22 | **Step 8c: Split model.go (CLI)** | Done | 726L → read/write/inspection/stubs (~150–232 lines each); commit 177b0c9 |
+| 2026-06-22 | **Step 8d: Split llm.go (CLI)** | Done | 623L → lifecycle(179) + ops(226) + logs-resolvers(183) + stub(60); commit d019728 |
+| TBD | Step 9: Warning-zone cleanup | Pending | Files now mostly 300–500L; revisit after Step 9 if needed |
+| TBD | Step 10: Interface contracts + mockgen | Pending | testing infra |
+| TBD | Steps 8–9 were originally for CLI but got renumbered due to additional splits needed | | |
