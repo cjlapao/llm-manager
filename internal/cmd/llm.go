@@ -49,7 +49,7 @@ func (c *LlmCommand) Run(args []string) int {
 		return c.runStatus(args[1])
 	case "logs":
 		return c.runLogs(args[1:])
-	case "ls":
+	case "ls", "list":
 		return c.runLs()
 	case "help", "-h", "--help":
 		c.PrintHelp()
@@ -60,4 +60,3 @@ func (c *LlmCommand) Run(args []string) int {
 		return 1
 	}
 }
-
