@@ -4,7 +4,9 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/user/llm-manager/internal/database/models"
 	"github.com/user/llm-manager/internal/service"
@@ -40,6 +42,8 @@ func (c *SpeechCommand) Run(args []string) int {
 		return c.runStart(args[1:])
 	case "stop":
 		return c.runStop(args[1:])
+	case "ls":
+		return c.runInfo()
 	case "info":
 		return c.runInfo()
 	case "help", "-h", "--help":
@@ -218,7 +222,7 @@ func (c *SpeechCommand) resolveTypedModel(subType string, explicitSlug string, u
 				return m.Slug, nil
 			}
 		}
-		return "", fmt.Errorf("no %s model marked as default; run 'speech %s info' to see models", subType, subType)
+		return "", fmt.Errorf("no %s model marked as default; run 'speech %s ls' to see models", subType, subType)
 	}
 
 	return mss[0].Slug, nil
@@ -256,6 +260,8 @@ func (c *SpeechCommand) runStartSTTDispatcher(args []string) int {
 		return c.runStartSTT(args[1:])
 	case "stop":
 		return c.runStopSTT(args[1:])
+	case "ls":
+		return c.runInfoSTT(args[1:])
 	case "info":
 		return c.runInfoSTT(args[1:])
 	case "help", "-h", "--help":
@@ -279,6 +285,8 @@ func (c *SpeechCommand) runStartTTSDispatcher(args []string) int {
 		return c.runStartTTS(args[1:])
 	case "stop":
 		return c.runStopTTS(args[1:])
+	case "ls":
+		return c.runInfoTTS(args[1:])
 	case "info":
 		return c.runInfoTTS(args[1:])
 	case "help", "-h", "--help":
@@ -302,6 +310,8 @@ func (c *SpeechCommand) runStartOmniDispatcher(args []string) int {
 		return c.runStartOmni(args[1:])
 	case "stop":
 		return c.runStopOmni(args[1:])
+	case "ls":
+		return c.runInfoOmni(args[1:])
 	case "info":
 		return c.runInfoOmni(args[1:])
 	case "help", "-h", "--help":
@@ -464,41 +474,26 @@ func (c *SpeechCommand) runStop(args []string) int {
 	return 0
 }
 
-// runInfo displays all speech models grouped by subtype (STT, TTS, Omni).
+// runInfo lists all speech models in a single unified table sorted by slug.
 func (c *SpeechCommand) runInfo() int {
-	sttModels, err := c.svc.ListSTTModels()
+	modelList, err := c.svc.ListSpeechModels()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing STT models: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error listing speech models: %v\n", err)
 		return 1
 	}
 
-	ttsModels, err := c.svc.ListTTSModels()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing TTS models: %v\n", err)
-		return 1
+	if len(modelList) == 0 {
+		fmt.Println("(none)")
+		return 0
 	}
 
-	omniModels, err := c.svc.ListOmniModels()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing Omni models: %v\n", err)
-		return 1
-	}
+	// Sort by slug for consistent ordering
+	sort.Slice(modelList, func(i, j int) bool {
+		return modelList[i].Slug < modelList[j].Slug
+	})
 
-	printSection := func(title string, mList []models.Model) {
-		fmt.Printf("\n%s:\n", title)
-		if len(mList) == 0 {
-			fmt.Println("  (none)")
-			return
-		}
-		c.printModelTable(title, mList, "")
-	}
-
-	printSection("STT Models", sttModels)
-	printSection("TTS Models", ttsModels)
-	printSection("Omni Models", omniModels)
-
-	total := len(sttModels) + len(ttsModels) + len(omniModels)
-	fmt.Printf("Total: %d speech model(s)\n", total)
+	c.printModelTable(modelList)
+	fmt.Printf("\nTotal: %d speech model(s)\n", len(modelList))
 	return 0
 }
 
@@ -511,39 +506,54 @@ func (c *SpeechCommand) getContainerStatus(slug string) string {
 	return s.Status
 }
 
-// printModelTable prints a model group as a formatted table.
-// If footerFmt is non-empty it is printed as a summary line after the table.
-func (c *SpeechCommand) printModelTable(title string, mList []models.Model, footerFmt string) {
-	sep := strings.Repeat("-", 95)
-	fmt.Println(sep)
-	fmt.Printf("%-25s %-20s %-18s %6s %s\n", "Name", "Slug", "Container", "Port", "Status(Default)")
-	fmt.Println(sep)
+// printModelTable prints a model list as a formatted table using tabwriter.
+// Column layout matches `models ls`: SLUG, TYPE, SUBTYPE, NAME, PORT, STATUS, CACHED, ENGINE.
+func (c *SpeechCommand) printModelTable(mList []models.Model) {
+	if len(mList) == 0 {
+		fmt.Println("(none)")
+		return
+	}
+
+	containerSvc := service.NewContainerService(c.cfg.db, c.cfg.cfg)
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+
+	// Header
+	fmt.Fprintln(w, "SLUG\tTYPE\tSUBTYPE\tNAME\tPORT\tSTATUS\tCACHED\tENGINE")
+	fmt.Fprintln(w, "----\t----\t-------\t----\t----\t------\t------\t------")
+
 	for _, m := range mList {
-		status := "unknown"
-		if m.Container != "" {
-			status = c.getContainerStatus(m.Slug)
+		status := inspectContainerState(m.GetContainerName())
+
+		// Check cached
+		var cached string
+		if m.HFRepo != "" && containerSvc != nil {
+			cacheInfo := containerSvc.HFCacheSize(m.HFRepo)
+			if cacheInfo.Cached {
+				cached = service.FormatVRAM(uint64(cacheInfo.Size))
+			} else {
+				cached = "no"
+			}
+		} else {
+			cached = "\u2014"
 		}
-		portStr := "-"
-		if m.Port != 0 {
-			portStr = fmt.Sprintf("%d", m.Port)
+
+		engine := m.EngineType
+		if engine == "" {
+			engine = "vllm"
 		}
-		defTag := ""
-		if m.Default {
-			defTag = "(default)"
-		}
-		fmt.Printf("%-25s %-20s %-18s %6s %s%s\n",
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+			m.Slug,
+			m.Type,
+			m.SubType,
 			truncateWithDots(m.Name, 24),
-			truncateWithDots(m.Slug, 19),
-			truncateWithDots(m.Container, 17),
-			portStr,
+			m.Port,
 			status,
-			defTag)
+			cached,
+			engine)
 	}
-	fmt.Println(sep)
-	if footerFmt != "" {
-		fmt.Printf(footerFmt+"\n", len(mList))
-	}
-	_ = title // consumed by caller via section header
+	w.Flush()
 }
 
 // PrintHelp prints the speech command top-level help.
@@ -563,14 +573,15 @@ SUBCOMMANDS:
         Stop speech containers. Up to three positional slugs target
         specific models. If no slugs are provided, stops all running
         speech containers across all subtypes.
-  info  List all registered speech models (STT, TTS, Omni) grouped
-        by subtype, with their container status.
-  help  Show this help message.
+  ls           List all registered speech models in a single table
+               (STT, TTS, Omni), sorted by slug, with container status.
+  info         Alias for ls.
+  help         Show this help message.
 
 TYPE-SPECIFIC COMMANDS:
-  llm-manager speech stt [start|stop|info|help]    Manage STT (speech-to-text) models
-  llm-manager speech tts [start|stop|info|help]    Manage TTS (text-to-speech) models
-  llm-manager speech omni [start|stop|info|help]   Manage Omni (multimodal) models
+  llm-manager speech stt [start|stop|ls|info|help]    Manage STT (speech-to-text) models
+  llm-manager speech tts [start|stop|ls|info|help]    Manage TTS (text-to-speech) models
+  llm-manager speech omni [start|stop|ls|info|help]   Manage Omni (multimodal) models
 
 EXAMPLES:
   llm-manager speech start                              # start defaults
@@ -579,7 +590,10 @@ EXAMPLES:
   llm-manager speech start -m whisper xtts pixtral     # start all 3
   llm-manager speech stop                               # stop all
   llm-manager speech stop whisper-large-v3 xtts-v2     # stop specific
-  llm-manager speech info                                # list all
+  llm-manager speech ls                                 # list all
+  llm-manager speech stt ls                             # list STT models
+  llm-manager speech tts ls                             # list TTS models
+  llm-manager speech omni ls                            # list Omni models
   llm-manager speech stt start                           # start first STT
   llm-manager speech tts start --default                # start default TTS
   llm-manager speech omni start                          # start first Omni`)

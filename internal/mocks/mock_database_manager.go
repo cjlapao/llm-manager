@@ -10,9 +10,10 @@ import (
 )
 
 type FakeDatabaseManager struct {
-	ApplyPendingMigrationsStub        func() error
+	ApplyPendingMigrationsStub        func(bool) error
 	applyPendingMigrationsMutex       sync.RWMutex
 	applyPendingMigrationsArgsForCall []struct {
+		arg1 bool
 	}
 	applyPendingMigrationsReturns struct {
 		result1 error
@@ -597,17 +598,18 @@ type FakeDatabaseManager struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeDatabaseManager) ApplyPendingMigrations() error {
+func (fake *FakeDatabaseManager) ApplyPendingMigrations(arg1 bool) error {
 	fake.applyPendingMigrationsMutex.Lock()
 	ret, specificReturn := fake.applyPendingMigrationsReturnsOnCall[len(fake.applyPendingMigrationsArgsForCall)]
 	fake.applyPendingMigrationsArgsForCall = append(fake.applyPendingMigrationsArgsForCall, struct {
-	}{})
+		arg1 bool
+	}{arg1})
 	stub := fake.ApplyPendingMigrationsStub
 	fakeReturns := fake.applyPendingMigrationsReturns
-	fake.recordInvocation("ApplyPendingMigrations", []interface{}{})
+	fake.recordInvocation("ApplyPendingMigrations", []interface{}{arg1})
 	fake.applyPendingMigrationsMutex.Unlock()
 	if stub != nil {
-		return stub()
+		return stub(arg1)
 	}
 	if specificReturn {
 		return ret.result1
@@ -621,7 +623,7 @@ func (fake *FakeDatabaseManager) ApplyPendingMigrationsCallCount() int {
 	return len(fake.applyPendingMigrationsArgsForCall)
 }
 
-func (fake *FakeDatabaseManager) ApplyPendingMigrationsCalls(stub func() error) {
+func (fake *FakeDatabaseManager) ApplyPendingMigrationsCalls(stub func(bool) error) {
 	fake.applyPendingMigrationsMutex.Lock()
 	defer fake.applyPendingMigrationsMutex.Unlock()
 	fake.ApplyPendingMigrationsStub = stub

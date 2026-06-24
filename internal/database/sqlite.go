@@ -73,12 +73,15 @@ func (m *sqliteManager) LatestVersion() (int, error) {
 }
 
 // ApplyPendingMigrations runs all pending up-migrations.
-func (m *sqliteManager) ApplyPendingMigrations() error {
+// When verbose is true, prints informational messages about migration status.
+func (m *sqliteManager) ApplyPendingMigrations(verbose bool) error {
 	if m.mg == nil {
 		return fmt.Errorf("migration engine not initialized")
 	}
-	fmt.Println("Checking for pending migrations...")
-	fmt.Printf("  Version: %s (built: %s)\n", version.Version(), version.Date())
+	if verbose {
+		fmt.Println("Checking for pending migrations...")
+		fmt.Printf("  Version: %s (built: %s)\n", version.Version(), version.Date())
+	}
 	if err := m.ensureLegacyColumns(); err != nil {
 		return fmt.Errorf("legacy column check failed: %w", err)
 	}
@@ -209,7 +212,7 @@ func (m *sqliteManager) AutoMigrate() error {
 		return fmt.Errorf("migration engine not initialized")
 	}
 	fmt.Println("Running migration engine (backward compatible)...")
-	return m.ApplyPendingMigrations()
+	return m.ApplyPendingMigrations(true) // Always verbose for backward-compat AutoMigrate
 }
 
 // SuppressRecordNotFound wraps a GORM query to suppress "record not found" log noise.

@@ -237,9 +237,9 @@ func TestModelCommand_ListWithNewDB(t *testing.T) {
 	root := &RootCommand{cfg: cfg, db: db}
 	cmd := NewModelCommand(root)
 
-	exitCode := cmd.Run([]string{"list"})
+	exitCode := cmd.Run([]string{"ls"})
 	if exitCode != 0 {
-		t.Errorf("model list returned non-zero: %d", exitCode)
+		t.Errorf("models ls returned non-zero: %d", exitCode)
 	}
 }
 
@@ -279,13 +279,13 @@ func TestModelCommand_GetWithNewDB(t *testing.T) {
 
 	exitCode := cmd.Run([]string{"get", "test-model"})
 	if exitCode != 0 {
-		t.Errorf("model get returned non-zero: %d", exitCode)
+		t.Errorf("models get returned non-zero: %d", exitCode)
 	}
 
 	// Test getting non-existent model
 	exitCode = cmd.Run([]string{"get", "nonexistent"})
 	if exitCode == 0 {
-		t.Error("model get nonexistent should return non-zero")
+		t.Error("models get nonexistent should return non-zero")
 	}
 }
 

@@ -114,7 +114,7 @@ func (m *mockDB) Open() error                                                 { 
 func (m *mockDB) Close() error                                                { return nil }
 func (m *mockDB) SchemaVersion() (int, error)                                 { return 0, nil }
 func (m *mockDB) LatestVersion() (int, error)                                 { return 0, nil }
-func (m *mockDB) ApplyPendingMigrations() error                               { return nil }
+func (m *mockDB) ApplyPendingMigrations(verbose bool) error                               { return nil }
 func (m *mockDB) MigrateTo(_ int) error                                       { return nil }
 func (m *mockDB) AutoMigrate() error                                          { return nil }
 func (m *mockDB) DB() *gorm.DB                                                { return nil }

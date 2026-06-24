@@ -187,7 +187,7 @@ func (c *InstallCommand) runInstallAll(startFlag, cleanFlag bool) int {
 	}
 
 	if len(models) == 0 {
-		fmt.Println("No models registered. Use 'llm-manager model import' to add models.")
+		fmt.Println("No models registered. Use 'llm-manager models import' to add models.")
 		return 0
 	}
 
@@ -322,7 +322,7 @@ func (c *InstallCommand) preflight(slug string) (*models.Model, bool) {
 	model, err := c.db.GetModel(slug)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: model %q not found in database.\n", slug)
-		fmt.Fprintln(os.Stderr, "Run 'llm-manager model ls' to list registered models.")
+		fmt.Fprintln(os.Stderr, "Run 'llm-manager models ls' to list registered models.")
 		return nil, false
 	}
 
@@ -449,7 +449,7 @@ STEPS:
   7. Sync model with LiteLLM proxy
 
 REQUIREMENTS:
-  The model must already exist in the database. Use "llm-manager model import"
+  The model must already exist in the database. Use "llm-manager models import"
   to register a new model first.
 
 ENVIRONMENT VARIABLES:

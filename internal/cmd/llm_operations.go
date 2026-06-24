@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
+	"text/tabwriter"
 
+	"github.com/user/llm-manager/internal/database/models"
 	"github.com/user/llm-manager/internal/service"
 )
 
@@ -222,5 +225,71 @@ func (c *LlmCommand) runStatus(slug string) int {
 	}
 
 	fmt.Printf("Container %s: %s\n", slug, status)
+	return 0
+}
+
+// ── ls ─────────────────────────────────────────────────────────────────────
+
+// runLs lists all registered LLM models in a tabwriter table.
+func (c *LlmCommand) runLs() int {
+	// Get all models from DB
+	allModels, err := c.cfg.db.ListModels()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error listing models: %v\n", err)
+		return 1
+	}
+
+	// Filter to only type="llm" models
+	llmModels := make([]models.Model, 0)
+	for _, m := range allModels {
+		if m.Type == "llm" {
+			llmModels = append(llmModels, m)
+		}
+	}
+
+	if len(llmModels) == 0 {
+		fmt.Println("(none)")
+		return 0
+	}
+
+	sort.Slice(llmModels, func(i, j int) bool {
+		return llmModels[i].Slug < llmModels[j].Slug
+	})
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+
+	fmt.Fprintln(w, "SLUG\tTYPE\tSUBTYPE\tNAME\tPORT\tSTATUS\tCACHED\tENGINE")
+	fmt.Fprintln(w, "----\t----\t-------\t----\t----\t------\t------\t------")
+
+	for _, m := range llmModels {
+		status := "unknown"
+		s, err := c.svc.GetModelStatus(m.Slug)
+		if err == nil {
+			status = s.Status
+		}
+
+		var cached string
+		if m.HFRepo != "" {
+			cacheInfo := c.svc.HFCacheSize(m.HFRepo)
+			if cacheInfo.Cached {
+				cached = service.FormatVRAM(uint64(cacheInfo.Size))
+			} else {
+				cached = "no"
+			}
+		} else {
+			cached = "\u2014"
+		}
+
+		engine := m.EngineType
+		if engine == "" {
+			engine = "vllm"
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+			m.Slug, m.Type, m.SubType, m.Name, m.Port, status, cached, engine)
+	}
+	w.Flush()
+	fmt.Printf("\nTotal: %d llm model(s)\n", len(llmModels))
+
 	return 0
 }

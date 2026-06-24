@@ -23,6 +23,7 @@ type RootCommand struct {
 	apiPort     int
 	apiHost     string
 	apiPortFlag bool // true only when --api-port was explicitly provided
+	verbose     bool   // true only when --verbose was explicitly provided
 }
 
 // NewRootCommand creates a new RootCommand.
@@ -63,6 +64,8 @@ func (c *RootCommand) ParseGlobalFlags(args []string) []string {
 				fmt.Fprintln(os.Stderr, "Error: --api-host requires a value")
 				os.Exit(1)
 			}
+		case "--verbose":
+			c.verbose = true
 		default:
 			remaining = append(remaining, arg)
 		}
@@ -115,7 +118,7 @@ func (c *RootCommand) Run(args []string) int {
 		defer db.Close()
 
 		// Auto-apply pending migrations
-		if err := db.ApplyPendingMigrations(); err != nil {
+		if err := db.ApplyPendingMigrations(false); err != nil {
 			fmt.Fprintf(os.Stderr, "Error applying pending migrations: %v\n", err)
 			return 1
 		}
@@ -150,7 +153,7 @@ func (c *RootCommand) Run(args []string) int {
 
 	// Auto-apply pending migrations on every command (except version/help which don't need DB data)
 	if len(apiArgs) > 0 && apiArgs[0] != "-h" && apiArgs[0] != "--help" && apiArgs[0] != "help" && apiArgs[0] != "-v" && apiArgs[0] != "--version" && apiArgs[0] != "version" && apiArgs[0] != "migrate" {
-		if err := c.db.ApplyPendingMigrations(); err != nil {
+		if err := c.db.ApplyPendingMigrations(c.verbose); err != nil {
 			fmt.Fprintf(os.Stderr, "Error applying pending migrations: %v\n", err)
 			return 1
 		}
@@ -197,7 +200,7 @@ func (c *RootCommand) runConfig() int {
 
 // runMigrate updates the database schema to match the current code.
 func (c *RootCommand) runMigrate() int {
-	if err := c.db.ApplyPendingMigrations(); err != nil {
+	if err := c.db.ApplyPendingMigrations(true); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running migrations: %v\n", err)
 		return 1
 	}
@@ -223,9 +226,9 @@ COMMANDS:
   version     Show version information
   config      Show or manage persistent configuration (list, get, set, unset, edit)
   migrate     Update database schema to match latest code
-  model       Manage LLM models (list, get, create, update, delete, import, export, compose)
+  models      Manage LLM models (ls, get, create, update, del, import, export, compose)
   import      Import a model or engine from a YAML file (auto-detects type)
-  llm         Manage LLM model containers (start, stop, restart, swap, compose, status, logs)
+   llm         Manage LLM model containers (start, stop, restart, swap, ls, status, logs)
   container   Low-level Docker container operations (logs, status refresh)
   service     Manage LLM services (high-level orchestration)
   logs        View container logs for a model
@@ -238,13 +241,14 @@ COMMANDS:
   swap        GPU-safe model swap (stop all LLMs, drop cache, start target)
   export      Export a model to a YAML file
   comfyui     Manage ComfyUI and image generation models (start, stop, flux, 3d, status)
-  speech      Manage speech models — combined: 'speech start/stop/info'; type-specific: 'speech stt|tts|omni [start|stop|info]'
-  rag         Manage RAG models - embeddings + rerankers (start, stop, list, info)
+  speech      Manage speech models — combined: 'speech start/stop/ls'; type-specific: 'speech stt|tts|omni [start|stop|ls]'
+	rag         Manage RAG models - embeddings + rerankers (start, stop, ls, info)
   litellm     Manage models in the LiteLLM proxy
 
 GLOBAL OPTIONS:
   --api-port <port>     Start API server on the given port (default: 8780)
   --api-host <host>     Host to bind the API server to (default: 0.0.0.0)
+  --verbose             Enable verbose migration/debug output
 
 ENVIRONMENT VARIABLES:
   LLM_MANAGER_VERBOSE       Set to "true" or "1" to enable verbose output
@@ -259,8 +263,9 @@ EXAMPLES:
   llm-manager version
   llm-manager config
   llm-manager migrate
-  llm-manager model list
-  llm-manager model compose qwen3_6
+  llm-manager models ls
+  llm-manager --verbose models ls
+  llm-manager models compose qwen3_6
   llm-manager llm start qwen3_6
   llm-manager llm start latest
   llm-manager llm swap qwen3_6
@@ -268,8 +273,10 @@ EXAMPLES:
   llm-manager comfyui flux start flux-schnell
   llm-manager speech omni start pixtral-voice
   llm-manager speech stt start whisper-large-v3
+  llm-manager speech ls
   llm-manager speech stop
   llm-manager rag start
+  llm-manager rag ls
   LLM_MANAGER_VERBOSE=true llm-manager
 
 For more information, visit: https://github.com/user/llm-manager`)

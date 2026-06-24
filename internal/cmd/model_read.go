@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	RegisterCommand("model", func(root *RootCommand) Command { return NewModelCommand(root) })
+	RegisterCommand("models", func(root *RootCommand) Command { return NewModelCommand(root) })
 }
 
 // ModelCommand handles model CRUD operations.
@@ -37,7 +37,7 @@ func (c *ModelCommand) Run(args []string) int {
 	}
 
 	switch args[0] {
-	case "list", "ls":
+	case "ls", "list":
 		return c.runList()
 	case "get":
 		if len(args) < 2 {
@@ -57,7 +57,7 @@ func (c *ModelCommand) Run(args []string) int {
 			return 1
 		}
 		return c.runUpdate(args[1:])
-	case "delete", "del":
+	case "del", "delete":
 		return c.runDelete(args[1:])
 	case "info":
 		if len(args) < 2 {

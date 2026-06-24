@@ -91,7 +91,8 @@ func (c *SpeechCommand) runInfoListSTT() int {
 		return 0
 	}
 
-	c.printModelTable("STT Models", mss, "%d STT model(s)")
+	c.printModelTable(mss)
+	fmt.Printf("\nTotal: %d STT model(s)\n", len(mss))
 	return 0
 }
 
@@ -137,7 +138,8 @@ TYPE: stt
 SUBCOMMANDS:
   start [--default] [<slug>]    Start a stt model container
   stop [--default] [<slug>]     Stop a stt model container
-  info [slug]                   Without slug: list all stt models. With slug: show full details.
+  ls [slug]                     Without slug: list all stt models. With slug: show full details.
+  info [slug]                   Alias for ls.
   help                          Show this help message
 
 EXAMPLES:
@@ -146,8 +148,8 @@ EXAMPLES:
   llm-manager speech stt start whisper-large-v3     # start by slug
   llm-manager speech stt stop                       # stop all STT containers
   llm-manager speech stt stop whisper-large-v3      # stop specific STT model
-  llm-manager speech stt info                        # list all STT models
-  llm-manager speech stt info whisper-large-v3      # show model details`)
+  llm-manager speech stt ls                         # list all STT models
+  llm-manager speech stt ls whisper-large-v3        # show model details`)
 }
 
 // ----- TTS type-specific handlers -----

@@ -20,7 +20,7 @@ Task 006: Service layer (service methods must coexist with the old approach)
 - [ ] Existing `speech start` with no DB records falls back to profile-based compose:
   - Reads `docker-compose.yml` from `InstallDir`
   - Runs `docker compose -f <InstallDir>/docker-compose.yml --profile speech up -d whisper-stt kokoro-tts`
-  - Outputs a deprecation notice: "Profile-based speech start is deprecated. Import speech models with 'llm-manager model import' for per-model management."
+  - Outputs a deprecation notice: "Profile-based speech start is deprecated. Import speech models with 'llm-manager models import' for per-model management."
 - [ ] Existing `speech stop` with no DB records falls back to stopping hardcoded containers:
   - Stops `whisper-stt` and `kokoro-tts` containers if running (via `docker stop`)
   - Outputs a deprecation notice matching start
@@ -63,5 +63,5 @@ The existing `StartSpeech()` and `StopSpeech()` methods in `service.go` can be k
 Deprecation notice format:
 ```
 Note: Profile-based speech management is deprecated. 
-Import speech models with 'llm-manager model import' for per-model management.
+Import speech models with 'llm-manager models import' for per-model management.
 ```

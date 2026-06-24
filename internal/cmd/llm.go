@@ -12,7 +12,7 @@ func init() {
 	RegisterCommand("llm", func(root *RootCommand) Command { return NewLlmCommand(root) })
 }
 
-// LlmCommand manages LLM model containers (start, stop, restart, swap, status, logs).
+// LlmCommand manages LLM model containers (start, stop, restart, swap, ls, status, logs).
 type LlmCommand struct {
 	cfg *RootCommand
 	svc *service.ContainerService
@@ -49,6 +49,8 @@ func (c *LlmCommand) Run(args []string) int {
 		return c.runStatus(args[1])
 	case "logs":
 		return c.runLogs(args[1:])
+	case "ls":
+		return c.runLs()
 	case "help", "-h", "--help":
 		c.PrintHelp()
 		return 0

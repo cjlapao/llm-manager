@@ -15,7 +15,7 @@ type DatabaseManager interface {
 	// Schema version tracking and migrations
 	SchemaVersion() (int, error)
 	LatestVersion() (int, error)
-	ApplyPendingMigrations() error
+	ApplyPendingMigrations(verbose bool) error
 	MigrateTo(targetVersion int) error
 	AutoMigrate() error
 

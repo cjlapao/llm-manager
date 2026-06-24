@@ -113,7 +113,7 @@ func (c *ExportCommand) PrintHelp() {
 	fmt.Println(`export - Export a model to a YAML file.
 
 USAGE:
-  llm-manager model export <slug> [OPTIONS]
+  llm-manager models export <slug> [OPTIONS]
 
 ARGUMENTS:
   <slug>    Slug of the model to export
@@ -122,7 +122,7 @@ OPTIONS:
   --output <file.yaml>    Output file path (default: <slug>.yaml)
 
 EXAMPLES:
-  llm-manager model export qwen3_6
-  llm-manager model export qwen3_6 --output my-model.yaml
-  llm-manager model export flux-schnell --output /tmp/flux.yaml`)
+  llm-manager models export qwen3_6
+  llm-manager models export qwen3_6 --output my-model.yaml
+  llm-manager models export flux-schnell --output /tmp/flux.yaml`)
 }

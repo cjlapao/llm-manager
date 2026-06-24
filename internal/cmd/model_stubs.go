@@ -122,25 +122,25 @@ func convertRepoToCacheDir(repo string) string {
 
 // PrintHelp prints the model command help.
 func (c *ModelCommand) PrintHelp() {
-	fmt.Println(`model - Manage LLM models in the registry.
+	fmt.Println(`models - Manage LLM models in the registry.
 
 USAGE:
-  llm-manager model [SUBCOMMAND] [ARGS]
+  llm-manager models [SUBCOMMAND] [ARGS]
 
 SUBCOMMANDS:
-  list, ls             List all models (with live STATUS, CACHED, and ENGINE columns)
+  ls, list             List all models (with live STATUS, CACHED, and ENGINE columns)
   get <slug>           Show details for a model
   info <slug>          Show LiteLLM model information
   create <slug>        Create a new model
-                       USAGE: llm-manager model create <slug> [type] [name] [port]
+                       USAGE: llm-manager models create <slug> [type] [name] [port]
   update <slug>        Update model fields
-                       USAGE: llm-manager model update <slug> [key=value ...]
+                       USAGE: llm-manager models update <slug> [key=value ...]
                        Available fields: name, type, hf_repo, yml, container, port,
                          engine_type, env_vars, command_args, input_token_cost,
                          output_token_cost, capabilities
-  delete, del [--all]  Delete a model or all models
-                       USAGE: llm-manager model delete <slug>
-                             llm-manager model delete --all
+  del, delete [--all]  Delete a model or all models
+                       USAGE: llm-manager models del <slug>
+                             llm-manager models del --all
   import <file.yaml>   Import a model from a YAML file
                        OPTIONS: --input-cost, --output-cost, --capabilities
   export <slug>        Export a model to a YAML file
@@ -149,16 +149,16 @@ SUBCOMMANDS:
   clear-cache <slug>   Remove cached model weights
 
 EXAMPLES:
-  llm-manager model list
-  llm-manager model get qwen-3-8b
-  llm-manager model info qwen-3-8b
-  llm-manager model create my-model llm "My Model" 8080
-  llm-manager model update qwen-3-8b name="Updated Name"
-  llm-manager model delete old-model
-  llm-manager model delete --all
-  llm-manager model import model.yaml --input-cost 0.000001
-  llm-manager model export qwen-3-8b --output backup.yaml
-  llm-manager model clear-cache qwen-3-8b`)
+  llm-manager models ls
+  llm-manager models get qwen-3-8b
+  llm-manager models info qwen-3-8b
+  llm-manager models create my-model llm "My Model" 8080
+  llm-manager models update qwen-3-8b name="Updated Name"
+  llm-manager models del old-model
+  llm-manager models del --all
+  llm-manager models import model.yaml --input-cost 0.000001
+  llm-manager models export qwen-3-8b --output backup.yaml
+  llm-manager models clear-cache qwen-3-8b`)
 }
 
 // printNestedMap recursively prints a map with indentation.

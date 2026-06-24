@@ -92,7 +92,8 @@ func (c *SpeechCommand) runInfoListOmni() int {
 		return 0
 	}
 
-	c.printModelTable("Omni Models", mss, "%d Omni model(s)")
+	c.printModelTable(mss)
+	fmt.Printf("\nTotal: %d Omni model(s)\n", len(mss))
 	return 0
 }
 
@@ -138,7 +139,8 @@ TYPE: omni
 SUBCOMMANDS:
   start [<slug>]                 Start an omni model container
   stop [<slug>]                  Stop an omni model container
-  info [slug]                    Without slug: list all omni models. With slug: show full details.
+  ls [slug]                      Without slug: list all omni models. With slug: show full details.
+  info [slug]                    Alias for ls.
   help                           Show this help message
 
 EXAMPLES:
@@ -146,8 +148,8 @@ EXAMPLES:
   llm-manager speech omni start pixtral-voice   # start by slug
   llm-manager speech omni stop                 # stop all Omni containers
   llm-manager speech omni stop pixtral-voice    # stop specific Omni model
-  llm-manager speech omni info                  # list all Omni models
-  llm-manager speech omni info pixtral-voice    # show model details`)
+  llm-manager speech omni ls                   # list all Omni models
+  llm-manager speech omni ls pixtral-voice      # show model details`)
 }
 
 // ----- Combined commands (unchanged from current code) -----

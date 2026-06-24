@@ -91,7 +91,8 @@ func (c *SpeechCommand) runInfoListTTS() int {
 		return 0
 	}
 
-	c.printModelTable("TTS Models", mss, "%d TTS model(s)")
+	c.printModelTable(mss)
+	fmt.Printf("\nTotal: %d TTS model(s)\n", len(mss))
 	return 0
 }
 
@@ -137,7 +138,8 @@ TYPE: tts
 SUBCOMMANDS:
   start [--default] [<slug>]    Start a tts model container
   stop [--default] [<slug>]     Stop a tts model container
-  info [slug]                   Without slug: list all tts models. With slug: show full details.
+  ls [slug]                     Without slug: list all tts models. With slug: show full details.
+  info [slug]                   Alias for ls.
   help                          Show this help message
 
 EXAMPLES:
@@ -146,8 +148,8 @@ EXAMPLES:
   llm-manager speech tts start xtts-v2             # start by slug
   llm-manager speech tts stop                      # stop all TTS containers
   llm-manager speech tts stop xtts-v2              # stop specific TTS model
-  llm-manager speech tts info                      # list all TTS models
-  llm-manager speech tts info xtts-v2              # show model details`)
+  llm-manager speech tts ls                        # list all TTS models
+  llm-manager speech tts ls xtts-v2                # show model details`)
 }
 
 // ----- Omni type-specific handlers -----

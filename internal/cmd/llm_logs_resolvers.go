@@ -131,7 +131,7 @@ func resolveLatestSlug(db database.DatabaseManager) (string, error) {
 
 // PrintHelp prints the llm command help.
 func (c *LlmCommand) PrintHelp() {
-	fmt.Println(`llm - Manage LLM model containers (start, stop, restart, swap, status, logs).
+	fmt.Println(`llm - Manage LLM model containers (start, stop, restart, swap, ls, status, logs).
 
 USAGE:
   llm-manager llm [SUBCOMMAND] [ARGS]
@@ -143,6 +143,7 @@ SUBCOMMANDS:
   swap [<slug>]      GPU-safe model swap (defaults to latest if omitted)
   status [slug]         Show all container status and latest model info
   status <slug>         Show status of a specific container
+  ls                    List all LLM models (with live STATUS, CACHED, and ENGINE columns)
   logs [<slug>] [-f] [lines]  Show container logs (-f for follow mode, defaults to latest)
 
 FLAGS:
@@ -174,8 +175,9 @@ EXAMPLES:
   llm-manager llm restart qwen3_6
   llm-manager llm swap                    Swap to the latest model
   llm-manager llm swap qwen3_6
-  llm-manager llm status
-  llm-manager llm status qwen3_6
+  llm-manager llm status  
+  llm-manager llm status qwen3_6  
+  llm-manager llm ls
   llm-manager llm logs              Show logs from latest model
   llm-manager llm logs -f           Follow logs from latest model
   llm-manager llm logs qwen3_6 -f   Follow logs for specific model

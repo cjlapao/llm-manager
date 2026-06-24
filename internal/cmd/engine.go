@@ -37,11 +37,11 @@ func (c *EngineCommand) Run(args []string) int {
 
 	sub := args[0]
 	switch sub {
-	case "list":
+	case "ls", "list":
 		return c.cmdList(args[1:])
 	case "get":
 		return c.cmdGet(args[1:])
-	case "delete":
+	case "del", "delete":
 		return c.cmdDelete(args[1:])
 	case "version":
 		return c.cmdVersion(args[1:])
@@ -63,21 +63,21 @@ USAGE:
   llm-manager engine <subcommand> [arguments]
 
 SUBCOMMANDS:
-  list [--type <slug>]              List all engine types
+  ls [--type <slug>]                List all engine types
   get <slug>                        Show details for an engine type
-  delete <slug>                     Delete an engine type (refuses if versions exist)
-  version list [--type <slug>]      List versions for an engine type
+  del <slug>                        Delete an engine type (refuses if versions exist)
+  version ls [--type <slug>]        List versions for an engine type
   version get <type>/<slug>         Show details for an engine version
-  version delete <type>/<slug>      Delete an engine version (refuses if used by models)
+  version del <type>/<slug>         Delete an engine version (refuses if used by models)
   version show-composition <type>/<slug>  Print generated docker-compose YAML for a version
   version import <file.yml> [--overwrite]  Import engine versions from YAML file
                                            (--overwrite updates existing records)
 
 EXAMPLES:
-  llm-manager engine list
+  llm-manager engine ls
   llm-manager engine get vllm
-  llm-manager engine delete vllm
-  llm-manager engine version list --type vllm
+  llm-manager engine del vllm
+  llm-manager engine version ls --type vllm
   llm-manager engine version get vllm/pgx-llm-v1
   llm-manager engine version show-composition vllm/pgx-llm-v1
   llm-manager engine version import ./engines/vllm.yml --overwrite`)
@@ -200,16 +200,16 @@ func (c *EngineCommand) cmdDelete(args []string) int {
 
 func (c *EngineCommand) cmdVersion(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Error: engine-version subcommand required (list, get, delete, show-composition)")
+		fmt.Fprintln(os.Stderr, "Error: engine-version subcommand required (ls, get, del, show-composition)")
 		return 1
 	}
 	sub := args[0]
 	switch sub {
-	case "list":
+	case "ls", "list":
 		return c.cmdVersionList(args[1:])
 	case "get":
 		return c.cmdVersionGet(args[1:])
-	case "delete":
+	case "del", "delete":
 		return c.cmdVersionDelete(args[1:])
 	case "show-composition":
 		return c.cmdVersionShowComposition(args[1:])
@@ -222,9 +222,9 @@ USAGE:
   llm-manager engine version <subcommand> [arguments]
 
 SUBCOMMANDS:
-  list [--type <slug>]                    List versions for an engine type
+  ls [--type <slug>]                      List versions for an engine type
   get <type>/<slug>                       Show details for an engine version
-  delete <type>/<slug>                    Delete an engine version
+  del <type>/<slug>                       Delete an engine version
   show-composition <type>/<slug>          Print generated docker-compose YAML
   import <file.yml> [--overwrite]         Import engine versions from YAML file
                                           (--overwrite updates existing records)`)

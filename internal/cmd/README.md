@@ -29,7 +29,7 @@ Read these first — everything depends on them:
 
 | File                 | Subcommand              | Responsibility                                                     |
 |----------------------|------------------------|--------------------------------------------------------------------|
-| `model.go`           | `model <sub>`           | Model CRUD + cache management + pretty-print helpers                |
+| `model.go`           | `models <sub>`           | Model CRUD + cache management + pretty-print helpers                |
 | `engine.go`          | `engine <sub>`          | Engine type/version management                                     |
 | `import.go`          | `import <path>`         | Import models/engine definitions from YAML                           |
 | `export.go`          | `export <path>`         | Export models/engine definitions to YAML                             |
