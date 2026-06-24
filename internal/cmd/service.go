@@ -35,7 +35,7 @@ func (c *ServiceCommand) Run(args []string) int {
 	}
 
 	switch args[0] {
-	case "list", "ls", "status":
+	case "ls", "list":
 		return c.runList()
 	case "start":
 		if len(args) < 2 {
@@ -121,13 +121,13 @@ USAGE:
   llm-manager service [SUBCOMMAND] [ARGS]
 
 SUBCOMMANDS:
-  list, ls, status    List all services and their status
+  ls, list            List all services and their status
   start <slug>        Start a service (delegates to llm start)
   stop <slug>         Stop a service (delegates to llm stop)
   restart <slug>      Restart a service (delegates to llm restart)
 
 EXAMPLES:
-  llm-manager service list
+  llm-manager service ls
   llm-manager service start qwen3_6
   llm-manager service stop qwen3_6
   llm-manager service restart qwen3_6

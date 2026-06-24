@@ -38,7 +38,7 @@ func TestCmdVersionCreate_Parsing(t *testing.T) {
 func TestCmdVersion_List(t *testing.T) {
 	db, _ := database.NewDatabaseManager(":memory:")
 	db.Open()
-	db.ApplyPendingMigrations()
+	db.ApplyPendingMigrations(true)
 	root := &RootCommand{cfg: &config.Config{LLMDir: "/tmp/test"}, db: db}
 	c := NewEngineCommand(root)
 
@@ -97,7 +97,7 @@ func TestCmdVersion_ShowComposition(t *testing.T) {
 func TestEngineList(t *testing.T) {
 	db, _ := database.NewDatabaseManager(":memory:")
 	db.Open()
-	db.ApplyPendingMigrations()
+	db.ApplyPendingMigrations(true)
 	root := &RootCommand{cfg: &config.Config{LLMDir: "/tmp/test"}, db: db}
 	c := NewEngineCommand(root)
 

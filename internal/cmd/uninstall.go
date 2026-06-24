@@ -235,7 +235,7 @@ func (c *UninstallCommand) preflight(slug string) (*models.Model, bool) {
 	model, err := c.db.GetModel(slug)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: model %q not found in database.\n", slug)
-		fmt.Fprintln(os.Stderr, "Run 'llm-manager model ls' to list registered models.")
+		fmt.Fprintln(os.Stderr, "Run 'llm-manager models ls' to list registered models.")
 		return nil, false
 	}
 

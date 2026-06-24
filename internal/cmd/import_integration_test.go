@@ -97,7 +97,7 @@ func mustDB(t *testing.T) database.DatabaseManager {
 	if err := db.Open(); err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
-	if err := db.ApplyPendingMigrations(); err != nil {
+	if err := db.ApplyPendingMigrations(true); err != nil {
 		t.Fatalf("ApplyPendingMigrations() error: %v", err)
 	}
 	return db

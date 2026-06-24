@@ -1,5 +1,7 @@
 package database
 
+//go:generate counterfeiter -o ../mocks/mock_database_manager.go . DatabaseManager
+
 import (
 	"github.com/user/llm-manager/internal/database/models"
 	"gorm.io/gorm"
@@ -13,7 +15,7 @@ type DatabaseManager interface {
 	// Schema version tracking and migrations
 	SchemaVersion() (int, error)
 	LatestVersion() (int, error)
-	ApplyPendingMigrations() error
+	ApplyPendingMigrations(verbose bool) error
 	MigrateTo(targetVersion int) error
 	AutoMigrate() error
 

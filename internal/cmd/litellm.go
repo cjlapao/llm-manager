@@ -43,7 +43,7 @@ func (c *LiteLLMCommand) Run(args []string) int {
 	}
 
 	switch args[0] {
-	case "list", "ls":
+	case "ls", "list":
 		return c.runList()
 	case "get":
 		if len(args) < 2 {
@@ -63,9 +63,9 @@ func (c *LiteLLMCommand) Run(args []string) int {
 			return 1
 		}
 		return c.runUpdate(args[1])
-	case "delete", "del":
+	case "del", "delete":
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Error: 'delete' requires a model slug\n")
+			fmt.Fprintf(os.Stderr, "Error: 'del' requires a model slug\n")
 			return 1
 		}
 		return c.runDelete(args[1])
@@ -247,11 +247,11 @@ USAGE:
   llm-manager litellm [SUBCOMMAND] [ARGS]
 
 SUBCOMMANDS:
-  list, ls         List all models in LiteLLM
+  ls, list         List all models in LiteLLM
   get <slug>       Get detailed info for a model in LiteLLM
   add <slug>       Add a model from the database to LiteLLM
   update <slug>    Update a model in LiteLLM with database values
-  delete, del <slug>  Delete a model from LiteLLM
+  del, delete <slug>  Delete a model from LiteLLM
   sync [<slug>] [--all]   Sync model(s) to LiteLLM. If slug omitted and --all,
                           syncs all LLM models. Otherwise syncs the specified
                           model.
@@ -260,11 +260,11 @@ CONFIGURATION:
   Requires LITELLM_URL and LITELLM_API_KEY to be set.
 
 EXAMPLES:
-  llm-manager litellm list
+  llm-manager litellm ls
   llm-manager litellm get qwen3_6
   llm-manager litellm add qwen3_6
   llm-manager litellm update qwen3_6
-  llm-manager litellm delete qwen3_6
+  llm-manager litellm del qwen3_6
   llm-manager litellm sync qwen3_6
   llm-manager litellm sync --all`)
 }

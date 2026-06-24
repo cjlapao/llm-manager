@@ -124,7 +124,7 @@ func (c *ComposeCommand) PrintHelp() {
 	fmt.Println(`compose - Generate a docker-compose.yml file for a model.
 
 USAGE:
-  llm-manager model compose <slug> [OPTIONS]
+  llm-manager models compose <slug> [OPTIONS]
 
 ARGUMENTS:
   <slug>    Slug of the model to generate compose file for
@@ -133,7 +133,7 @@ OPTIONS:
   --output <file.yml>    Output file path (default: compose.yml)
 
 EXAMPLES:
-  llm-manager model compose qwen3_6
-  llm-manager model compose qwen3_6 --output qwen3_6-compose.yml
-  llm-manager model compose flux-schnell --output /tmp/flux-compose.yml`)
+  llm-manager models compose qwen3_6
+  llm-manager models compose qwen3_6 --output qwen3_6-compose.yml
+  llm-manager models compose flux-schnell --output /tmp/flux-compose.yml`)
 }

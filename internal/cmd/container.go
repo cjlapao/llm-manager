@@ -37,7 +37,7 @@ func (c *ContainerCommand) Run(args []string) int {
 	}
 
 	switch args[0] {
-	case "list", "ls":
+	case "ls", "list":
 		return c.runList()
 	case "status":
 		if len(args) < 2 {
@@ -335,7 +335,7 @@ USAGE:
   llm-manager container [SUBCOMMAND] [ARGS]
 
 SUBCOMMANDS:
-  list, ls          List all containers
+  ls, list          List all containers
   status [slug]     Show all container status, flux, and 3D info
   status refresh    Refresh status for all containers
   logs <slug> [-f] [lines]  Show container logs (-f for follow mode)

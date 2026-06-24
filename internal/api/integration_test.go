@@ -45,7 +45,7 @@ func setupTestDB(t *testing.T) (database.DatabaseManager, func()) {
 		t.Fatalf("db.Open() error: %v", err)
 	}
 
-	if err := db.ApplyPendingMigrations(); err != nil {
+	if err := db.ApplyPendingMigrations(true); err != nil {
 		t.Fatalf("ApplyPendingMigrations() error: %v", err)
 	}
 

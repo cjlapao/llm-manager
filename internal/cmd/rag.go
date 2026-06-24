@@ -4,8 +4,11 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+	"text/tabwriter"
 
+	"github.com/user/llm-manager/internal/database/models"
 	"github.com/user/llm-manager/internal/service"
 )
 
@@ -39,7 +42,7 @@ func (c *RagCommand) Run(args []string) int {
 		return c.runStart(args[1:])
 	case "stop":
 		return c.runStop(args[1:])
-	case "list":
+	case "ls", "list":
 		return c.runList()
 	case "info":
 		return c.runInfo(args)
@@ -183,48 +186,66 @@ func (c *RagCommand) runStop(args []string) int {
 	return 0
 }
 
-// runList lists all RAG models (embedding and reranker) with their container status.
+// runList lists all RAG models (embedding and reranker) as a tabwriter table.
 func (c *RagCommand) runList() int {
 	embedModels, err := c.svc.ListRAGEmbeddingModels()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error listing embedding models: %v\n", err)
 		return 1
 	}
-
 	rerankModels, err := c.svc.ListRAGRerankerModels()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error listing reranker models: %v\n", err)
 		return 1
 	}
 
-	fmt.Println("Embedding Models:")
-	if len(embedModels) == 0 {
-		fmt.Println("  (none)")
-	} else {
-		for _, m := range embedModels {
-			status := "unknown"
-			s, err := c.svc.GetModelStatus(m.Slug)
-			if err == nil {
-				status = s.Status
-			}
-			fmt.Printf("  %-30s %-30s [%s]\n", m.Slug, m.Name, status)
-		}
+	modelList := []models.Model{}
+	modelList = append(modelList, embedModels...)
+	modelList = append(modelList, rerankModels...)
+
+	if len(modelList) == 0 {
+		fmt.Println("(none)")
+		return 0
 	}
 
-	fmt.Println()
-	fmt.Println("Reranker Models:")
-	if len(rerankModels) == 0 {
-		fmt.Println("  (none)")
-	} else {
-		for _, m := range rerankModels {
-			status := "unknown"
-			s, err := c.svc.GetModelStatus(m.Slug)
-			if err == nil {
-				status = s.Status
-			}
-			fmt.Printf("  %-30s %-30s [%s]\n", m.Slug, m.Name, status)
+	sort.Slice(modelList, func(i, j int) bool {
+		return modelList[i].Slug < modelList[j].Slug
+	})
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+
+	fmt.Fprintln(w, "SLUG\tTYPE\tSUBTYPE\tNAME\tPORT\tSTATUS\tCACHED\tENGINE")
+	fmt.Fprintln(w, "----\t----\t-------\t----\t----\t------\t------\t------")
+
+	for _, m := range modelList {
+		status := "unknown"
+		s, err := c.svc.GetModelStatus(m.Slug)
+		if err == nil {
+			status = s.Status
 		}
+
+		var cached string
+		if m.HFRepo != "" {
+			cacheInfo := c.svc.HFCacheSize(m.HFRepo)
+			if cacheInfo.Cached {
+				cached = service.FormatVRAM(uint64(cacheInfo.Size))
+			} else {
+				cached = "no"
+			}
+		} else {
+			cached = "---"
+		}
+
+		engine := m.EngineType
+		if engine == "" {
+			engine = "vllm"
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%v\n",
+			m.Slug, m.Type, m.SubType, m.Name, m.Port, status, cached, engine)
 	}
+	w.Flush()
+	fmt.Printf("\nTotal: %d RAG model(s)\n", len(modelList))
 
 	return 0
 }
@@ -282,7 +303,7 @@ SUBCOMMANDS:
         Stop RAG containers. If no slugs are provided, stops all
         running RAG containers. Otherwise stops only the specified
         models.
-  list  List all RAG models with their container status.
+  ls [list]  List all RAG models with their container status.
   info <slug>
         Show details for a specific RAG model.
   help  Show this help message.
@@ -292,6 +313,6 @@ EXAMPLES:
   llm-manager rag start bge-m3 bge-reranker
   llm-manager rag stop
   llm-manager rag stop bge-m3 bge-reranker
-  llm-manager rag list
+  llm-manager rag ls
   llm-manager rag info bge-m3`)
 }
