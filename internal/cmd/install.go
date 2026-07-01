@@ -303,15 +303,10 @@ func (c *InstallCommand) runSingle(slug string) int {
 			return 1
 		}
 	}
-	skipActivate := model.LiteLLMParams == ""
-	if !skipActivate {
-		if err := c.litellm.ActivateModel(model.Slug); err != nil {
-			fmt.Fprintf(os.Stderr, "  ✗ LiteLLM activation failed: %v\n", err)
-			return 1
-		}
-		fmt.Println("  ✓ Activated LiteLLM alias")
-	} else {
+	if model.LiteLLMParams == "" {
 		fmt.Println("  ℹ LiteLLM activation skipped — model has no litellm_params")
+	} else {
+		fmt.Println("  ℹ LiteLLM alias will be activated on 'llm start'")
 	}
 	return 0
 }
