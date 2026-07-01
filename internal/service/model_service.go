@@ -210,6 +210,28 @@ func (s *ModelService) GenerateOpenCodeModel(slug string) ([]byte, error) {
 	return json.MarshalIndent(modelsMap, "", "  ")
 }
 
+// isGenerateExcluded returns true if the model should be excluded from
+// generate opencode/pi output (RAG embeddings, rerankers, speech models).
+func isGenerateExcluded(m *models.Model) bool {
+	// Exclude RAG models
+	if m.Type == "rag" {
+		return true
+	}
+	// Exclude embedding models (type or subtype)
+	if m.Type == "embed" || m.SubType == "embedding" || m.SubType == "embed" {
+		return true
+	}
+	// Exclude reranker models (type or subtype)
+	if m.Type == "rerank" || m.SubType == "reranker" || m.SubType == "rerank" {
+		return true
+	}
+	// Exclude speech models
+	if m.SubType == "stt" || m.SubType == "tts" || m.SubType == "omni" {
+		return true
+	}
+	return false
+}
+
 // GenerateOpenCodeModels generates opencode-compatible model entries from all
 // models registered in the database. It returns a JSON object of model entries
 // keyed by slug, suitable for pasting directly into a provider's models section.
@@ -219,6 +241,7 @@ func (s *ModelService) GenerateOpenCodeModel(slug string) ([]byte, error) {
 //   - Includes all variants (from litellm_params.variants) but NOT the active alias
 //   - Includes input/output token costs if available
 //   - Excludes top_k/top_p from base params so they can be set at provider level
+//   - Excludes RAG embeddings, rerankers, and speech models
 func (s *ModelService) GenerateOpenCodeModels() ([]byte, error) {
 	models, err := s.db.ListModels()
 	if err != nil {
@@ -227,7 +250,13 @@ func (s *ModelService) GenerateOpenCodeModels() ([]byte, error) {
 
 	modelsMap := make(map[string]*OpenCodeModelEntry)
 	for _, m := range models {
-		modelsMap[m.Slug] = s.buildOpenCodeEntry(&m)
+		if isGenerateExcluded(&m) {
+			continue
+		}
+		entry := s.buildOpenCodeEntry(&m)
+		if entry != nil {
+			modelsMap[m.Slug] = entry
+		}
 	}
 
 	return json.MarshalIndent(modelsMap, "", "  ")
@@ -251,7 +280,7 @@ func (s *ModelService) buildOpenCodeEntry(m *models.Model) *OpenCodeModelEntry {
 	}
 
 	contextLimit := 262144    // default context window
-	outputLimit := uint(4096) // default output limit
+	outputLimit := uint(32768) // default output limit
 
 	// Try to extract limits from model_info
 	if m.ModelInfo != "" {
@@ -290,6 +319,34 @@ func (s *ModelService) buildOpenCodeEntry(m *models.Model) *OpenCodeModelEntry {
 
 	variants := s.extractVariants(*m)
 
+	// Find the coder base variant: prefer "coder", fall back to "coder-fast"
+	coderVariant := ""
+	for _, v := range variants {
+		if strings.EqualFold(v.Name, "coder") {
+			coderVariant = v.Name
+			break
+		}
+	}
+	if coderVariant == "" {
+		for _, v := range variants {
+			if strings.EqualFold(v.Name, "coder-fast") {
+				coderVariant = v.Name
+				break
+			}
+		}
+	}
+
+	// If no coder variant exists, skip this model
+	if coderVariant == "" {
+		return nil
+	}
+
+	// Update options to use coder variant as base
+	oc.Options["model"] = m.Slug + "-" + coderVariant
+	if provider, ok := oc.Options["provider"].(map[string]interface{}); ok {
+		provider["model"] = m.Slug + "-" + coderVariant
+	}
+
 	var caps []string
 	json.Unmarshal([]byte(m.Capabilities), &caps)
 	hasReasoning := false
@@ -315,22 +372,29 @@ func (s *ModelService) buildOpenCodeEntry(m *models.Model) *OpenCodeModelEntry {
 		}
 	}
 
-	if len(variants) > 0 {
-		oc.Variants = make(map[string]interface{})
-		for _, v := range variants {
-			vEntry := map[string]interface{}{
-				"model": m.Slug + "-" + v.Name,
-			}
-			if hasReasoning {
-				if strings.Contains(strings.ToLower(v.Name), "think") {
-					vEntry["thinking"] = map[string]interface{}{
-						"type":         "enabled",
-						"budgetTokens": 16000,
-					}
+	// Only include coder-* variants
+	oc.Variants = make(map[string]interface{})
+	for _, v := range variants {
+		// Skip the base coder variant
+		if strings.EqualFold(v.Name, coderVariant) {
+			continue
+		}
+		// Only include coder-* variants
+		if !strings.HasPrefix(strings.ToLower(v.Name), "coder") {
+			continue
+		}
+		vEntry := map[string]interface{}{
+			"model": m.Slug + "-" + v.Name,
+		}
+		if hasReasoning {
+			if strings.Contains(strings.ToLower(v.Name), "think") {
+				vEntry["thinking"] = map[string]interface{}{
+					"type":         "enabled",
+					"budgetTokens": 16000,
 				}
 			}
-			oc.Variants[v.Name] = vEntry
 		}
+		oc.Variants[v.Name] = vEntry
 	}
 
 	return oc
@@ -426,4 +490,221 @@ func (s *ModelService) resolveComposeConfig(model *models.Model) (*EngineCompose
 		return &EngineComposeConfig{}, nil
 	}
 	return s.eng.BuildComposeConfig(model)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Pi-compatible model list generation
+// ──────────────────────────────────────────────────────────────────────
+
+// PiModelEntry represents a single model entry in Pi-compatible format.
+type PiModelEntry struct {
+	ID            string           `json:"id"`
+	Reasoning     bool             `json:"reasoning"`
+	Name          string           `json:"name"`
+	Input         []string         `json:"input"`
+	ContextWindow int              `json:"contextWindow"`
+	MaxTokens     int              `json:"maxTokens"`
+	Cost          *PiCostEntry     `json:"cost,omitempty"`
+}
+
+// PiCostEntry represents cost information per 1M tokens.
+type PiCostEntry struct {
+	Input     *float64 `json:"input,omitempty"`
+	Output    *float64 `json:"output,omitempty"`
+	CacheRead *float64 `json:"cacheRead,omitempty"`
+	CacheWrite *float64 `json:"cacheWrite,omitempty"`
+}
+
+// GeneratePiModel generates Pi-compatible model entries for a single model.
+func (s *ModelService) GeneratePiModel(slug string) ([]byte, error) {
+	m, err := s.db.GetModel(slug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get model %s: %w", slug, err)
+	}
+
+	entries := s.buildPiEntriesForModel(m)
+	if len(entries) == 0 {
+		return json.MarshalIndent([]PiModelEntry{}, "", "  ")
+	}
+	return json.MarshalIndent(entries, "", "  ")
+}
+
+// GeneratePiModels generates Pi-compatible model entries from all models
+// registered in the database.
+// Excludes RAG embeddings, rerankers, and speech models.
+// For models with coder variants, creates separate entries for each variant.
+func (s *ModelService) GeneratePiModels() ([]byte, error) {
+	models, err := s.db.ListModels()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list models: %w", err)
+	}
+
+	entries := make([]PiModelEntry, 0, len(models))
+	for _, m := range models {
+		if isGenerateExcluded(&m) {
+			continue
+		}
+		variantEntries := s.buildPiEntriesForModel(&m)
+		entries = append(entries, variantEntries...)
+	}
+
+	return json.MarshalIndent(entries, "", "  ")
+}
+
+// buildPiEntriesForModel creates Pi entries for a model, including all coder variants.
+func (s *ModelService) buildPiEntriesForModel(m *models.Model) []PiModelEntry {
+	variants := s.extractVariants(*m)
+
+	// Find the coder base variant: prefer "coder", fall back to "coder-fast"
+	coderVariant := ""
+	for _, v := range variants {
+		if strings.EqualFold(v.Name, "coder") {
+			coderVariant = v.Name
+			break
+		}
+	}
+	if coderVariant == "" {
+		for _, v := range variants {
+			if strings.EqualFold(v.Name, "coder-fast") {
+				coderVariant = v.Name
+				break
+			}
+		}
+	}
+
+	// If no coder variant exists, skip this model
+	if coderVariant == "" {
+		return nil
+	}
+
+	// Get the base name from the model
+	baseName := m.Name
+	if baseName == "" {
+		baseName = m.Slug
+	}
+
+	// Create entry for the base coder variant
+	baseEntry := s.buildPiEntry(m)
+	baseEntry.ID = m.Slug + "-" + coderVariant
+	entries := []PiModelEntry{baseEntry}
+
+	// Create entries for other coder-* variants
+	for _, v := range variants {
+		if strings.EqualFold(v.Name, coderVariant) {
+			continue
+		}
+		if !strings.HasPrefix(strings.ToLower(v.Name), "coder") {
+			continue
+		}
+
+		// Extract suffix from variant name (e.g., "thinking" from "coder-thinking")
+		suffix := extractVariantSuffix(v.Name)
+		variantName := baseName + " " + suffix
+
+		variantEntry := s.buildPiEntry(m)
+		variantEntry.ID = m.Slug + "-" + v.Name
+		variantEntry.Name = variantName
+		entries = append(entries, variantEntry)
+	}
+
+	return entries
+}
+
+// extractVariantSuffix extracts the suffix from a variant name.
+// For "coder-thinking" → "Thinking", for "coder-fast" → "Fast"
+func extractVariantSuffix(variantName string) string {
+	// Find the last "-" in the variant name
+	lastDash := strings.LastIndex(variantName, "-")
+	if lastDash == -1 {
+		return variantName
+	}
+
+	suffix := variantName[lastDash+1:]
+	// Replace underscores with spaces
+	suffix = strings.ReplaceAll(suffix, "_", " ")
+	// Capitalize first letter of each word
+	words := strings.Fields(suffix)
+	for i, word := range words {
+		if len(word) > 0 {
+			words[i] = strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// buildPiEntry builds a single Pi-compatible model entry from a model record.
+func (s *ModelService) buildPiEntry(m *models.Model) PiModelEntry {
+	entry := PiModelEntry{}
+
+	// ID: use slug
+	entry.ID = m.Slug
+
+	// Name: display name or slug
+	entry.Name = m.Name
+	if entry.Name == "" {
+		entry.Name = m.Slug
+	}
+
+	// Reasoning: check capabilities and name for thinking/reasoning
+	entry.Reasoning = m.HasThinkingCapability()
+
+	// Context window: default 262144
+	entry.ContextWindow = 262144
+	if m.ModelInfo != "" {
+		var minfo map[string]interface{}
+		if err := json.Unmarshal([]byte(m.ModelInfo), &minfo); err == nil {
+			if inputTokens, ok := minfo["input_tokens_limits"].([]interface{}); ok && len(inputTokens) > 0 {
+				if v, ok := inputTokens[0].(float64); ok {
+					entry.ContextWindow = int(v)
+				}
+			}
+		}
+	}
+
+	// Max tokens (output limit): default 32768
+	entry.MaxTokens = 32768
+	if m.ModelInfo != "" {
+		var minfo map[string]interface{}
+		if err := json.Unmarshal([]byte(m.ModelInfo), &minfo); err == nil {
+			if outputTokens, ok := minfo["output_token_limits"].([]interface{}); ok && len(outputTokens) > 0 {
+				if v, ok := outputTokens[0].(float64); ok {
+					entry.MaxTokens = int(v)
+				}
+			}
+		}
+	}
+
+	// Input modalities: only text and image
+	entry.Input = []string{"text"}
+	var caps []string
+	json.Unmarshal([]byte(m.Capabilities), &caps)
+	for _, c := range caps {
+		if c == "image" {
+			entry.Input = append(entry.Input, "image")
+			break
+		}
+	}
+
+	// Cost: per 1M tokens
+	if m.InputTokenCost > 0 || m.OutputTokenCost > 0 || m.CacheReadInputTokenCost > 0 || m.CacheCreationInputTokenCost > 0 {
+		entry.Cost = &PiCostEntry{}
+		if m.InputTokenCost > 0 {
+			v := m.InputTokenCost * 1_000_000
+			entry.Cost.Input = &v
+		}
+		if m.OutputTokenCost > 0 {
+			v := m.OutputTokenCost * 1_000_000
+			entry.Cost.Output = &v
+		}
+		if m.CacheReadInputTokenCost > 0 {
+			v := m.CacheReadInputTokenCost * 1_000_000
+			entry.Cost.CacheRead = &v
+		}
+		if m.CacheCreationInputTokenCost > 0 {
+			v := m.CacheCreationInputTokenCost * 1_000_000
+			entry.Cost.CacheWrite = &v
+		}
+	}
+
+	return entry
 }

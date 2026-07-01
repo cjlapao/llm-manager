@@ -121,3 +121,31 @@ versions:
       - --tensor-parallel-size
       - "{{.GPU_COUNT}}"
     port: 8000
+  - slug: v4
+    version: "v4"
+    container_name: vllm-node
+    image: cjlapao/pgx-vllm-gb10:010726
+    entrypoint:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+    default: true
+    latest: true
+    volumes:
+      ../models: "/root/.cache/huggingface"
+      ../vllm-cache: "/root/.cache/vllm"
+      ../llm-templates: "/app/templates"
+      ../triton-cache: "/root/.cache/triton"
+      ../flashinfer-cache: "/root/.cache/flashinfer"
+    environment:
+      HF_HUB_OFFLINE: "0"
+    logging:
+      enable: true
+      address: "udp://127.0.0.1:514"
+      facility: local3
+    nvidia: true
+    gpu_count: all
+    command_args:
+      - --tensor-parallel-size
+      - "{{.GPU_COUNT}}"
+    port: 8000

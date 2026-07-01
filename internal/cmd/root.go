@@ -24,6 +24,7 @@ type RootCommand struct {
 	apiHost     string
 	apiPortFlag bool // true only when --api-port was explicitly provided
 	verbose     bool   // true only when --verbose was explicitly provided
+	litellmURL  string // non-empty when --litellm-url was explicitly provided
 }
 
 // NewRootCommand creates a new RootCommand.
@@ -66,6 +67,14 @@ func (c *RootCommand) ParseGlobalFlags(args []string) []string {
 			}
 		case "--verbose":
 			c.verbose = true
+		case "--litellm-url":
+			if i+1 < len(args) {
+				c.litellmURL = args[i+1]
+				i++ // skip the value
+			} else {
+				fmt.Fprintln(os.Stderr, "Error: --litellm-url requires a value")
+				os.Exit(1)
+			}
 		default:
 			remaining = append(remaining, arg)
 		}
@@ -99,8 +108,19 @@ func (c *RootCommand) Run(args []string) int {
 	// Configure GPU memory source before any service initializes.
 	service.SetGPUMemorySource(c.cfg.GPUMemorySource)
 
-	// Parse global flags (--api-port, --api-host) before anything else
+	// Parse global flags (--api-port, --api-host, --litellm-url) before anything else
 	apiArgs := c.ParseGlobalFlags(args)
+
+	// Apply --litellm-url flag if provided (overrides config/env/DB)
+	if c.litellmURL != "" {
+		c.cfg.LiteLLMURL = c.litellmURL
+		// Derive OpenAIAPIURL from litellm URL (append /v1 if not present)
+		apiURL := c.litellmURL
+		if !strings.HasSuffix(apiURL, "/v1") {
+			apiURL = strings.TrimRight(apiURL, "/") + "/v1"
+		}
+		c.cfg.OpenAIAPIURL = apiURL
+	}
 
 	// Check if API mode is explicitly requested via --api-port flag
 	if c.apiPortFlag {
@@ -249,6 +269,7 @@ GLOBAL OPTIONS:
   --api-port <port>     Start API server on the given port (default: 8780)
   --api-host <host>     Host to bind the API server to (default: 0.0.0.0)
   --verbose             Enable verbose migration/debug output
+  --litellm-url <url>   Override LiteLLM URL (sets both LITELLM_URL and OPENAI_API_URL)
 
 ENVIRONMENT VARIABLES:
   LLM_MANAGER_VERBOSE       Set to "true" or "1" to enable verbose output

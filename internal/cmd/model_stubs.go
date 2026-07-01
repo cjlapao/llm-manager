@@ -129,7 +129,8 @@ USAGE:
 
 SUBCOMMANDS:
   ls, list             List all models (with live STATUS, CACHED, and ENGINE columns)
-  get <slug>           Show details for a model
+  get <slug> [--all]    Show details for a model
+                         --all shows extra_body column in variants table
   info <slug>          Show LiteLLM model information
   create <slug>        Create a new model
                        USAGE: llm-manager models create <slug> [type] [name] [port]

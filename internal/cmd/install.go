@@ -164,9 +164,9 @@ func (c *InstallCommand) runInstall(slug string) int {
 	}
 	model, _ := c.db.GetModel(slug)
 	if model == nil || model.LiteLLMParams == "" {
-		fmt.Println("  ℹ LiteLLM sync skipped — model has no litellm_params")
+		fmt.Println("  ℹ LiteLLM activation skipped — model has no litellm_params")
 	} else {
-		fmt.Println("  ✓ Synced with LiteLLM proxy")
+		fmt.Println("  ✓ Activated LiteLLM alias")
 	}
 	fmt.Println(strings.Repeat("─", 50))
 	fmt.Printf("  OpenAI API URL: %s\n", maskEndpoint(c.cfg.OpenAIAPIURL))
@@ -303,15 +303,15 @@ func (c *InstallCommand) runSingle(slug string) int {
 			return 1
 		}
 	}
-	skipSync := model.LiteLLMParams == ""
-	if !skipSync {
-		if err := c.litellm.SyncModel(model.Slug); err != nil {
-			fmt.Fprintf(os.Stderr, "  ✗ LiteLLM sync failed: %v\n", err)
+	skipActivate := model.LiteLLMParams == ""
+	if !skipActivate {
+		if err := c.litellm.ActivateModel(model.Slug); err != nil {
+			fmt.Fprintf(os.Stderr, "  ✗ LiteLLM activation failed: %v\n", err)
 			return 1
 		}
-		fmt.Println("  ✓ Synced with LiteLLM proxy")
+		fmt.Println("  ✓ Activated LiteLLM alias")
 	} else {
-		fmt.Println("  ℹ LiteLLM sync skipped — model has no litellm_params")
+		fmt.Println("  ℹ LiteLLM activation skipped — model has no litellm_params")
 	}
 	return 0
 }

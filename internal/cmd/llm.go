@@ -20,9 +20,13 @@ type LlmCommand struct {
 
 // NewLlmCommand creates a new LlmCommand.
 func NewLlmCommand(root *RootCommand) *LlmCommand {
+	containerSvc := service.NewContainerService(root.db, root.cfg)
+	configSvc := service.NewConfigService(root.db)
+	litellmSvc := service.NewLiteLLMService(root.db, root.cfg, configSvc)
+	containerSvc.SetLiteLLMService(litellmSvc)
 	return &LlmCommand{
 		cfg: root,
-		svc: service.NewContainerService(root.db, root.cfg),
+		svc: containerSvc,
 	}
 }
 

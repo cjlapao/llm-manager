@@ -261,16 +261,13 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		return nil, fmt.Errorf("failed to create model: %w", err)
 	}
 
-	// If we did an override import (deleted old LiteLLM deployments),
-	// recreate them now so the model is usable immediately without
-	// requiring a separate 'litellm sync' step.
-	if overrides.Override {
-		if s.litellm != nil && (model.Type == "llm" || isSpeechType(model.SubType)) {
-			if syncErr := s.litellm.SyncModel(model.Slug); syncErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to sync model to LiteLLM after override import: %v\n", syncErr)
-			} else {
-				fmt.Fprintf(os.Stderr, "Synced to LiteLLM ✓\n")
-			}
+	// 9. Sync base model + variants to LiteLLM (NOT active/active-thinking).
+	// Active aliases are only managed by 'llm start' / 'rag start' / 'speech start'.
+	if s.litellm != nil {
+		if err := s.litellm.SyncModel(model.Slug); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to sync %s to LiteLLM: %v\n", model.Slug, err)
+		} else {
+			fmt.Printf("Synced %s to LiteLLM ✓\n", model.Slug)
 		}
 	}
 

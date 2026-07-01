@@ -75,6 +75,14 @@ func (s *ContainerService) StartContainer(slug string, allowMultiple bool, overr
 	if err := s.db.UpdateContainerStatus(slug, "running"); err != nil {
 		fmt.Fprintf(os.Stderr, "  Warning: failed to update container status for %s: %v\n", slug, err)
 	}
+
+	// Activate LiteLLM alias for this model (deactivates any previous model's alias)
+	if s.litellm != nil && model.Type == "llm" {
+		if err := s.litellm.ActivateModel(slug); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: failed to activate LiteLLM alias for %s: %v\n", slug, err)
+		}
+	}
+
 	return nil
 }
 

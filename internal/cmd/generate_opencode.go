@@ -38,6 +38,8 @@ func (c *GenerateCommand) Run(args []string) int {
 	switch args[0] {
 	case "opencode":
 		return c.runOpenCode(args[1:])
+	case "pi":
+		return c.runPi(args[1:])
 	case "help", "-h", "--help":
 		c.PrintHelp()
 		return 0
@@ -101,26 +103,82 @@ func (c *GenerateCommand) runOpenCode(args []string) int {
 	return 0
 }
 
+// runPi generates Pi-compatible model list JSON.
+func (c *GenerateCommand) runPi(args []string) int {
+	if c.cfg.cfg.OpenAIAPIURL == "" {
+		fmt.Fprintf(os.Stderr, "Error: OPENAI_API_URL is not configured\n")
+		fmt.Fprintf(os.Stderr, "Set LITELLM_URL in config or environment\n")
+		return 1
+	}
+
+	varSlug := false
+	var slug string
+
+	for _, arg := range args {
+		if arg == "--all" {
+			varSlug = true
+		} else if !strings.HasPrefix(arg, "--") {
+			slug = arg
+		}
+	}
+
+	var data []byte
+	var err error
+
+	if slug != "" && varSlug {
+		fmt.Fprintln(os.Stderr, "Error: cannot specify both --all and a slug")
+		return 1
+	}
+
+	if slug != "" {
+		data, err = c.svc.GeneratePiModel(slug)
+	} else {
+		data, err = c.svc.GeneratePiModels()
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating Pi config: %v\n", err)
+		return 1
+	}
+
+	// Re-marshal as pretty JSON (single object or array)
+	var prettyJSON interface{}
+	if err := json.Unmarshal(data, &prettyJSON); err != nil {
+		fmt.Fprintf(os.Stderr, "Error formatting JSON: %v\n", err)
+		return 1
+	}
+
+	output, err := json.MarshalIndent(prettyJSON, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error formatting JSON: %v\n", err)
+		return 1
+	}
+
+	fmt.Println(string(output))
+	return 0
+}
+
 // PrintHelp prints the generate command help.
 func (c *GenerateCommand) PrintHelp() {
 	fmt.Println(`generate - Generate configuration from model data.
 
 USAGE:
-  llm-manager generate opencode [SLUG] [--all]
+  llm-manager generate <subcommand> [SLUG] [--all]
+
+SUBCOMMANDS:
+  opencode   Generate opencode-compatible model configuration JSON
+  pi         Generate Pi-compatible model list JSON
 
 ARGUMENTS:
-  SLUG    Generate config for a single model slug
-          (defaults to all models if omitted or --all is specified)
+  SLUG       Generate config for a single model slug
+             (defaults to all models if omitted or --all is specified)
 
 OPTIONS:
-  --all   Generate config for all models (same as omitting SLUG)
-
-OUTPUT:
-  Produces a JSON object of model entries suitable for pasting
-  directly into a provider's models section in opencode.json.
+  --all      Generate config for all models (same as omitting SLUG)
 
 EXAMPLES:
-  llm-manager generate opencode              # All models
-  llm-manager generate opencode --all        # All models (explicit)
-  llm-manager generate opencode qwen3_6      # Single model`)
+  llm-manager generate opencode              # All models (opencode format)
+  llm-manager generate opencode --all        # All models (opencode format, explicit)
+  llm-manager generate opencode qwen3_6      # Single model (opencode format)
+  llm-manager generate pi                    # All models (Pi format)
+  llm-manager generate pi qwen3_6            # Single model (Pi format)`)
 }

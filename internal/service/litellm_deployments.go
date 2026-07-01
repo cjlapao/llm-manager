@@ -6,6 +6,14 @@ import (
 	"strings"
 )
 
+// ensureCustomLLMProvider ensures custom_llm_provider is set in params,
+// defaulting to "hosted_vllm" if not already present.
+func ensureCustomLLMProvider(params map[string]interface{}) {
+	if _, has := params["custom_llm_provider"]; !has {
+		params["custom_llm_provider"] = "hosted_vllm"
+	}
+}
+
 // a Go slice — it walks the entry fields looking for arrays or iterable maps.
 func buildVariantSuffixIndex(variants interface{}) map[string][]string {
 	result := make(map[string][]string)
@@ -101,6 +109,7 @@ func buildDeploymentSpecs(params, minfo map[string]interface{},
 		baseParams[k] = copyInterfaceToMapStringInterface(v)
 	}
 	baseParams["model"] = slug
+	ensureCustomLLMProvider(baseParams)
 	if inputCost > 0 {
 		baseParams["input_cost_per_token"] = inputCost
 	}
@@ -114,85 +123,7 @@ func buildDeploymentSpecs(params, minfo map[string]interface{},
 		baseParams["cache_read_input_token_cost"] = cacheReadCost
 	}
 
-	// RAG models: only create the alias, no base deployment.
-	// The alias points to the RAG container's OpenAI-compatible endpoint.
-	if subType == "reranker" || subType == "embedding" {
-		// Build alias params from base params (normally empty for RAG).
-		// We need: model (slug), api_base (container endpoint), and custom_llm_provider.
-		aliasParams := make(map[string]interface{})
-		for k, v := range params {
-			if k == "variants" {
-				continue
-			}
-			aliasParams[k] = copyInterfaceToMapStringInterface(v)
-		}
-		aliasParams["model"] = slug
-		aliasParams["custom_llm_provider"] = "hosted_vllm"
 
-		// Construct api_base from the config URL + port, same as LLM models.
-		// The RAG container exposes an OpenAI-compatible API at <config_url>:<port>/v1.
-		if port > 0 && openAIAURL != "" {
-			base := strings.TrimRight(openAIAURL, "/")
-			aliasParams["api_base"] = fmt.Sprintf("%s:%d/v1", base, port)
-		} else {
-			fmt.Fprintf(os.Stderr, "  [WARN] RAG alias api_base NOT set: port=%d openAIAURL=%q\n", port, openAIAURL)
-		}
-
-		var aliasName string
-		if subType == "reranker" {
-			aliasName = ragAliasReranker
-		} else {
-			aliasName = ragAliasEmbeddings
-		}
-
-		specs = append(specs, DeploymentSpec{
-			Name:      aliasName,
-			Type:      "alias",
-			Params:    aliasParams,
-			ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
-		})
-		return specs, nil
-	}
-
-	// Speech models: only an alias (no base deployment), keyed by subtype.
-	if isSpeechType(subType) {
-		aliasParams := make(map[string]interface{})
-		for k, v := range params {
-			if k == "variants" {
-				continue
-			}
-			aliasParams[k] = copyInterfaceToMapStringInterface(v)
-		}
-		aliasParams["model"] = slug
-		aliasParams["custom_llm_provider"] = "hosted_vllm"
-
-		if port > 0 && openAIAURL != "" {
-			base := strings.TrimRight(openAIAURL, "/")
-			aliasParams["api_base"] = fmt.Sprintf("%s:%d/v1", base, port)
-		} else {
-			fmt.Fprintf(os.Stderr, "  [WARN] Speech alias api_base NOT SET: port=%d openAIAURL=%q\n", port, openAIAURL)
-		}
-
-		var aliasName string
-		switch strings.ToLower(subType) {
-		case "stt":
-			aliasName = speechAliasSTT
-		case "tts":
-			aliasName = speechAliasTTS
-		case "omni":
-			aliasName = speechAliasOmni
-		default:
-			aliasName = fmt.Sprintf("active-%s", subType)
-		}
-
-		specs = append(specs, DeploymentSpec{
-			Name:      aliasName,
-			Type:      "alias",
-			Params:    aliasParams,
-			ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
-		})
-		return specs, nil
-	}
 
 	// Base deployment: only for non-RAG models
 	specs = append(specs, DeploymentSpec{
@@ -201,28 +132,6 @@ func buildDeploymentSpecs(params, minfo map[string]interface{},
 		Params:    baseParams,
 		ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
 	})
-
-	// Alias: active — always created with thinking disabled
-	actParams := copyInterfaceToMapStringInterface(baseParams).(map[string]interface{})
-	setThinkingConfig(actParams, false, false)
-	specs = append(specs, DeploymentSpec{
-		Name:      activeAliasName,
-		Type:      "alias",
-		Params:    actParams,
-		ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
-	})
-
-	// Alias: active-thinking — only for thinking-capable models, with thinking enabled
-	if hasThinking {
-		thinkParams := copyInterfaceToMapStringInterface(baseParams).(map[string]interface{})
-		setThinkingConfig(thinkParams, true, true)
-		specs = append(specs, DeploymentSpec{
-			Name:      activeThinkingAlias,
-			Type:      "alias",
-			Params:    thinkParams,
-			ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
-		})
-	}
 
 	// Variants: each variant is a separate deployment with base params merged
 	// with variant-specific overrides
@@ -253,6 +162,116 @@ func buildDeploymentSpecs(params, minfo map[string]interface{},
 	}
 
 	return specs, nil
+}
+
+// buildActiveSpecs returns only the "active" and "active-thinking" alias specs
+// for a given model. This is used by ActivateModel to create a single pair of
+// aliases pointing to the currently-started model.
+func buildActiveSpecs(slug string, params, minfo map[string]interface{}, hasThinking bool) []DeploymentSpec {
+	// Build base params (same as buildDeploymentSpecs, minus variants)
+	baseParams := make(map[string]interface{})
+	for k, v := range params {
+		if k == "variants" {
+			continue
+		}
+		baseParams[k] = copyInterfaceToMapStringInterface(v)
+	}
+	baseParams["model"] = slug
+	ensureCustomLLMProvider(baseParams)
+
+	var specs []DeploymentSpec
+
+	// Alias: active — always created with thinking disabled
+	actParams := copyInterfaceToMapStringInterface(baseParams).(map[string]interface{})
+	setThinkingConfig(actParams, false, false)
+	specs = append(specs, DeploymentSpec{
+		Name:      activeAliasName,
+		Type:      "alias",
+		Params:    actParams,
+		ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
+	})
+
+	// Alias: active-thinking — only for thinking-capable models, with thinking enabled
+	if hasThinking {
+		thinkParams := copyInterfaceToMapStringInterface(baseParams).(map[string]interface{})
+		setThinkingConfig(thinkParams, true, true)
+		specs = append(specs, DeploymentSpec{
+			Name:      activeThinkingAlias,
+			Type:      "alias",
+			Params:    thinkParams,
+			ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
+		})
+	}
+
+	return specs
+}
+
+// buildSpeechRAGSpecs creates both the base deployment and alias specs for a
+// speech/RAG model. These are created on 'speech start' or 'rag start' so only
+// running models have deployments in LiteLLM.
+// Returns two specs:
+//   - base: the model slug (e.g., qwen3-asr-1.7b) with api_base, model, custom_llm_provider
+//   - alias: active-stt/tts/omni/reranker/embeddings pointing to the base
+func buildSpeechRAGSpecs(slug string, params, minfo map[string]interface{}, subType string, openAIAURL string, port int) []DeploymentSpec {
+	if !isSpeechType(subType) && subType != "reranker" && subType != "embedding" {
+		return nil
+	}
+
+	// Build base params: copy from input, exclude variants, add endpoint info
+	baseParams := make(map[string]interface{})
+	for k, v := range params {
+		if k == "variants" {
+			continue
+		}
+		baseParams[k] = copyInterfaceToMapStringInterface(v)
+	}
+	baseParams["model"] = slug
+	ensureCustomLLMProvider(baseParams)
+
+	if port > 0 && openAIAURL != "" {
+		base := strings.TrimRight(openAIAURL, "/")
+		baseParams["api_base"] = fmt.Sprintf("%s:%d/v1", base, port)
+	} else {
+		fmt.Fprintf(os.Stderr, "  [WARN] Speech/RAG base api_base NOT SET: port=%d openAIAURL=%q\n", port, openAIAURL)
+	}
+
+	// Build alias params: same base, but model points to slug
+	aliasParams := copyInterfaceToMapStringInterface(baseParams).(map[string]interface{})
+	aliasParams["model"] = slug
+
+	// Determine alias name
+	var aliasName string
+	switch strings.ToLower(subType) {
+	case "reranker":
+		aliasName = ragAliasReranker
+	case "embedding":
+		aliasName = ragAliasEmbeddings
+	case "stt":
+		aliasName = speechAliasSTT
+	case "tts":
+		aliasName = speechAliasTTS
+	case "omni":
+		aliasName = speechAliasOmni
+	default:
+		aliasName = fmt.Sprintf("active-%s", subType)
+	}
+
+	return []DeploymentSpec{
+		// Base deployment
+		{
+			Name:      slug,
+			Type:      "base",
+			Params:    baseParams,
+			ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
+		},
+		// Alias deployment
+		{
+			Name:      aliasName,
+			Type:      "alias",
+			Params:    aliasParams,
+			ModelInfo: copyInterfaceToMapStringInterface(minfo).(map[string]interface{}),
+		},
+	}
 }
 
 // deleteByUUID delegates a POST /model/delete call by internal row UUID.

@@ -7,6 +7,128 @@ import (
 	"strings"
 )
 
+// DeactivateAll removes all "active" and "active-thinking" deployments from
+// LiteLLM, regardless of which model they belong to. This is called before
+// ActivateModel to ensure only one model owns the active aliases at a time.
+// It scans LiteLLM for deployments named "active" or "active-thinking", deletes
+// them, and clears the litellm_active_aliases field on the corresponding DB records.
+func (s *LiteLLMService) DeactivateAll() error {
+	fmt.Println("[DEACTIVATE] Scanning LiteLLM for active/active-thinking deployments...")
+
+	body, err := s.doRequest("GET", "/model/info", nil)
+	if err != nil {
+		return fmt.Errorf("deactivate all: failed to list models: %w", err)
+	}
+
+	var resp struct {
+		Data []json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("deactivate all: parse model info list: %w", err)
+	}
+
+	deleted := 0
+	var lastErr error
+
+	for _, raw := range resp.Data {
+		var item struct {
+			ModelName     string                 `json:"model_name"`
+			Info          map[string]interface{} `json:"model_info"`
+			LiteLLMParams map[string]interface{} `json:"litellm_params"`
+		}
+		if err := json.Unmarshal(raw, &item); err != nil {
+			continue
+		}
+		if item.Info == nil {
+			continue
+		}
+		id, ok := item.Info["id"].(string)
+		if !ok || id == "" {
+			continue
+		}
+
+		// Only target active / active-thinking aliases
+		if item.ModelName != activeAliasName && item.ModelName != activeThinkingAlias {
+			continue
+		}
+
+		fmt.Printf("  [DEACTIVATE] Deleting %-20s (id=%s)\n", item.ModelName, id)
+		if _, dErr := s.doRequest("POST", "/model/delete", map[string]interface{}{"id": id}); dErr != nil {
+			lastErr = fmt.Errorf("%w; failed to delete \"%s\" (id=%s): %w", lastErr, item.ModelName, id, dErr)
+		} else {
+			deleted++
+		}
+	}
+
+	if deleted > 0 {
+		fmt.Printf("Deactivated %d active/active-thinking deployment(s)\n", deleted)
+	} else {
+		fmt.Println("No active/active-thinking deployments found to deactivate.")
+	}
+
+	return lastErr
+}
+
+// DeactivateAliases removes all deployments matching the given alias name
+// from LiteLLM. For example, DeactivateAliases("active-stt") will delete all
+// existing active-stt deployments regardless of which model they belong to.
+// This ensures only one model owns a given alias at a time.
+func (s *LiteLLMService) DeactivateAliases(aliasName string) error {
+	fmt.Printf("[DEACTIVATE] Scanning LiteLLM for %s deployments...\n", aliasName)
+
+	body, err := s.doRequest("GET", "/model/info", nil)
+	if err != nil {
+		return fmt.Errorf("deactivate %s: failed to list models: %w", aliasName, err)
+	}
+
+	var resp struct {
+		Data []json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("deactivate %s: parse model info list: %w", aliasName, err)
+	}
+
+	deleted := 0
+	var lastErr error
+
+	for _, raw := range resp.Data {
+		var item struct {
+			ModelName string                 `json:"model_name"`
+			Info      map[string]interface{} `json:"model_info"`
+		}
+		if err := json.Unmarshal(raw, &item); err != nil {
+			continue
+		}
+		if item.Info == nil {
+			continue
+		}
+		id, ok := item.Info["id"].(string)
+		if !ok || id == "" {
+			continue
+		}
+
+		// Only target the specific alias name
+		if item.ModelName != aliasName {
+			continue
+		}
+
+		fmt.Printf("  [DEACTIVATE] Deleting %-20s (id=%s)\n", item.ModelName, id)
+		if _, dErr := s.doRequest("POST", "/model/delete", map[string]interface{}{"id": id}); dErr != nil {
+			lastErr = fmt.Errorf("%w; failed to delete \"%s\" (id=%s): %w", lastErr, item.ModelName, id, dErr)
+		} else {
+			deleted++
+		}
+	}
+
+	if deleted > 0 {
+		fmt.Printf("Deactivated %d %s deployment(s)\n", deleted, aliasName)
+	} else {
+		fmt.Printf("No %s deployments found to deactivate.\n", aliasName)
+	}
+
+	return lastErr
+}
+
 // formatted ASCII summary table.
 func (s *LiteLLMService) updateDBAndPrintSummary(slug string, existingCount int, steps []ReplicationStep) error {
 	typeIDs := make(map[string]struct {

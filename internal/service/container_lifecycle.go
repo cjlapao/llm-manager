@@ -15,15 +15,27 @@ import (
 )
 
 type ContainerService struct {
-	db  database.DatabaseManager
-	cfg *config.Config
-	svc *EngineService
-	mu  sync.Mutex
+	db       database.DatabaseManager
+	cfg      *config.Config
+	svc      *EngineService
+	litellm  LiteLLMActivator
+	mu       sync.Mutex
+}
+
+// LiteLLMActivator is the interface for LiteLLM activation operations.
+type LiteLLMActivator interface {
+	ActivateModel(slug string) error
+	ActivateSpeechRAGModel(slug string, subType string) error
 }
 
 // NewContainerService creates a new ContainerService.
 func NewContainerService(db database.DatabaseManager, cfg *config.Config) *ContainerService {
 	return &ContainerService{db: db, cfg: cfg, svc: NewEngineService(db)}
+}
+
+// SetLiteLLMService sets the optional LiteLLM service for alias activation.
+func (s *ContainerService) SetLiteLLMService(litellm LiteLLMActivator) {
+	s.litellm = litellm
 }
 
 // ListContainers returns all containers from the database.

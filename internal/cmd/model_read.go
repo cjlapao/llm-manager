@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"text/tabwriter"
 	"text/template"
 
@@ -44,7 +46,23 @@ func (c *ModelCommand) Run(args []string) int {
 			fmt.Fprintf(os.Stderr, "Error: 'get' requires a model slug\n")
 			return 1
 		}
-		return c.runGet(args[1])
+		showAll := false
+		var slug string
+		for _, arg := range args[1:] {
+			switch arg {
+			case "--all":
+				showAll = true
+			default:
+				if !strings.HasPrefix(arg, "-") {
+					slug = arg
+				}
+			}
+		}
+		if slug == "" {
+			fmt.Fprintf(os.Stderr, "Error: 'get' requires a model slug\n")
+			return 1
+		}
+		return c.runGet(slug, showAll)
 	case "create":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "Error: 'create' requires a model slug\n")
@@ -96,8 +114,6 @@ HF Repo:       {{.HFRepo}}
 YML:           {{.YML}}
 Container:     {{.Container}}
 Port:          {{.Port}}
-Env Vars:      {{.EnvVars}}
-Command Args:  {{.CommandArgs}}
 Input Cost:    {{.InputTokenCost}}
 Output Cost:   {{.OutputTokenCost}}
 Capabilities:  {{.Capabilities}}
@@ -153,7 +169,7 @@ func (c *ModelCommand) runList() int {
 }
 
 // runGet displays a single model.
-func (c *ModelCommand) runGet(slug string) int {
+func (c *ModelCommand) runGet(slug string, showAll bool) int {
 	model, err := c.svc.GetModel(slug)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting model: %v\n", err)
@@ -169,6 +185,114 @@ func (c *ModelCommand) runGet(slug string) int {
 		fmt.Fprintf(os.Stderr, "Error rendering template: %v\n", err)
 	}
 
+	// Display variants if the model has any
+	variantKeys := model.GetVariantKeys()
+	if len(variantKeys) > 0 {
+		fmt.Println()
+		// First pass: collect all field names across all variants (flattening nested maps)
+		fieldSet := make(map[string]bool)
+		variantData := make(map[string]map[string]string)
+		for _, vName := range variantKeys {
+			spec, ok := model.VariantSpec(vName)
+			if !ok {
+				continue
+			}
+			flat := make(map[string]string)
+			for k, v := range spec {
+				if k == "suffix" || k == "prefix" {
+					continue
+				}
+				// Skip extra_body unless --all flag is passed
+				if k == "extra_body" && !showAll {
+					continue
+				}
+				switch val := v.(type) {
+				case map[string]interface{}:
+					// Display nested maps as JSON
+					b, _ := json.Marshal(val)
+					flat[k] = string(b)
+					fieldSet[k] = true
+				default:
+					flat[k] = fmt.Sprintf("%v", v)
+					fieldSet[k] = true
+				}
+			}
+			variantData[vName] = flat
+		}
+
+		// Sort field names for consistent column order
+		fields := make([]string, 0, len(fieldSet))
+		for f := range fieldSet {
+			fields = append(fields, f)
+		}
+		sort.Strings(fields)
+
+		// Build table
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		header := "VARIANT"
+		sep := "-------"
+		for _, f := range fields {
+			header += "\t" + f
+			sep += "\t-----"
+		}
+		fmt.Fprintln(w, header)
+		fmt.Fprintln(w, sep)
+
+		for _, vName := range variantKeys {
+			flat := variantData[vName]
+			fmt.Fprintf(w, "%s", vName)
+			for _, f := range fields {
+				if v, ok := flat[f]; ok {
+					fmt.Fprintf(w, "\t%s", v)
+				} else {
+					fmt.Fprintf(w, "\t—")
+				}
+			}
+			fmt.Fprintln(w)
+		}
+		w.Flush()
+	}
+
+	// Display environment variables as a table
+	if model.EnvVars != "" {
+		var envVars map[string]string
+		if err := json.Unmarshal([]byte(model.EnvVars), &envVars); err == nil && len(envVars) > 0 {
+			fmt.Println()
+			fmt.Println("Environment variables")
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "KEY\tVALUE")
+			fmt.Fprintln(w, "---\t-----")
+			for k, v := range envVars {
+				fmt.Fprintf(w, "%s\t%s\n", k, v)
+			}
+			w.Flush()
+		}
+	}
+
+	// Display command arguments as a list
+	if model.CommandArgs != "" {
+		var cmdArgs []string
+		if err := json.Unmarshal([]byte(model.CommandArgs), &cmdArgs); err == nil && len(cmdArgs) > 0 {
+			fmt.Println()
+			fmt.Println("Command Arguments")
+			for _, arg := range cmdArgs {
+				fmt.Printf("    %s\n", arg)
+			}
+		}
+	}
+
 	fmt.Println()
 	return 0
+}
+
+// joinStrings joins strings with a separator, handling nil/empty gracefully.
+func joinStrings(ss []string, sep string) string {
+	result := ""
+	for i, s := range ss {
+		if i > 0 {
+			result += sep
+		}
+		result += s
+	}
+	return result
 }

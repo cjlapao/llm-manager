@@ -18,15 +18,21 @@ func init() {
 
 // SpeechCommand handles unified speech model operations (STT + TTS + Omni).
 type SpeechCommand struct {
-	cfg *RootCommand
-	svc *service.ContainerService
+	cfg    *RootCommand
+	svc    *service.ContainerService
+	litellm service.LiteLLMActivator
 }
 
 // NewSpeechCommand creates a new SpeechCommand.
 func NewSpeechCommand(root *RootCommand) *SpeechCommand {
+	containerSvc := service.NewContainerService(root.db, root.cfg)
+	configSvc := service.NewConfigService(root.db)
+	litellmSvc := service.NewLiteLLMService(root.db, root.cfg, configSvc)
+	containerSvc.SetLiteLLMService(litellmSvc)
 	return &SpeechCommand{
-		cfg: root,
-		svc: service.NewContainerService(root.db, root.cfg),
+		cfg:    root,
+		svc:    containerSvc,
+		litellm: litellmSvc,
 	}
 }
 
@@ -412,6 +418,18 @@ func (c *SpeechCommand) runStart(args []string) int {
 	if len(steps) == 1 {
 		numWords = "model"
 	}
+
+	// Activate LiteLLM aliases for each started speech model
+	if c.litellm != nil {
+		fmt.Println()
+		for _, s := range started {
+			fmt.Printf("Activating %s alias for: %s\n", s.subType, s.slug)
+			if err := c.litellm.ActivateSpeechRAGModel(s.slug, s.subType); err != nil {
+				fmt.Fprintf(os.Stderr, "  Warning: failed to activate %s alias for %s: %v\n", s.subType, s.slug, err)
+			}
+		}
+	}
+
 	fmt.Printf("Speech %s (%d) started\n", numWords, len(steps))
 	return 0
 }

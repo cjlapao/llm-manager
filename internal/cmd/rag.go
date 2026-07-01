@@ -18,15 +18,21 @@ func init() {
 
 // RagCommand handles RAG model operations (embedding + reranker).
 type RagCommand struct {
-	cfg *RootCommand
-	svc *service.ContainerService
+	cfg    *RootCommand
+	svc    *service.ContainerService
+	litellm service.LiteLLMActivator
 }
 
 // NewRagCommand creates a new RagCommand.
 func NewRagCommand(root *RootCommand) *RagCommand {
+	containerSvc := service.NewContainerService(root.db, root.cfg)
+	configSvc := service.NewConfigService(root.db)
+	litellmSvc := service.NewLiteLLMService(root.db, root.cfg, configSvc)
+	containerSvc.SetLiteLLMService(litellmSvc)
 	return &RagCommand{
-		cfg: root,
-		svc: service.NewContainerService(root.db, root.cfg),
+		cfg:    root,
+		svc:    containerSvc,
+		litellm: litellmSvc,
 	}
 }
 
@@ -121,6 +127,19 @@ func (c *RagCommand) runStart(args []string) int {
 	if err := c.svc.StartModelWithHealthCheck(rerankSlug, false); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting reranker model: %v\n", err)
 		return 1
+	}
+
+	// Activate LiteLLM aliases for each started RAG model
+	if c.litellm != nil {
+		fmt.Println()
+		fmt.Printf("Activating embedding alias for: %s\n", embedSlug)
+		if err := c.litellm.ActivateSpeechRAGModel(embedSlug, "embedding"); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: failed to activate embedding alias for %s: %v\n", embedSlug, err)
+		}
+		fmt.Printf("Activating reranker alias for: %s\n", rerankSlug)
+		if err := c.litellm.ActivateSpeechRAGModel(rerankSlug, "reranker"); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: failed to activate reranker alias for %s: %v\n", rerankSlug, err)
+		}
 	}
 
 	fmt.Println("RAG models started")
