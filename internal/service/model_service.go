@@ -43,6 +43,29 @@ type OpenCodeCost struct {
 	Output *float64 `json:"output,omitempty"`
 }
 
+// KiloCodeModelEntry represents a model entry in Kilo Code's configuration format.
+type KiloCodeModelEntry struct {
+	Name        string              `json:"name"`
+	Limit       *KiloCodeLimit      `json:"limit,omitempty"`
+	Cost        *KiloCodeCost       `json:"cost,omitempty"`
+	ToolCall    bool                `json:"tool_call"`
+	Temperature bool                `json:"temperature"`
+	Reasoning   bool                `json:"reasoning,omitempty"`
+	Modalities  map[string][]string `json:"modalities,omitempty"`
+}
+
+// KiloCodeLimit represents context and output token limits for Kilo Code.
+type KiloCodeLimit struct {
+	Context int `json:"context"`
+	Output  int `json:"output"`
+}
+
+// KiloCodeCost represents per-1-million-tokens pricing for Kilo Code.
+type KiloCodeCost struct {
+	Input  *float64 `json:"input,omitempty"`
+	Output *float64 `json:"output,omitempty"`
+}
+
 // variantEntry holds a variant name and its merged parameters.
 type variantEntry struct {
 	Name   string
@@ -279,7 +302,7 @@ func (s *ModelService) buildOpenCodeEntry(m *models.Model) *OpenCodeModelEntry {
 		},
 	}
 
-	contextLimit := 262144    // default context window
+	contextLimit := 262144     // default context window
 	outputLimit := uint(32768) // default output limit
 
 	// Try to extract limits from model_info
@@ -498,20 +521,20 @@ func (s *ModelService) resolveComposeConfig(model *models.Model) (*EngineCompose
 
 // PiModelEntry represents a single model entry in Pi-compatible format.
 type PiModelEntry struct {
-	ID            string           `json:"id"`
-	Reasoning     bool             `json:"reasoning"`
-	Name          string           `json:"name"`
-	Input         []string         `json:"input"`
-	ContextWindow int              `json:"contextWindow"`
-	MaxTokens     int              `json:"maxTokens"`
-	Cost          *PiCostEntry     `json:"cost,omitempty"`
+	ID            string       `json:"id"`
+	Reasoning     bool         `json:"reasoning"`
+	Name          string       `json:"name"`
+	Input         []string     `json:"input"`
+	ContextWindow int          `json:"contextWindow"`
+	MaxTokens     int          `json:"maxTokens"`
+	Cost          *PiCostEntry `json:"cost,omitempty"`
 }
 
 // PiCostEntry represents cost information per 1M tokens.
 type PiCostEntry struct {
-	Input     *float64 `json:"input,omitempty"`
-	Output    *float64 `json:"output,omitempty"`
-	CacheRead *float64 `json:"cacheRead,omitempty"`
+	Input      *float64 `json:"input,omitempty"`
+	Output     *float64 `json:"output,omitempty"`
+	CacheRead  *float64 `json:"cacheRead,omitempty"`
 	CacheWrite *float64 `json:"cacheWrite,omitempty"`
 }
 
@@ -707,4 +730,203 @@ func (s *ModelService) buildPiEntry(m *models.Model) PiModelEntry {
 	}
 
 	return entry
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Kilo Code-compatible model list generation
+// ──────────────────────────────────────────────────────────────────────
+
+// GenerateKiloCodeModel generates Kilo Code-compatible model entries for a single
+// model. It returns a JSON object {"models": {...}} where each coder-* variant
+// is a separate top-level entry keyed by {slug}-{variant_name}.
+func (s *ModelService) GenerateKiloCodeModel(slug string) ([]byte, error) {
+	m, err := s.db.GetModel(slug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get model %s: %w", slug, err)
+	}
+
+	entries := s.buildKiloCodeEntriesForModel(m)
+	if len(entries) == 0 {
+		return json.MarshalIndent(map[string]interface{}{"models": map[string]*KiloCodeModelEntry{}}, "", "  ")
+	}
+
+	return json.MarshalIndent(map[string]interface{}{"models": entries}, "", "  ")
+}
+
+// GenerateKiloCodeModels generates Kilo Code-compatible model entries from all
+// models registered in the database. Each coder-* variant of each non-excluded
+// model becomes a separate entry in the "models" map. Excludes RAG embeddings,
+// rerankers, and speech models.
+func (s *ModelService) GenerateKiloCodeModels() ([]byte, error) {
+	models, err := s.db.ListModels()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list models: %w", err)
+	}
+
+	allEntries := make(map[string]*KiloCodeModelEntry)
+	for _, m := range models {
+		if isGenerateExcluded(&m) {
+			continue
+		}
+		entries := s.buildKiloCodeEntriesForModel(&m)
+		if entries == nil {
+			continue
+		}
+		for k, v := range entries {
+			allEntries[k] = v
+		}
+	}
+
+	return json.MarshalIndent(map[string]interface{}{"models": allEntries}, "", "  ")
+}
+
+// buildKiloCodeEntriesForModel creates Kilo Code model entries for all coder-*
+// variants of a single model. Each variant gets its own entry keyed by
+// {slug}-{variant_name}. Returns nil if the model has no coder base variant.
+func (s *ModelService) buildKiloCodeEntriesForModel(m *models.Model) map[string]*KiloCodeModelEntry {
+	variants := s.extractVariants(*m)
+
+	// Find the coder base variant: prefer "coder", fall back to "coder-fast"
+	coderVariant := ""
+	for _, v := range variants {
+		if strings.EqualFold(v.Name, "coder") {
+			coderVariant = v.Name
+			break
+		}
+	}
+	if coderVariant == "" {
+		for _, v := range variants {
+			if strings.EqualFold(v.Name, "coder-fast") {
+				coderVariant = v.Name
+				break
+			}
+		}
+	}
+
+	// If no coder variant exists, skip this model
+	if coderVariant == "" {
+		return nil
+	}
+
+	// Base display name
+	baseName := m.Name
+	if baseName == "" {
+		baseName = m.Slug
+	}
+
+	// Parse capabilities
+	var caps []string
+	json.Unmarshal([]byte(m.Capabilities), &caps)
+
+	// Determine tool-call capability
+	hasToolUse := false
+	for _, c := range caps {
+		if c == "tool-use" {
+			hasToolUse = true
+			break
+		}
+	}
+
+	// Determine reasoning capability
+	hasReasoning := m.HasThinkingCapability()
+
+	// Build modalities from capabilities (shared across all variants of this model)
+	modalities := map[string][]string{
+		"input":  {"text"},
+		"output": {"text"},
+	}
+	for _, c := range caps {
+		switch c {
+		case "image":
+			modalities["input"] = append(modalities["input"], "image")
+		case "video":
+			modalities["input"] = append(modalities["input"], "video")
+		case "document":
+			modalities["input"] = append(modalities["input"], "pdf")
+		}
+	}
+
+	// Extract limits from model_info (shared across all variants of this model)
+	contextLimit := 262144
+	outputLimit := 32768
+	if m.ModelInfo != "" {
+		var minfo map[string]interface{}
+		if err := json.Unmarshal([]byte(m.ModelInfo), &minfo); err == nil {
+			if inputTokens, ok := minfo["input_tokens_limits"].([]interface{}); ok && len(inputTokens) > 0 {
+				if v, ok := inputTokens[0].(float64); ok {
+					contextLimit = int(v)
+				}
+			}
+			if outputTokens, ok := minfo["output_token_limits"].([]interface{}); ok && len(outputTokens) > 0 {
+				if v, ok := outputTokens[0].(float64); ok {
+					outputLimit = int(v)
+				}
+			}
+		}
+	}
+
+	// Extract costs: per-1-million-tokens pricing (shared across all variants)
+	var cost *KiloCodeCost
+	if m.InputTokenCost > 0 || m.OutputTokenCost > 0 {
+		cost = &KiloCodeCost{}
+		if m.InputTokenCost > 0 {
+			inputCostPerM := m.InputTokenCost * 1_000_000
+			cost.Input = &inputCostPerM
+		}
+		if m.OutputTokenCost > 0 {
+			outputCostPerM := m.OutputTokenCost * 1_000_000
+			cost.Output = &outputCostPerM
+		}
+	}
+
+	limit := &KiloCodeLimit{
+		Context: contextLimit,
+		Output:  outputLimit,
+	}
+
+	entries := make(map[string]*KiloCodeModelEntry)
+
+	// Create an entry for every coder-* variant (including the base coder variant)
+	for _, v := range variants {
+		// Only include coder-* variants
+		if !strings.HasPrefix(strings.ToLower(v.Name), "coder") {
+			continue
+		}
+
+		key := m.Slug + "-" + v.Name
+		displayName := baseName + " " + variantToDisplayName(v.Name)
+
+		entry := &KiloCodeModelEntry{
+			Name:        displayName,
+			Limit:       limit,
+			Cost:        cost,
+			ToolCall:    hasToolUse,
+			Temperature: true,
+			Modalities:  modalities,
+		}
+
+		// Reasoning: true only when the model supports reasoning AND the
+		// variant name contains "think"
+		if hasReasoning && strings.Contains(strings.ToLower(v.Name), "think") {
+			entry.Reasoning = true
+		}
+
+		entries[key] = entry
+	}
+
+	return entries
+}
+
+// variantToDisplayName converts a variant name like "coder-thinking" or
+// "coder-fast" into a human-readable form: "Coder Thinking" / "Coder Fast".
+func variantToDisplayName(variantName string) string {
+	s := strings.ReplaceAll(variantName, "-", " ")
+	s = strings.ReplaceAll(s, "_", " ")
+	words := strings.Fields(s)
+	for i, word := range words {
+		if len(word) > 0 {
+			words[i] = strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+	return strings.Join(words, " ")
 }

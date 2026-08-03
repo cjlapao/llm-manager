@@ -40,6 +40,8 @@ func (c *GenerateCommand) Run(args []string) int {
 		return c.runOpenCode(args[1:])
 	case "pi":
 		return c.runPi(args[1:])
+	case "kilo-code":
+		return c.runKiloCode(args[1:])
 	case "help", "-h", "--help":
 		c.PrintHelp()
 		return 0
@@ -157,6 +159,59 @@ func (c *GenerateCommand) runPi(args []string) int {
 	return 0
 }
 
+// runKiloCode generates Kilo Code-compatible model configuration JSON.
+func (c *GenerateCommand) runKiloCode(args []string) int {
+	if c.cfg.cfg.OpenAIAPIURL == "" {
+		fmt.Fprintf(os.Stderr, "Error: OPENAI_API_URL is not configured\n")
+		fmt.Fprintf(os.Stderr, "Set LITELLM_URL in config or environment\n")
+		return 1
+	}
+
+	varSlug := false
+	var slug string
+
+	for _, arg := range args {
+		if arg == "--all" {
+			varSlug = true
+		} else if !strings.HasPrefix(arg, "--") {
+			slug = arg
+		}
+	}
+
+	var data []byte
+	var err error
+
+	if slug != "" && varSlug {
+		fmt.Fprintln(os.Stderr, "Error: cannot specify both --all and a slug")
+		return 1
+	}
+
+	if slug != "" {
+		data, err = c.svc.GenerateKiloCodeModel(slug)
+	} else {
+		data, err = c.svc.GenerateKiloCodeModels()
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating kilo-code config: %v\n", err)
+		return 1
+	}
+
+	var prettyJSON map[string]interface{}
+	if err := json.Unmarshal(data, &prettyJSON); err != nil {
+		fmt.Fprintf(os.Stderr, "Error formatting JSON: %v\n", err)
+		return 1
+	}
+
+	output, err := json.MarshalIndent(prettyJSON, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error formatting JSON: %v\n", err)
+		return 1
+	}
+
+	fmt.Println(string(output))
+	return 0
+}
+
 // PrintHelp prints the generate command help.
 func (c *GenerateCommand) PrintHelp() {
 	fmt.Println(`generate - Generate configuration from model data.
@@ -167,6 +222,7 @@ USAGE:
 SUBCOMMANDS:
   opencode   Generate opencode-compatible model configuration JSON
   pi         Generate Pi-compatible model list JSON
+  kilo-code  Generate Kilo Code-compatible model configuration JSON
 
 ARGUMENTS:
   SLUG       Generate config for a single model slug
@@ -180,5 +236,8 @@ EXAMPLES:
   llm-manager generate opencode --all        # All models (opencode format, explicit)
   llm-manager generate opencode qwen3_6      # Single model (opencode format)
   llm-manager generate pi                    # All models (Pi format)
-  llm-manager generate pi qwen3_6            # Single model (Pi format)`)
+  llm-manager generate pi qwen3_6            # Single model (Pi format)
+  llm-manager generate kilo-code              # All models (Kilo Code format)
+  llm-manager generate kilo-code --all        # All models (Kilo Code format, explicit)
+  llm-manager generate kilo-code qwen3_6      # Single model (Kilo Code format)`)
 }

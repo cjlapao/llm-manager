@@ -38,8 +38,8 @@ profile:
   quant_bytes_per_param: 0.5
   speculative_decoding: dflash
   speculative_model: z-lab/Qwen3.6-27B-DFlash
-  num_speculative_tokens: 2
-  max_num_seqs: 2
+  num_speculative_tokens: 8
+  max_num_seqs: 4
   max_num_batched_tokens: 8192
 
 command:

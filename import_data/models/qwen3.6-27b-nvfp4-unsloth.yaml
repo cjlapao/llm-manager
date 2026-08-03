@@ -1,43 +1,46 @@
 # ═══════════════════════════════════════════════════════════════
-# Qwen3.6 35B-A3B NVFP4 — NVFP4
+# Qwen3.6 27B NVFP4 — NVFP4
 # Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x)
 # vLLM >= 0.19.0 | SM121 (Blackwell)
 # gpu_memory_utilization: 0.28 (~35GB of 128GB)
 # ═══════════════════════════════════════════════════════════════
 
-slug: qwen3.6-35b-a3b-nvfp4
-name: "Qwen3.6 35B-A3B NVFP4"
+slug: qwen3.6-27b-nvfp4-unsloth
+name: "Qwen3.6 27B NVFP4 (unsloth)"
 engine: vllm
-engine_version: v4
-hf_repo: "nvidia/Qwen3.6-35B-A3B-NVFP4"
-container: qwen3.6-35b-a3b-nvfp4
-port: 8014
+engine_version: v5
+hf_repo: "unsloth/Qwen3.6-27B-NVFP4"
+container: qwen3.6-27b-nvfp4-unsloth
+port: 8017
 type: llm
 subtype: chat
 
 environment:
   VLLM_MARLIN_USE_ATOMIC_ADD: 1
+  CUTE_DSL_ARCH: sm_121a
 
-input_token_cost: 0.0000015
-output_token_cost: 0.0000075
+input_token_cost: 0.000003
+output_token_cost: 0.000015
 cache_creation_input_token_cost: 0.00000375
 cache_read_input_token_cost: 0.0000003
 
 profile:
-  total_params_b: 35
-  active_params_b: 3
-  is_moe: true
-  attention_layers: 10
-  gdn_layers: 30
-  num_kv_heads: 2
-  head_dim: 256
+  total_params_b: 27
+  active_params_b: 27
+  is_moe: false
+  attention_layers: 16
+  gdn_layers: 48
+  num_kv_heads: 4
+  head_dim: 128
   supports_mtp: true
   default_context: 262144
   max_context: 262144
   quant_bytes_per_param: 0.5
-  max_num_seqs: 16
+  max_num_seqs: 4
   max_num_batched_tokens: 8192
-
+  speculative_decoding: mtp
+  num_speculative_tokens: 2
+  
 command:
   - ${{ .hf_repo }}
   - "--model ${{ .hf_repo }}"
@@ -48,16 +51,16 @@ command:
   - "--reasoning-parser qwen3"
   - "--tool-call-parser qwen3_xml"
   - "--enable-auto-tool-choice"
+  - "--enable-prefix-caching"
   - "--trust-remote-code"
   - "--trust-request-chat-template"
   - "--generation-config auto"
   - "--mm-processor-cache-type shm"
   - "--disable-custom-all-reduce"
-  - "--enable-expert-parallel"
-  - "--mm-encoder-tp-mode data"
-  - "--attention-backend flashinfer"
   - "--load-format instanttensor"
-  - "--chat-template /app/templates/qwen3.6-chat-template.jinja"
+  - "--async-scheduling"
+  - "--attention-backend flashinfer"
+  - "--moe-backend flashinfer_b12x"
   - "--default-chat-template-kwargs '{\"preserve_thinking\": true}'"
 
 capabilities:
@@ -70,7 +73,7 @@ capabilities:
 
 litellm_params:
   custom_llm_provider: hosted_vllm
-  temperature: 0.6
+  temperature: 1.0
   top_p: 0.95
   top_k: 20
   min_p: 0
@@ -83,7 +86,7 @@ litellm_params:
   variants:
     thinking:
       suffix: -thinking
-      temperature: 0.6
+      temperature: 1.0
       top_p: 0.95
       top_k: 20
       min_p: 0
@@ -95,25 +98,24 @@ litellm_params:
           preserve_thinking: true
     coder-thinking:
       suffix: -coder-thinking
-      temperature: 0.7
+      temperature: 1.0
       top_p: 0.95
       top_k: 20
       min_p: 0
-      presence_penalty: 0.0
-      repetition_penalty: 1.05
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
       extra_body:
-        max_reasoning_tokens: 8192
         chat_template_kwargs:
           enable_thinking: true
           preserve_thinking: true
     coder-fast:
       suffix: -coder-fast
-      temperature: 0.7
-      top_p: 0.8
+      temperature: 0.6
+      top_p: 0.95
       top_k: 20
       min_p: 0
-      presence_penalty: 1.0
-      repetition_penalty: 1.05
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
       extra_body:
         chat_template_kwargs:
           enable_thinking: false
@@ -124,19 +126,7 @@ litellm_params:
       top_p: 0.8
       top_k: 20
       min_p: 0
-      presence_penalty: 0.0
-      repetition_penalty: 1.0
-      extra_body:
-        chat_template_kwargs:
-          enable_thinking: false
-          preserve_thinking: false
-    instruct-reasoning:
-      suffix: -instruct-reasoning
-      temperature: 0.6
-      top_p: 0.95
-      top_k: 20
-      min_p: 0
-      presence_penalty: 0.0
+      presence_penalty: 1.5
       repetition_penalty: 1.0
       extra_body:
         chat_template_kwargs:

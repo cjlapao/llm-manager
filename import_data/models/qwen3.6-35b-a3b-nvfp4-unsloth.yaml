@@ -5,18 +5,19 @@
 # gpu_memory_utilization: 0.28 (~35GB of 128GB)
 # ═══════════════════════════════════════════════════════════════
 
-slug: qwen3.6-35b-a3b-nvfp4
-name: "Qwen3.6 35B-A3B NVFP4"
+slug: qwen3.6-35b-a3b-nvfp4-unsloth
+name: "Qwen3.6 35B-A3B NVFP4 (unsloth)"
 engine: vllm
-engine_version: v4
-hf_repo: "nvidia/Qwen3.6-35B-A3B-NVFP4"
-container: qwen3.6-35b-a3b-nvfp4
+engine_version: v5
+hf_repo: "unsloth/Qwen3.6-35B-A3B-NVFP4-Fast"
+container: qwen3.6-35b-a3b-nvfp4-unsloth
 port: 8014
 type: llm
 subtype: chat
 
 environment:
   VLLM_MARLIN_USE_ATOMIC_ADD: 1
+  CUTE_DSL_ARCH: sm_121a
 
 input_token_cost: 0.0000015
 output_token_cost: 0.0000075
@@ -35,7 +36,7 @@ profile:
   default_context: 262144
   max_context: 262144
   quant_bytes_per_param: 0.5
-  max_num_seqs: 16
+  max_num_seqs: 8
   max_num_batched_tokens: 8192
 
 command:
@@ -57,8 +58,8 @@ command:
   - "--mm-encoder-tp-mode data"
   - "--attention-backend flashinfer"
   - "--load-format instanttensor"
-  - "--chat-template /app/templates/qwen3.6-chat-template.jinja"
   - "--default-chat-template-kwargs '{\"preserve_thinking\": true}'"
+  - "--moe-backend flashinfer_b12x"
 
 capabilities:
   - reasoning

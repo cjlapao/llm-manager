@@ -22,6 +22,13 @@ const (
 	SafeUsableMB      = 105912 // USABLE_MB - EARLYOOM_RESERVE_MB (3% of total)
 	EarlyoomThreshold = 3      // percent — earlyoom kills at 3% free
 	EarlyoomReserveMB = 3656   // 3% of TOTAL_GPU_MB
+	// ActivationBufferMBPerBillion is per-billion-param activation + scratch overhead.
+	// Derived from vLLM profiling: 8.75 GiB on Blackwell for 262K context @ NF4 weights.
+	// We add 150 MB/B active params to capture per-layer materialization cost.
+	ActivationBufferMBPerBillion = 150
+	// MinActivationMB floors the activation budget so small models still reserve headroom
+	// for operator compilation, temporary buffers, and scheduler bookkeeping.
+	MinActivationMB = 1000
 )
 
 // ModelProfile holds architecture-specific constants for GPU memory calculation.
@@ -52,7 +59,7 @@ type MemoryBreakdown struct {
 	PrefixCacheMB      int
 	MTPMB              int
 	CUDAContextMB      int
-
+	ActivationScratchMB int // activation + scratch buffer overhead for quantized models
 	VisionEncoderMB int // vision encoder + projector for multimodal models
 }
 
@@ -122,8 +129,15 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 		kvPerToken := 2.0 * float64(profile.NumKvHeads) * float64(profile.HeadDim) * float64(profile.AttentionLayers) * kvDtypeBytes
 		effectiveKvPerToken := kvPerToken * profile.KvCacheOverheadMultiplier
 		bd.KVCacheMB = int(effectiveKvPerToken*float64(contextLen*seqs)) / (1024 * 1024)
-		// Realistic: assume ~50% average context utilization across sequences
-		realisticContext := contextLen / 2
+		// Realistic KV: scale discount based on context length. Long-context models (≥64K)
+		// have higher peak pressure from chunked-prefill prefill windows. Short contexts
+		// (<64K) typically run lower average utilization.
+		var realisticContext int
+		if contextLen >= 65536 {
+			realisticContext = contextLen * 75 / 100 // 75% for long context
+		} else {
+			realisticContext = contextLen / 2        // 50% for short context
+		}
 		bd.KVCacheRealisticMB = int(effectiveKvPerToken*float64(realisticContext*seqs)) / (1024 * 1024)
 	}
 
@@ -170,8 +184,13 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 		// MARLIN gemm libraries hook into custom kernels — larger capture needed.
 		bd.CUDAContextMB = 7000
 	case profile.QuantBytesPerParam == 0.5:
-		// Non-standard quantization (INT4/NF4/NVFP4) = larger graph capture
-		bd.CUDAContextMB = 5000
+		// Non-standard quantization (INT4/NF4/NVFP4) = graph capture + INT4 decompression workspace.
+		// Base 4GB accounts for dequantize staging, embedding expansion, operator caching.
+		// Scale adds 150 MB/B for per-layer activation buffers proportional to model size.
+		bd.CUDAContextMB = 4000 + int(profile.TotalParamsB*ActivationBufferMBPerBillion)
+		if bd.CUDAContextMB < 5500 {
+			bd.CUDAContextMB = 5500 // floor: even tiny INT4 models need staging buffers
+		}
 	default:
 		bd.CUDAContextMB = 3000
 	}

@@ -1,12 +1,14 @@
 package service
 
 import (
+	"encoding/json"
+	"math"
 	"os"
 	"testing"
 
 	"github.com/user/llm-manager/internal/config"
-	"github.com/user/llm-manager/internal/database/models"
 	"github.com/user/llm-manager/internal/database"
+	"github.com/user/llm-manager/internal/database/models"
 	"github.com/user/llm-manager/pkg/yamlparser"
 )
 
@@ -236,5 +238,311 @@ capabilities:
 	}
 	if model.Slug != "test-import-no-url" {
 		t.Errorf("model.Slug = %q, want %q", model.Slug, "test-import-no-url")
+	}
+}
+
+// kiloCodeTestModel returns a standard test model with coder + coder-thinking variants.
+func kiloCodeTestModel(slug string) *models.Model {
+	return &models.Model{
+		Slug:            slug,
+		Type:            "llm",
+		Name:            "Test Model",
+		Port:            8000,
+		EngineType:      "vllm",
+		Capabilities:    `["tool-use","reasoning","image"]`,
+		LiteLLMParams:   `{"variants":{"coder":{"temperature":0.1},"coder-thinking":{"temperature":0.1,"extra_body":{"chat_template_kwargs":{"enable_thinking":true}}}},"api_base":"http://localhost:8000/v1","api_key":"test"}`,
+		ModelInfo:       `{"input_tokens_limits":[262144],"output_token_limits":[32768]}`,
+		InputTokenCost:  0.000003,
+		OutputTokenCost: 0.000015,
+	}
+}
+
+func TestGenerateKiloCodeModel_SingleModel(t *testing.T) {
+	svc := newTestModelService(t, "http://localhost:8000")
+
+	m := kiloCodeTestModel("kiloc-single")
+	if err := svc.db.CreateModel(m); err != nil {
+		t.Fatalf("CreateModel() error: %v", err)
+	}
+
+	data, err := svc.GenerateKiloCodeModel("kiloc-single")
+	if err != nil {
+		t.Fatalf("GenerateKiloCodeModel() error: %v", err)
+	}
+
+	var wrapper struct {
+		Models map[string]*KiloCodeModelEntry `json:"models"`
+	}
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		t.Fatalf("failed to unmarshal output: %v", err)
+	}
+
+	if len(wrapper.Models) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(wrapper.Models))
+	}
+
+	// Check the base coder variant entry
+	coder, ok := wrapper.Models["kiloc-single-coder"]
+	if !ok {
+		t.Fatal("missing entry for kiloc-single-coder")
+	}
+	if coder.Name != "Test Model Coder" {
+		t.Errorf("coder.Name = %q, want %q", coder.Name, "Test Model Coder")
+	}
+	if coder.Limit == nil {
+		t.Fatal("coder.Limit is nil")
+	}
+	if coder.Limit.Context != 262144 {
+		t.Errorf("coder.Limit.Context = %d, want 262144", coder.Limit.Context)
+	}
+	if coder.Limit.Output != 32768 {
+		t.Errorf("coder.Limit.Output = %d, want 32768", coder.Limit.Output)
+	}
+	if coder.Cost == nil {
+		t.Fatal("coder.Cost is nil")
+	}
+	if coder.Cost.Input == nil || math.Abs(*coder.Cost.Input-3.0) > 0.001 {
+		t.Errorf("coder.Cost.Input = %v, want ~3.0", coder.Cost.Input)
+	}
+	if coder.Cost.Output == nil || math.Abs(*coder.Cost.Output-15.0) > 0.001 {
+		t.Errorf("coder.Cost.Output = %v, want ~15.0", coder.Cost.Output)
+	}
+	if !coder.ToolCall {
+		t.Error("coder.ToolCall = false, want true")
+	}
+	if !coder.Temperature {
+		t.Error("coder.Temperature = false, want true")
+	}
+	if coder.Modalities == nil {
+		t.Fatal("coder.Modalities is nil")
+	}
+	if len(coder.Modalities["input"]) != 2 || coder.Modalities["input"][0] != "text" || coder.Modalities["input"][1] != "image" {
+		t.Errorf("coder.Modalities[\"input\"] = %v, want [text image]", coder.Modalities["input"])
+	}
+	if len(coder.Modalities["output"]) != 1 || coder.Modalities["output"][0] != "text" {
+		t.Errorf("coder.Modalities[\"output\"] = %v, want [text]", coder.Modalities["output"])
+	}
+	if coder.Reasoning {
+		t.Error("coder.Reasoning = true, want false (model has no thinking capability)")
+	}
+
+	// Check the coder-thinking variant entry
+	thinking, ok := wrapper.Models["kiloc-single-coder-thinking"]
+	if !ok {
+		t.Fatal("missing entry for kiloc-single-coder-thinking")
+	}
+	if thinking.Name != "Test Model Coder Thinking" {
+		t.Errorf("thinking.Name = %q, want %q", thinking.Name, "Test Model Coder Thinking")
+	}
+	if thinking.ToolCall {
+		// Should be true (same as coder)
+	} else {
+		t.Error("thinking.ToolCall = false, want true")
+	}
+}
+
+func TestGenerateKiloCodeModels_AllModels(t *testing.T) {
+	svc := newTestModelService(t, "http://localhost:8000")
+
+	m1 := kiloCodeTestModel("kiloc-all-a")
+	if err := svc.db.CreateModel(m1); err != nil {
+		t.Fatalf("CreateModel(m1) error: %v", err)
+	}
+	m2 := kiloCodeTestModel("kiloc-all-b")
+	m2.Name = "Second Model"
+	if err := svc.db.CreateModel(m2); err != nil {
+		t.Fatalf("CreateModel(m2) error: %v", err)
+	}
+
+	data, err := svc.GenerateKiloCodeModels()
+	if err != nil {
+		t.Fatalf("GenerateKiloCodeModels() error: %v", err)
+	}
+
+	var wrapper struct {
+		Models map[string]*KiloCodeModelEntry `json:"models"`
+	}
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		t.Fatalf("failed to unmarshal output: %v", err)
+	}
+
+	expectedKeys := []string{
+		"kiloc-all-a-coder",
+		"kiloc-all-a-coder-thinking",
+		"kiloc-all-b-coder",
+		"kiloc-all-b-coder-thinking",
+	}
+	for _, key := range expectedKeys {
+		if _, ok := wrapper.Models[key]; !ok {
+			t.Errorf("missing entry for %q", key)
+		}
+	}
+}
+
+func TestGenerateKiloCode_ExcludesRAGEmbedRerankSpeech(t *testing.T) {
+	svc := newTestModelService(t, "http://localhost:8000")
+
+	excluded := []*models.Model{
+		{Slug: "kiloc-rag", Type: "rag", Name: "RAG Model", Port: 8000, EngineType: "vllm",
+			Capabilities: `["tool-use"]`, LiteLLMParams: `{"variants":{"coder":{}}}`, InputTokenCost: 0.000003, OutputTokenCost: 0.000015},
+		{Slug: "kiloc-embed", Type: "embed", Name: "Embed Model", Port: 8000, EngineType: "vllm",
+			Capabilities: `["embedding"]`, LiteLLMParams: `{"variants":{"coder":{}}}`, InputTokenCost: 0.000003, OutputTokenCost: 0.000015},
+		{Slug: "kiloc-rerank", Type: "rerank", Name: "Rerank Model", Port: 8000, EngineType: "vllm",
+			Capabilities: `["reranker"]`, LiteLLMParams: `{"variants":{"coder":{}}}`, InputTokenCost: 0.000003, OutputTokenCost: 0.000015},
+		{Slug: "kiloc-stt", SubType: "stt", Name: "STT Model", Port: 8000, EngineType: "vllm",
+			Capabilities: `["stt"]`, LiteLLMParams: `{"variants":{"coder":{}}}`, InputTokenCost: 0.000003, OutputTokenCost: 0.000015},
+		{Slug: "kiloc-tts", SubType: "tts", Name: "TTS Model", Port: 8000, EngineType: "vllm",
+			Capabilities: `["tts"]`, LiteLLMParams: `{"variants":{"coder":{}}}`, InputTokenCost: 0.000003, OutputTokenCost: 0.000015},
+	}
+	for _, m := range excluded {
+		if err := svc.db.CreateModel(m); err != nil {
+			t.Fatalf("CreateModel(%q) error: %v", m.Slug, err)
+		}
+	}
+
+	// Also add a valid model that should appear
+	valid := kiloCodeTestModel("kiloc-valid")
+	if err := svc.db.CreateModel(valid); err != nil {
+		t.Fatalf("CreateModel(kiloc-valid) error: %v", err)
+	}
+
+	data, err := svc.GenerateKiloCodeModels()
+	if err != nil {
+		t.Fatalf("GenerateKiloCodeModels() error: %v", err)
+	}
+
+	var wrapper struct {
+		Models map[string]*KiloCodeModelEntry `json:"models"`
+	}
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		t.Fatalf("failed to unmarshal output: %v", err)
+	}
+
+	excludedSlugs := []string{"kiloc-rag", "kiloc-embed", "kiloc-rerank", "kiloc-stt", "kiloc-tts"}
+	for _, slug := range excludedSlugs {
+		key := slug + "-coder"
+		if _, ok := wrapper.Models[key]; ok {
+			t.Errorf("excluded model %q appeared in output", key)
+		}
+	}
+
+	if _, ok := wrapper.Models["kiloc-valid-coder"]; !ok {
+		t.Error("valid model kiloc-valid-coder did not appear in output")
+	}
+}
+
+func TestGenerateKiloCode_ReasoningFlag(t *testing.T) {
+	svc := newTestModelService(t, "http://localhost:8000")
+
+	// Model with thinking capability (name contains "thinking") + coder-thinking variant
+	thinkModel := &models.Model{
+		Slug:            "kiloc-reason-think",
+		Type:            "llm",
+		Name:            "Test Thinking Model",
+		Port:            8000,
+		EngineType:      "vllm",
+		Capabilities:    `["tool-use","reasoning","image"]`,
+		LiteLLMParams:   `{"variants":{"coder":{"temperature":0.1},"coder-thinking":{"temperature":0.1}}}`,
+		ModelInfo:       `{"input_tokens_limits":[262144],"output_token_limits":[32768]}`,
+		InputTokenCost:  0.000003,
+		OutputTokenCost: 0.000015,
+	}
+	if err := svc.db.CreateModel(thinkModel); err != nil {
+		t.Fatalf("CreateModel(thinkModel) error: %v", err)
+	}
+
+	data, err := svc.GenerateKiloCodeModel("kiloc-reason-think")
+	if err != nil {
+		t.Fatalf("GenerateKiloCodeModel() error: %v", err)
+	}
+
+	var wrapper struct {
+		Models map[string]*KiloCodeModelEntry `json:"models"`
+	}
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		t.Fatalf("failed to unmarshal output: %v", err)
+	}
+
+	thinkingEntry, ok := wrapper.Models["kiloc-reason-think-coder-thinking"]
+	if !ok {
+		t.Fatal("missing entry for kiloc-reason-think-coder-thinking")
+	}
+	if !thinkingEntry.Reasoning {
+		t.Error("thinkingEntry.Reasoning = false, want true (model has thinking capability + variant contains 'think')")
+	}
+
+	// Same model but with coder-fast variant — reasoning should be absent
+	fastModel := &models.Model{
+		Slug:            "kiloc-reason-fast",
+		Type:            "llm",
+		Name:            "Test Thinking Model",
+		Port:            8000,
+		EngineType:      "vllm",
+		Capabilities:    `["tool-use","reasoning","image"]`,
+		LiteLLMParams:   `{"variants":{"coder":{"temperature":0.1},"coder-fast":{"temperature":0.5}}}`,
+		ModelInfo:       `{"input_tokens_limits":[262144],"output_token_limits":[32768]}`,
+		InputTokenCost:  0.000003,
+		OutputTokenCost: 0.000015,
+	}
+	if err := svc.db.CreateModel(fastModel); err != nil {
+		t.Fatalf("CreateModel(fastModel) error: %v", err)
+	}
+
+	data2, err := svc.GenerateKiloCodeModel("kiloc-reason-fast")
+	if err != nil {
+		t.Fatalf("GenerateKiloCodeModel(fast) error: %v", err)
+	}
+
+	var wrapper2 struct {
+		Models map[string]*KiloCodeModelEntry `json:"models"`
+	}
+	if err := json.Unmarshal(data2, &wrapper2); err != nil {
+		t.Fatalf("failed to unmarshal output: %v", err)
+	}
+
+	fastEntry, ok := wrapper2.Models["kiloc-reason-fast-coder-fast"]
+	if !ok {
+		t.Fatal("missing entry for kiloc-reason-fast-coder-fast")
+	}
+	if fastEntry.Reasoning {
+		t.Error("fastEntry.Reasoning = true, want false (variant name does not contain 'think')")
+	}
+
+	// Verify "reasoning" key is truly absent from the JSON (not just false)
+	var rawEntry map[string]interface{}
+	json.Unmarshal([]byte(data2), &struct {
+		Models map[string]json.RawMessage `json:"models"`
+	}{})
+	// Re-parse to get raw JSON for the fast entry
+	var rawWrapper struct {
+		Models map[string]json.RawMessage `json:"models"`
+	}
+	if err := json.Unmarshal(data2, &rawWrapper); err != nil {
+		t.Fatalf("failed to unmarshal raw: %v", err)
+	}
+	if rawFast, ok := rawWrapper.Models["kiloc-reason-fast-coder-fast"]; ok {
+		if err := json.Unmarshal(rawFast, &rawEntry); err != nil {
+			t.Fatalf("failed to unmarshal raw entry: %v", err)
+		}
+		if _, hasKey := rawEntry["reasoning"]; hasKey {
+			t.Error("reasoning key should be absent for coder-fast variant")
+		}
+	}
+}
+
+func TestVariantToDisplayName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"coder-thinking", "Coder Thinking"},
+		{"coder-fast", "Coder Fast"},
+		{"coder", "Coder"},
+	}
+	for _, tt := range tests {
+		got := variantToDisplayName(tt.input)
+		if got != tt.want {
+			t.Errorf("variantToDisplayName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }
