@@ -21,7 +21,7 @@ var FieldWhiteLists = map[string]FieldWhiteList{
 	// Model table: "models"
 	"models": {
 		Columns: []string{
-			"id", "slug", "type", "sub_type", "name", "hf_repo", "yml",
+			"id", "slug", "type", "sub_type", "name", "hf_repo", "hf_revision", "yml",
 			"container", "port", "engine_type", "env_vars", "command_args",
 			"input_token_cost", "output_token_cost", "cache_creation_input_token_cost", "cache_read_input_token_cost", "capabilities",
 			"lite_llm_params", "model_info", "litellm_model_id",
@@ -31,6 +31,7 @@ var FieldWhiteLists = map[string]FieldWhiteList{
 			"num_kv_heads", "head_dim", "supports_mtp", "default_context",
 			"max_context", "quant_bytes_per_param", "max_num_seqs",
 			"max_num_batched_tokens", "speculative_decoding",
+			"speculative_model", "speculative_model_revision",
 			"num_speculative_tokens", "created_at", "updated_at",
 		},
 	},

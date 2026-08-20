@@ -18,8 +18,8 @@ func init() {
 
 // RagCommand handles RAG model operations (embedding + reranker).
 type RagCommand struct {
-	cfg    *RootCommand
-	svc    *service.ContainerService
+	cfg     *RootCommand
+	svc     *service.ContainerService
 	litellm service.LiteLLMActivator
 }
 
@@ -30,8 +30,8 @@ func NewRagCommand(root *RootCommand) *RagCommand {
 	litellmSvc := service.NewLiteLLMService(root.db, root.cfg, configSvc)
 	containerSvc.SetLiteLLMService(litellmSvc)
 	return &RagCommand{
-		cfg:    root,
-		svc:    containerSvc,
+		cfg:     root,
+		svc:     containerSvc,
 		litellm: litellmSvc,
 	}
 }

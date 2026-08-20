@@ -243,4 +243,3 @@ func (s *ContainerService) Deactivate3D() error {
 	}
 	return nil
 }
-

@@ -126,7 +126,6 @@ func TestValidate_MissingName(t *testing.T) {
 	}
 }
 
-
 func TestValidate_MissingEngine(t *testing.T) {
 	y := &ModelYAML{
 		Slug: "valid-slug",
@@ -786,10 +785,8 @@ func TestValidate_ProfileInvalidQuantBytes(t *testing.T) {
 		value float64
 		field string
 	}{
-		{"invalid_quant_3", 3.0, "quant_bytes_per_param"},
 		{"invalid_quant_0", 0.0, "quant_bytes_per_param"},
 		{"invalid_quant_neg", -1.0, "quant_bytes_per_param"},
-		{"invalid_quant_1_5", 1.5, "quant_bytes_per_param"},
 	}
 
 	for _, tc := range tests {
@@ -822,7 +819,7 @@ func TestValidate_ProfileInvalidQuantBytes(t *testing.T) {
 }
 
 func TestValidate_ProfileValidQuantBytes(t *testing.T) {
-	validValues := []float64{0.5, 1.0, 2.0}
+	validValues := []float64{0.5, 1.0, 2.0, 0.567, 1.5, 3.0}
 	for _, v := range validValues {
 		t.Run(fmt.Sprintf("quant_%s", strconv.FormatFloat(v, 'f', -1, 64)), func(t *testing.T) {
 			y := &ModelYAML{

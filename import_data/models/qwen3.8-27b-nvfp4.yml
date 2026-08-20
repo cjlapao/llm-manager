@@ -1,96 +1,80 @@
 # ═══════════════════════════════════════════════════════════════
-# Ornith 1.0 35B-A3B FP8 — FP8 (Qwen3.5-MoE base, multimodal)
+# Qwen3.8 27B — NVFP4 (Native Vision-Language, dense)
 # Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x)
-# vLLM >= 0.19.1 | SM121 (Blackwell)
-# gpu_memory_utilization: 0.45 (~57GB of 128GB)
-# Reasoning + agentic-coding model. Vision + video heads present.
+# vLLM: needs a build with qwen3_5 / Qwen3.8 arch support | SM121 (Blackwell)
+# gpu_memory_utilization: 0.85 (~109GB of 128GB)
+#
 # ═══════════════════════════════════════════════════════════════
-
-slug: ornith-1.0-35b-a3b-fp8
-name: "Ornith 1.0 35B-A3B FP8"
+slug: qwen3.8-27b-nvfp4
+name: "Qwen3.8 27B NVFP4"
 engine: vllm
 engine_version: v5
-hf_repo: "ornith-ai/Ornith-1.0-35B-FP8"
-container: ornith-1.0-35b-a3b-fp8
-port: 8041
+hf_repo: "unsloth/Qwen3.8-27B-NVFP4"
+container: qwen3.8-27b-nvfp4
+port: 8031
 type: llm
 subtype: chat
-
 environment:
-  VLLM_LOAD_FORMAT_DEVICE: cuda
   CUTE_DSL_ARCH: "sm_121a"
   VLLM_USE_AOT_COMPILE: "1"
   VLLM_USE_BREAKABLE_CUDAGRAPH: "0"
   VLLM_USE_MEGA_AOT_ARTIFACT: "-1"
-  VLLM_MEMORY_PROFILE_INCLUDE_ATTN: "1"
   VLLM_USE_FLASHINFER_SAMPLER: "1"
-  VLLM_USE_B12X_WO_PROJECTION: "1"
-  VLLM_USE_B12X_MHC: "1"
-  VLLM_USE_B12X_FP8_GEMM: "1"
-  VLLM_USE_B12X_MOE: "1"
-  VLLM_USE_B12X_SPARSE_INDEXER: "1"
-  VLLM_USE_V2_MODEL_RUNNER: "1"
   VLLM_MOE_SKIP_PADDING: "0"
-  B12X_MLA_SM120_UNIFIED: "1"
-  B12X_MOE_FORCE_A8: "1"
 
 input_token_cost: 0.000003
 output_token_cost: 0.000015
 cache_creation_input_token_cost: 0.00000375
 cache_read_input_token_cost: 0.0000003
-
 profile:
-  total_params_b: 35
-  active_params_b: 3
-  is_moe: true
-  num_experts: 256
-  num_experts_per_tok: 8
-  attention_layers: 10
-  gdn_layers: 30
-  num_kv_heads: 2
-  num_attention_heads: 16
+  total_params_b: 27
+  active_params_b: 27
+  is_moe: false
+  attention_layers: 16
+  gdn_layers: 48
+  num_kv_heads: 4
   head_dim: 256
-  partial_rotary_factor: 0.25
   supports_mtp: true
   default_context: 262144
   max_context: 262144
   quant_bytes_per_param: 1.0
-  max_num_seqs: 4
+  max_num_seqs: 2
   max_num_batched_tokens: 16384
-
+  speculative_decoding: mtp
+  num_speculative_tokens: 3
+  gpu_memory_utilization: 0.45
+  supports_thinking_effort: true
 command:
   - ${{ .hf_repo }}
   - "--model ${{ .hf_repo }}"
   - "--served-model-name ${{ .slug }}"
-  - "--kv-cache-dtype fp8"
+  - "--kv-cache-dtype auto"
   - "--dtype auto"
-  - "--max-model-len 262144"
   - "--enable-chunked-prefill"
   - "--reasoning-parser qwen3"
-  - "--tool-call-parser qwen3_xml"
+  - "--tool-call-parser qwen3_coder"
   - "--enable-auto-tool-choice"
   - "--enable-prefix-caching"
   - "--trust-remote-code"
   - "--trust-request-chat-template"
+  - "--performance-mode interactivity"
   - "--generation-config auto"
   - "--mm-processor-cache-type shm"
   - "--disable-custom-all-reduce"
-  - "--enable-expert-parallel"
-  - "--mm-encoder-tp-mode data"
-  - "--load-format instanttensor"
   - "--attention-backend flashinfer"
-  - "--moe-backend marlin"
-  - "--default-chat-template-kwargs '{\"preserve_thinking\": true}'"
-
+  - "--load-format instanttensor"
+  - "--limit-mm-per-prompt '{\"image\":4,\"video\":1}'"
+  - "--media-io-kwargs '{\"video\":{\"num_frames\":-1}}'"
 capabilities:
   - reasoning
   - tool-use
   - multi-turn
-
-
+  - image
+  - video
+  - document
 litellm_params:
   custom_llm_provider: hosted_vllm
-  temperature: 0.8
+  temperature: 1.0
   top_p: 0.95
   top_k: 20
   min_p: 0
@@ -99,7 +83,7 @@ litellm_params:
   variants:
     thinking:
       suffix: -thinking
-      temperature: 0.8
+      temperature: 1.0
       top_p: 0.95
       top_k: 20
       min_p: 0
@@ -107,19 +91,39 @@ litellm_params:
       repetition_penalty: 1.0
     coder-thinking:
       suffix: -coder-thinking
-      temperature: 0.9
+      temperature: 1.0
       top_p: 0.95
       top_k: 20
       min_p: 0
       presence_penalty: 0.0
       repetition_penalty: 1.0
-    coder-fast:
-      suffix: -coder-fast
-      temperature: 0.8
+    coder-thinking-medium:
+      suffix: -coder-thinking-medium
+      temperature: 1.0
       top_p: 0.95
       top_k: 20
       min_p: 0
       presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        reasoning_effort: medium
+    coder-thinking-low:
+      suffix: -coder-thinking-low
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        reasoning_effort: low
+    coder-fast:
+      suffix: -coder-fast
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+      presence_penalty: 1.5
       repetition_penalty: 1.0
       extra_body:
         chat_template_kwargs:
@@ -128,6 +132,18 @@ litellm_params:
       suffix: -instruct
       temperature: 0.7
       top_p: 0.8
+      top_k: 20
+      min_p: 0
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+          preserve_thinking: false
+    instruct-reasoning:
+      suffix: -instruct-reasoning
+      temperature: 1.0
+      top_p: 0.95
       top_k: 20
       min_p: 0
       presence_penalty: 0.0

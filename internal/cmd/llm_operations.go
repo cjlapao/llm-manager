@@ -102,7 +102,9 @@ func (c *LlmCommand) runSwap(args []string) int {
 
 	allowMultiple := false
 	swapFlags := args
-	if len(args) > 0 { swapFlags = args[1:] }
+	if len(args) > 0 {
+		swapFlags = args[1:]
+	}
 	for _, arg := range swapFlags {
 		if arg == "--allow-multiple" || arg == "-m" {
 			allowMultiple = true

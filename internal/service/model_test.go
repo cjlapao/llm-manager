@@ -467,8 +467,8 @@ func TestGenerateKiloCode_ReasoningFlag(t *testing.T) {
 	if !ok {
 		t.Fatal("missing entry for kiloc-reason-think-coder-thinking")
 	}
-	if !thinkingEntry.Reasoning {
-		t.Error("thinkingEntry.Reasoning = false, want true (model has thinking capability + variant contains 'think')")
+	if thinkingEntry.Reasoning {
+		t.Error("thinkingEntry.Reasoning = true, want false (reasoning auto-detection removed; only supports_thinking_effort drives 'thinking')")
 	}
 
 	// Same model but with coder-fast variant — reasoning should be absent

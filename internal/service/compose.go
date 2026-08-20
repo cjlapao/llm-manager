@@ -33,6 +33,7 @@ func mergeProfileFlagsWithOptions(provider string, model *models.Model, existing
 		NumKvHeads:                derefOrZero(model.NumKvHeads),
 		HeadDim:                   derefOrZero(model.HeadDim),
 		SupportsMtp:               derefOrFalse(model.SupportsMtp),
+		SupportsThinkingEffort:    derefOrFalse(model.SupportsThinkingEffort),
 		SupportsVision:            strings.Contains(model.CommandArgs, "mm-processor-cache-type"),
 		DefaultContext:            derefOrZero(model.DefaultContext),
 		MaxContext:                derefOrZero(model.MaxContext),
@@ -172,6 +173,14 @@ func mergeProfileFlagsWithOptions(provider string, model *models.Model, existing
 		specModel = *model.SpeculativeModel
 	}
 
+	// Determine speculative model revision: CLI override > DB profile.
+	specRevision := ""
+	if overrides.SpeculativeModelRevision != nil && *overrides.SpeculativeModelRevision != "" {
+		specRevision = *overrides.SpeculativeModelRevision
+	} else if model.SpeculativeModelRevision != nil && *model.SpeculativeModelRevision != "" {
+		specRevision = *model.SpeculativeModelRevision
+	}
+
 	// Inject --speculative-config only when we have both method AND tokens > 0.
 	// If operator provides both via CLI, we trust them (no supports_mtp gate).
 	if specMethod != "" && mtpTokens > 0 {
@@ -179,6 +188,9 @@ func mergeProfileFlagsWithOptions(provider string, model *models.Model, existing
 		jsonParts = append(jsonParts, fmt.Sprintf("\"method\":\"%s\"", specMethod))
 		if specModel != "" {
 			jsonParts = append(jsonParts, fmt.Sprintf("\"model\":\"%s\"", specModel))
+		}
+		if specRevision != "" {
+			jsonParts = append(jsonParts, fmt.Sprintf("\"revision\":\"%s\"", specRevision))
 		}
 		jsonParts = append(jsonParts, fmt.Sprintf("\"num_speculative_tokens\":%d", mtpTokens))
 		specConfig := "'{" + strings.Join(jsonParts, ",") + "}'"

@@ -239,6 +239,7 @@ type ModelInfoResponse struct {
 	SubType                     string                 `json:"sub_type"`
 	Name                        string                 `json:"name"`
 	HFRepo                      string                 `json:"hf_repo"`
+	HFRevision                  string                 `json:"hf_revision"`
 	Container                   string                 `json:"container"`
 	Port                        int                    `json:"port"`
 	EngineType                  string                 `json:"engine_type"`
@@ -264,6 +265,8 @@ type ModelInfoResponse struct {
 	MaxNumSeqs                  *int                   `json:"max_num_seqs"`
 	MaxNumBatchedTokens         *int                   `json:"max_num_batched_tokens"`
 	SpeculativeDecoding         *string                `json:"speculative_decoding"`
+	SpeculativeModel            *string                `json:"speculative_model"`
+	SpeculativeModelRevision    *string                `json:"speculative_model_revision"`
 	NumSpeculativeTokens        *int                   `json:"num_speculative_tokens"`
 	CreatedAt                   string                 `json:"created_at"`
 	UpdatedAt                   string                 `json:"updated_at"`
@@ -316,37 +319,40 @@ func (h *ModelHandler) GetModelInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := ModelInfoResponse{
-		Slug:                 model.Slug,
-		Type:                 model.Type,
-		SubType:              model.SubType,
-		Name:                 model.Name,
-		HFRepo:               model.HFRepo,
-		Container:            model.Container,
-		Port:                 model.Port,
-		EngineType:           model.EngineType,
-		InputTokenCost:       model.InputTokenCost,
-		OutputTokenCost:      model.OutputTokenCost,
-		Capabilities:         capabilities,
-		LiteLLMParams:        liteLLMParams,
-		ModelInfo:            modelInfo,
-		Default:              model.Default,
-		TotalParamsB:         model.TotalParamsB,
-		ActiveParamsB:        model.ActiveParamsB,
-		IsMoe:                model.IsMoe,
-		AttentionLayers:      model.AttentionLayers,
-		GdnLayers:            model.GdnLayers,
-		NumKvHeads:           model.NumKvHeads,
-		HeadDim:              model.HeadDim,
-		SupportsMtp:          model.SupportsMtp,
-		DefaultContext:       model.DefaultContext,
-		MaxContext:           model.MaxContext,
-		QuantBytesPerParam:   model.QuantBytesPerParam,
-		MaxNumSeqs:           model.MaxNumSeqs,
-		MaxNumBatchedTokens:  model.MaxNumBatchedTokens,
-		SpeculativeDecoding:  model.SpeculativeDecoding,
-		NumSpeculativeTokens: model.NumSpeculativeTokens,
-		CreatedAt:            model.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:            model.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		Slug:                     model.Slug,
+		Type:                     model.Type,
+		SubType:                  model.SubType,
+		Name:                     model.Name,
+		HFRepo:                   model.HFRepo,
+		HFRevision:               model.HFRevision,
+		Container:                model.Container,
+		Port:                     model.Port,
+		EngineType:               model.EngineType,
+		InputTokenCost:           model.InputTokenCost,
+		OutputTokenCost:          model.OutputTokenCost,
+		Capabilities:             capabilities,
+		LiteLLMParams:            liteLLMParams,
+		ModelInfo:                modelInfo,
+		Default:                  model.Default,
+		TotalParamsB:             model.TotalParamsB,
+		ActiveParamsB:            model.ActiveParamsB,
+		IsMoe:                    model.IsMoe,
+		AttentionLayers:          model.AttentionLayers,
+		GdnLayers:                model.GdnLayers,
+		NumKvHeads:               model.NumKvHeads,
+		HeadDim:                  model.HeadDim,
+		SupportsMtp:              model.SupportsMtp,
+		DefaultContext:           model.DefaultContext,
+		MaxContext:               model.MaxContext,
+		QuantBytesPerParam:       model.QuantBytesPerParam,
+		MaxNumSeqs:               model.MaxNumSeqs,
+		MaxNumBatchedTokens:      model.MaxNumBatchedTokens,
+		SpeculativeDecoding:      model.SpeculativeDecoding,
+		SpeculativeModel:         model.SpeculativeModel,
+		SpeculativeModelRevision: model.SpeculativeModelRevision,
+		NumSpeculativeTokens:     model.NumSpeculativeTokens,
+		CreatedAt:                model.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:                model.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
 	WriteJSON(w, http.StatusOK, response)

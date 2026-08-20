@@ -12,7 +12,6 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-
 // sqliteManager implements DatabaseManager using SQLite.
 type sqliteManager struct {
 	dsn string
@@ -133,6 +132,8 @@ func (m *sqliteManager) ensureLegacyColumns() error {
 		{"models", "speculative_decoding", "TEXT"},
 		{"models", "num_speculative_tokens", "INTEGER"},
 		{"models", "speculative_model", "TEXT"},
+		{"models", "speculative_model_revision", "TEXT"},
+		{"models", "hf_revision", "TEXT"},
 	}
 	for _, c := range columns {
 		colRef := c.col

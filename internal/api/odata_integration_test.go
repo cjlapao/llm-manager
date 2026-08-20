@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -48,22 +47,14 @@ func seedModelsViaAPI(t *testing.T, client *http.Client, serverURL string) {
 
 // parseEnvelope parses a JSON envelope from raw bytes. It returns an
 // odataEnvelope if the body has both "data" and "meta" keys,
-// otherwise an apiEnvelope.
+// otherwise an apiEnvelope. For raw JSON bodies that are not envelopes,
+// it wraps the parsed value in a synthetic apiEnvelope with success=true.
 func parseEnvelope(body []byte) (*ODataListResponse, *apiEnvelope, error) {
 	trimmed := extractEnvelopeBody(body)
 
-	// If the body is a JSON array, skip map-based parsing and go straight to
-	// apiEnvelope (which handles arrays in Data field).
-	var isArray bool
-	if bytes.HasPrefix(trimmed, []byte{'['}) {
-		isArray = true
-	}
-
-	if !isArray {
-		var raw map[string]interface{}
-		if err := json.Unmarshal(trimmed, &raw); err != nil {
-			return nil, nil, fmt.Errorf("failed to parse envelope: %w", err)
-		}
+	// Try to parse as a JSON object to check for envelope keys.
+	var raw map[string]interface{}
+	if err := json.Unmarshal(trimmed, &raw); err == nil {
 		_, hasData := raw["data"]
 		_, hasMeta := raw["meta"]
 		if hasData && hasMeta {
@@ -73,13 +64,23 @@ func parseEnvelope(body []byte) (*ODataListResponse, *apiEnvelope, error) {
 			}
 			return &env, nil, nil
 		}
+
+		// Check if it's already an apiEnvelope (has "success" key)
+		if _, hasSuccess := raw["success"]; hasSuccess {
+			var apiEnv apiEnvelope
+			if err := json.Unmarshal(trimmed, &apiEnv); err != nil {
+				return nil, nil, fmt.Errorf("failed to parse api envelope: %w", err)
+			}
+			return nil, &apiEnv, nil
+		}
 	}
 
-	var apiEnv apiEnvelope
-	if err := json.Unmarshal(trimmed, &apiEnv); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse api envelope: %w", err)
+	// Not a recognized envelope — parse as raw JSON and wrap in synthetic envelope.
+	var data interface{}
+	if err := json.Unmarshal(trimmed, &data); err != nil {
+		return nil, nil, fmt.Errorf("failed to parse response: %w", err)
 	}
-	return nil, &apiEnv, nil
+	return nil, &apiEnvelope{Success: true, Data: data, Status: 200}, nil
 }
 
 // assertODataResponse asserts the response is an OData envelope with the
@@ -675,17 +676,10 @@ func TestOData_BackwardCompatibility_Models_NoParams(t *testing.T) {
 	assertStatusCode(t, resp, http.StatusOK)
 
 	body := readBody(t, resp)
-	// Should be wrapped by JSONEnvelope, not OData envelope
-	_, env, err := parseEnvelope(body)
-	if err != nil {
-		t.Fatalf("parseEnvelope: %v", err)
-	}
-	if !env.Success {
-		t.Error("expected success=true for backward compatible response")
-	}
-	dataArr, ok := env.Data.([]interface{})
-	if !ok {
-		t.Fatalf("expected data to be []interface{}, got %T", env.Data)
+	// Successful responses are raw JSON — no envelope wrapper.
+	var dataArr []interface{}
+	if err := json.Unmarshal(body, &dataArr); err != nil {
+		t.Fatalf("parseEnvelope: failed to parse response: %v — raw: %s", err, string(body))
 	}
 	if len(dataArr) != 20 {
 		t.Errorf("expected 20 models, got %d", len(dataArr))
@@ -705,16 +699,10 @@ func TestOData_BackwardCompatibility_RAG_NoParams(t *testing.T) {
 	assertStatusCode(t, resp, http.StatusOK)
 
 	body := readBody(t, resp)
-	_, env, err := parseEnvelope(body)
-	if err != nil {
-		t.Fatalf("parseEnvelope: %v", err)
-	}
-	if !env.Success {
-		t.Error("expected success=true for backward compatible response")
-	}
-	dataMap, ok := env.Data.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected data to be map[string]interface{}, got %T", env.Data)
+	// Successful responses are raw JSON — no envelope wrapper.
+	var dataMap map[string]interface{}
+	if err := json.Unmarshal(body, &dataMap); err != nil {
+		t.Fatalf("failed to parse response: %v — body: %s", err, string(body))
 	}
 	// Should have embed_models and rerank_models keys
 	if _, ok := dataMap["embed_models"]; !ok {

@@ -23,6 +23,7 @@ type Model struct {
 	SubType                     string    `gorm:"size:32;column:sub_type"`
 	Name                        string    `gorm:"size:256;not null;column:name"`
 	HFRepo                      string    `gorm:"size:512;column:hf_repo"`
+	HFRevision                  string    `gorm:"size:512;column:hf_revision"`
 	YML                         string    `gorm:"type:text;column:yml"`
 	Container                   string    `gorm:"size:256;column:container"`
 	Port                        int       `gorm:"not null;column:port"`
@@ -59,6 +60,8 @@ type Model struct {
 	NumSpeculativeTokens        *int      `gorm:"column:num_speculative_tokens"`
 	GpuMemoryUtilization        *float64  `gorm:"column:gpu_memory_utilization"`
 	SpeculativeModel            *string   `gorm:"column:speculative_model"`
+	SpeculativeModelRevision    *string   `gorm:"column:speculative_model_revision"`
+	SupportsThinkingEffort      *bool     `gorm:"column:supports_thinking_effort"`
 	HealthcheckJSON             string    `gorm:"type:text;column:healthcheck_json"`
 	CreatedAt                   time.Time `gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt                   time.Time `gorm:"autoUpdateTime;column:updated_at"`

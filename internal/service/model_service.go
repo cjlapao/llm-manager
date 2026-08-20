@@ -50,6 +50,7 @@ type KiloCodeModelEntry struct {
 	Cost        *KiloCodeCost       `json:"cost,omitempty"`
 	ToolCall    bool                `json:"tool_call"`
 	Temperature bool                `json:"temperature"`
+	Thinking    bool                `json:"thinking,omitempty"`
 	Reasoning   bool                `json:"reasoning,omitempty"`
 	Modalities  map[string][]string `json:"modalities,omitempty"`
 }
@@ -295,8 +296,23 @@ func (s *ModelService) buildOpenCodeEntry(m *models.Model) *OpenCodeModelEntry {
 	}
 	oc.Name = displayName
 
+	// Determine tool-call capability from model capabilities
+	hasToolUse := false
+	var caps []string
+	json.Unmarshal([]byte(m.Capabilities), &caps)
+	for _, c := range caps {
+		if c == "tool-use" {
+			hasToolUse = true
+			break
+		}
+	}
+
+	supportsThinkingEffort := m.SupportsThinkingEffort != nil && *m.SupportsThinkingEffort
 	oc.Options = map[string]interface{}{
-		"model": m.Slug,
+		"model":              m.Slug,
+		"tool_calling":       hasToolUse,
+		"temperature":        true,
+		"thinking":           supportsThinkingEffort,
 		"provider": map[string]interface{}{
 			"model": m.Slug,
 		},
@@ -370,8 +386,6 @@ func (s *ModelService) buildOpenCodeEntry(m *models.Model) *OpenCodeModelEntry {
 		provider["model"] = m.Slug + "-" + coderVariant
 	}
 
-	var caps []string
-	json.Unmarshal([]byte(m.Capabilities), &caps)
 	hasReasoning := false
 	for _, c := range caps {
 		if c == "reasoning" {
@@ -407,7 +421,10 @@ func (s *ModelService) buildOpenCodeEntry(m *models.Model) *OpenCodeModelEntry {
 			continue
 		}
 		vEntry := map[string]interface{}{
-			"model": m.Slug + "-" + v.Name,
+			"model":        m.Slug + "-" + v.Name,
+			"tool_calling": hasToolUse,
+			"temperature":  true,
+			"thinking":     supportsThinkingEffort,
 		}
 		if hasReasoning {
 			if strings.Contains(strings.ToLower(v.Name), "think") {
@@ -827,8 +844,8 @@ func (s *ModelService) buildKiloCodeEntriesForModel(m *models.Model) map[string]
 		}
 	}
 
-	// Determine reasoning capability
-	hasReasoning := m.HasThinkingCapability()
+	// Determine thinking-effort capability
+	supportsThinkingEffort := m.SupportsThinkingEffort != nil && *m.SupportsThinkingEffort
 
 	// Build modalities from capabilities (shared across all variants of this model)
 	modalities := map[string][]string{
@@ -902,13 +919,8 @@ func (s *ModelService) buildKiloCodeEntriesForModel(m *models.Model) map[string]
 			Cost:        cost,
 			ToolCall:    hasToolUse,
 			Temperature: true,
+			Thinking:    supportsThinkingEffort,
 			Modalities:  modalities,
-		}
-
-		// Reasoning: true only when the model supports reasoning AND the
-		// variant name contains "think"
-		if hasReasoning && strings.Contains(strings.ToLower(v.Name), "think") {
-			entry.Reasoning = true
 		}
 
 		entries[key] = entry

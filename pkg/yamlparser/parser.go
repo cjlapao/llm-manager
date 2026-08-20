@@ -85,11 +85,13 @@ type ModelProfile struct {
 	MaxContext         *int     `yaml:"max_context"`
 	QuantBytesPerParam *float64 `yaml:"quant_bytes_per_param"`
 	// New fields for runtime tuning
-	MaxNumSeqs           *int    `yaml:"max_num_seqs"`
-	MaxNumBatchedTokens  *int    `yaml:"max_num_batched_tokens"`
-	SpeculativeDecoding  *string `yaml:"speculative_decoding"` // e.g., "mtp", "dflash"
-	NumSpeculativeTokens *int    `yaml:"num_speculative_tokens"`
-	SpeculativeModel     *string `yaml:"speculative_model"`
+	MaxNumSeqs               *int    `yaml:"max_num_seqs"`
+	MaxNumBatchedTokens      *int    `yaml:"max_num_batched_tokens"`
+	SpeculativeDecoding      *string `yaml:"speculative_decoding"` // e.g., "mtp", "dflash"
+	NumSpeculativeTokens     *int    `yaml:"num_speculative_tokens"`
+	SpeculativeModel         *string `yaml:"speculative_model"`
+	SpeculativeModelRevision *string `yaml:"speculative_model_revision"`
+	SupportsThinkingEffort   *bool   `yaml:"supports_thinking_effort"`
 	// GpuMemoryUtilization is an optional override for gpu_memory_utilization.
 	// When set, the auto-calculated memory utilization is bypassed and this
 	// value is used directly. Value must be in (0, 1).
@@ -105,6 +107,7 @@ type ModelYAML struct {
 	Engine          string            `yaml:"engine"`
 	EngineVersion   string            `yaml:"engine_version"`
 	HFRepo          string            `yaml:"hf_repo"`
+	HFRevision      string            `yaml:"hf_revision"`
 	Container       string            `yaml:"container"`
 	Port            int               `yaml:"port"`
 	EnvVars         map[string]string `yaml:"environment"`
@@ -139,7 +142,7 @@ type ModelYAML struct {
 // and serialized into HealthCheckJSON.
 var knownKeys = map[string]struct{}{
 	"slug": {}, "name": {}, "type": {}, "subtype": {}, "engine": {},
-	"engine_version": {}, "hf_repo": {}, "container": {}, "port": {},
+	"engine_version": {}, "hf_repo": {}, "hf_revision": {}, "container": {}, "port": {},
 	"environment": {}, "command": {}, "input_token_cost": {},
 	"output_token_cost": {}, "cache_creation_input_token_cost": {},
 	"cache_read_input_token_cost": {}, "capabilities": {},
@@ -353,16 +356,9 @@ func formatCost(v float64) string {
 	return s
 }
 
-// validQuantBytesPerParam lists the allowed quantization bytes-per-parameter values.
-var validQuantBytesPerParam = map[float64]struct{}{
-	0.5: {},
-	1.0: {},
-	2.0: {},
-}
-
 // validateProfile validates all fields in a ModelProfile, returning a slice of
 // error strings (empty means valid). Each numeric field is checked for positive
-// values where applicable; quant_bytes_per_param must be one of 0.5, 1.0, 2.0.
+// values where applicable; quant_bytes_per_param must be > 0.
 func validateProfile(p *ModelProfile) []error {
 	var errs []error
 
@@ -397,8 +393,6 @@ func validateProfile(p *ModelProfile) []error {
 	if p.QuantBytesPerParam != nil {
 		if *p.QuantBytesPerParam <= 0 {
 			errs = append(errs, fmt.Errorf("profile.quant_bytes_per_param must be > 0 (got %s)", formatCost(*p.QuantBytesPerParam)))
-		} else if _, ok := validQuantBytesPerParam[*p.QuantBytesPerParam]; !ok {
-			errs = append(errs, fmt.Errorf("profile.quant_bytes_per_param must be one of 0.5, 1.0, 2.0 (got %s)", formatCost(*p.QuantBytesPerParam)))
 		}
 	}
 

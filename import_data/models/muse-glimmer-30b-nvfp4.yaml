@@ -1,0 +1,191 @@
+# ═══════════════════════════════════════════════════════════════
+# Muse Glimmer 30B — NVFP4
+# unsloth/Muse-Glimmer-30B-NVFP4  ·  DENSE 30B multimodal (text+image+video)
+# Meta Superintelligence Labs · Apache 2.0 · distilled from Muse Spark 1.2
+# Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x, SM121 Blackwell)
+#
+# ⚠ DAY-0 RELEASE (2026-08-10). vLLM support ships via the TRANSFORMERS
+#   BACKEND, and no reasoning/tool-call parser is documented yet. Read the
+#   three ⚠ notes below BEFORE relying on this for an agentic tool loop.
+#
+# Requires: vllm>=0.25.0, flashinfer-python>=0.6.13, nvidia-cutlass-dsl>=4.5.2
+# Footprint: ~28B decoder @ NVFP4 ≈ ~16GB + ~2B vision encoder (higher precision)
+#   + tiny KV + DFlash drafter → ~24–30GB total. Small; co-locates easily.
+# ═══════════════════════════════════════════════════════════════
+
+slug: muse-glimmer-30b-nvfp4
+name: "Muse Glimmer 30B NVFP4"
+engine: vllm
+engine_version: v5
+hf_repo: "unsloth/Muse-Glimmer-30B-NVFP4"
+container: muse-glimmer-30b-nvfp4
+port: 8020          # avoid colliding with Qwen(8017)/Laguna(8018)/KAT(8019)
+type: llm
+subtype: chat
+
+environment:
+  # Vision/video processor needs ffmpeg; without it you may hit Torchcodec errors.
+  # (Ensure ffmpeg is installed in the container image.)
+  TOKENIZERS_PARALLELISM: "false"
+
+input_token_cost: 0.000003
+output_token_cost: 0.000015
+cache_creation_input_token_cost: 0.00000375
+cache_read_input_token_cost: 0.0000003
+
+profile:
+  total_params_b: 30            # 28B text decoder + 2B ViT perception encoder
+  active_params_b: 30           # DENSE — was MoE on the other models
+  is_moe: false
+  attention_layers: 13          # the 13 FULL-attention (NoPE) layers — these grow KV
+  gdn_layers: 0                 # no GDN/linear layers
+  # ── Attention layout (why KV is tiny) ──
+  # 52 layers total in pattern (SWA, SWA, SWA, Full) × 13. The 39 sliding-window
+  # layers are bounded at a 2048 window; only the 13 full layers grow with context.
+  # Plus Gated GQA at 16:1 (each KV head serves 16 query heads) → 16× KV reduction.
+  # Net: KV/token is minuscule, so 256K context is trivial here.
+  num_kv_heads: 8               # ⚠ ESTIMATE — GQA is 16:1; verify Q-heads/16 and head_dim against config.json
+  head_dim: 128                 # ⚠ ESTIMATE — verify against config.json
+  supports_mtp: true            # DFlash drafter, exposed in vLLM as method "mtp"
+  default_context: 131072       # Meta default
+  max_context: 262144           # documented max
+  quant_bytes_per_param: 0.5625 # NVFP4 ≈ 4.5 bits (decoder; vision encoder kept higher precision)
+  speculative_decoding: mtp     # DFlash block-diffusion drafter, integrated (no separate model in vLLM)
+  num_speculative_tokens: 2     # Unsloth's documented vLLM value (DFlash block size is 16 internally)
+  max_num_seqs: 4
+  max_num_batched_tokens: 8192
+
+command:
+  - ${{ .hf_repo }}
+  - "--model ${{ .hf_repo }}"
+  - "--served-model-name ${{ .slug }}"
+  - "--gpu-memory-utilization 0.35"   # small model — plenty; keep low to co-locate, raise for more ctx/seqs
+  - "--max-model-len 262144"
+  - "--dtype auto"
+  - "--trust-remote-code"             # custom arch (MuseGlimmerForConditionalGeneration / AutoModelForMultimodalLM)
+  - "--generation-config auto"
+  - "--default-chat-template-kwargs '{\"reasoning_strength\": \"high\"}'"   # NOT enable_thinking — see note
+  #
+  # ── DFlash speculative decoding (optional; lossless, faster decode) ──
+  # Unsloth's documented form. Remove if it causes issues on the transformers backend.
+  - "--speculative-config '{\"method\": \"mtp\", \"num_speculative_tokens\": 2}'"
+  #
+  # ── OPTIONAL perf flags — ADD ONLY IF your vLLM's transformers backend accepts them ──
+  # The transformers backend is more limited than native vLLM, so validate each:
+  # - "--kv-cache-dtype fp8"
+  # - "--enable-chunked-prefill"
+  # - "--enable-prefix-caching"       # hybrid SWA+full; watch startup logs
+  # - "--async-scheduling"
+  # - "--mm-processor-cache-type shm" # multimodal processor cache
+  #
+  # ── ⚠ NOTE 1: transformers backend ──
+  # Meta's own vLLM command for the base model is:
+  #   vllm serve meta-models/Muse-Glimmer-30B --model-impl transformers --tensor-parallel-size 4
+  # Unsloth's NVFP4 command omits --model-impl transformers (native path). If this
+  # NVFP4 build fails to register the architecture, add "--model-impl transformers"
+  # — but be aware that backend may not compose cleanly with NVFP4 weights.
+  #
+  # ── ⚠ NOTE 2: NO tool-call / reasoning parser is documented yet ──
+  # Neither Meta's nor Unsloth's vLLM commands set --reasoning-parser or
+  # --tool-call-parser. The model has its OWN response format, parsed via the
+  # processor's parse_response(). Through an OpenAI-compatible endpoint, tool
+  # calls may NOT be surfaced as structured `tool_calls` until a vLLM parser
+  # lands. For your OpenCode loop, VERIFY tool calls actually come back parsed
+  # before trusting this in production — this is the biggest day-0 risk for you.
+  #
+  # ── REMOVED vs your other configs ──
+  #   --language-model-only   → NO. This model IS multimodal; keep the vision path.
+  #   --reasoning-parser / --tool-call-parser → none documented (see NOTE 2).
+  #   --quantization          → auto-detect (don't hardcode).
+  #   --load-format instanttensor, --chat-template → not applicable.
+
+capabilities:
+  - reasoning
+  - tool-use            # ⚠ see NOTE 2 — verify parsing end-to-end
+  - multi-turn
+  - image               # 2B Perception Encoder — images AND video
+  - video
+  - document
+
+litellm_params:
+  custom_llm_provider: hosted_vllm
+  # Meta's recommended sampling. NOTE top_k = 64 (not the Qwen 20).
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 64
+  min_p: 0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+  extra_body:
+    # Reasoning is EFFORT-BASED (low / medium / high / xhigh), set via reasoning_strength —
+    # there is no enable_thinking boolean on this model.
+    chat_template_kwargs:
+      reasoning_strength: high
+  variants:
+    # ── coder variants required by the automation pipeline ──
+    coder-thinking:
+      suffix: -coder-thinking
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: high      # Meta recommends high/xhigh for coding + agentic
+    coder-fast:
+      suffix: -coder-fast
+      temperature: 1.0                  # Meta's rec; lower to ~0.6 if your pipeline wants more determinism
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0             # add ~1.5 if you see repetition in fast mode
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: low       # fastest — minimal reasoning
+    reason-xhigh:
+      suffix: -xhigh
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: xhigh
+    reason-high:
+      suffix: -high
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: high
+    reason-medium:
+      suffix: -medium
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: medium
+    fast:
+      suffix: -fast
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: low

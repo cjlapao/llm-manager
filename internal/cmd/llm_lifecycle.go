@@ -40,7 +40,9 @@ func (c *LlmCommand) runStart(args []string) int {
 	overrides := service.StartOverrides{}
 	// flags start after [0] if slug was passed, otherwise nothing
 	flagArgs := args
-	if len(args) > 0 { flagArgs = args[1:] }
+	if len(args) > 0 {
+		flagArgs = args[1:]
+	}
 	for _, arg := range flagArgs {
 		switch arg {
 		case "--dry-run", "-n":
@@ -63,12 +65,16 @@ func (c *LlmCommand) runStart(args []string) int {
 			// next arg is the value
 		case "--speculative-model":
 			// next arg is the value
+		case "--speculative-model-revision":
+			// next arg is the value
 		}
 	}
 
 	// Parse numeric overrides (simple positional: --flag value)
 	startIdx := 1
-	if len(args) < 2 { startIdx = 0 }
+	if len(args) < 2 {
+		startIdx = 0
+	}
 	for i := startIdx; i < len(args); i++ {
 		switch args[i] {
 		case "--max-model-len":
@@ -116,6 +122,12 @@ func (c *LlmCommand) runStart(args []string) int {
 			if i+1 < len(args) {
 				val := args[i+1]
 				overrides.SpeculativeModel = &val
+				i++
+			}
+		case "--speculative-model-revision":
+			if i+1 < len(args) {
+				val := args[i+1]
+				overrides.SpeculativeModelRevision = &val
 				i++
 			}
 		}

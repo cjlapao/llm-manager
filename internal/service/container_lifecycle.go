@@ -15,11 +15,11 @@ import (
 )
 
 type ContainerService struct {
-	db       database.DatabaseManager
-	cfg      *config.Config
-	svc      *EngineService
-	litellm  LiteLLMActivator
-	mu       sync.Mutex
+	db      database.DatabaseManager
+	cfg     *config.Config
+	svc     *EngineService
+	litellm LiteLLMActivator
+	mu      sync.Mutex
 }
 
 // LiteLLMActivator is the interface for LiteLLM activation operations.
@@ -432,6 +432,7 @@ func (s *ContainerService) checkGPUMemory(slug string, overrides StartOverrides)
 		NumKvHeads:                numKvHeads,
 		HeadDim:                   headDim,
 		SupportsMtp:               model.SupportsMtp != nil && *model.SupportsMtp,
+		SupportsThinkingEffort:    model.SupportsThinkingEffort != nil && *model.SupportsThinkingEffort,
 		SupportsVision:            strings.Contains(model.CommandArgs, "mm-processor-cache-type"),
 		DefaultContext:            defaultContext,
 		MaxContext:                maxContext,

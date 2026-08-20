@@ -251,8 +251,8 @@ func TestFieldWhiteList_Columns(t *testing.T) {
 	if !ok {
 		t.Fatal("models white-list not found")
 	}
-	if len(modelWL.Columns) != 42 {
-		t.Errorf("models white-list has %d columns, expected 42", len(modelWL.Columns))
+	if len(modelWL.Columns) != 45 {
+		t.Errorf("models white-list has %d columns, expected 45", len(modelWL.Columns))
 	}
 
 	// Verify Container white-list

@@ -524,7 +524,6 @@ func TestBuildActiveSpecs_ExistingChatTemplateKwargs_Merge(t *testing.T) {
 	}
 }
 
-
 // ──────────────────────────────────────────────────────────────────────
 // Tests for single-active-alias changes
 // ──────────────────────────────────────────────────────────────────────

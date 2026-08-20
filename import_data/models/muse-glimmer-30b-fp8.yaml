@@ -1,0 +1,182 @@
+# ═══════════════════════════════════════════════════════════════
+# Muse Glimmer 30B — FP8  (dynamic FP8 quant of the BF16 base)
+# meta-models/Muse-Glimmer-30B  ·  DENSE 30B multimodal (text+image+video)
+# Meta Superintelligence Labs · Apache 2.0
+# Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x, SM121 Blackwell)
+#
+# ⚠ THERE IS NO STANDALONE FP8 CHECKPOINT. This loads the BF16 base and
+#   quantizes to FP8 at load time (--quantization fp8). Sizes:
+#     BF16 (as-is)      ≈ 56GB    ← the officially-supported path
+#     FP8 (dynamic)     ≈ 28–30GB ← this config
+#   Both fit your Spark with room. FP8 gives ~2× the headroom of BF16 and
+#   noticeably higher fidelity than the NVFP4 4-bit build.
+#
+# ⚠ vLLM serves this via the TRANSFORMERS BACKEND (day-0). Dynamic FP8 on
+#   that backend is NOT guaranteed to compose — see NOTE 1. If it fails,
+#   the BF16 fallback is one line away and IS the supported path.
+#
+# Requires: recent vLLM (Meta's base command targets the transformers backend).
+# ═══════════════════════════════════════════════════════════════
+
+slug: muse-glimmer-30b-fp8
+name: "Muse Glimmer 30B FP8"
+engine: vllm
+engine_version: v5
+hf_repo: "meta-models/Muse-Glimmer-30B"   # BF16 base — FP8 is applied dynamically below
+container: muse-glimmer-30b-fp8
+port: 8021          # avoid colliding with the NVFP4 entry (8020) and the others
+type: llm
+subtype: chat
+
+environment:
+  # Vision/video processor needs ffmpeg; without it you may hit Torchcodec errors.
+  TOKENIZERS_PARALLELISM: "false"
+
+input_token_cost: 0.000003
+output_token_cost: 0.000015
+cache_creation_input_token_cost: 0.00000375
+cache_read_input_token_cost: 0.0000003
+
+profile:
+  total_params_b: 30            # 28B text decoder + 2B ViT perception encoder
+  active_params_b: 30           # dense
+  is_moe: false
+  attention_layers: 13          # the 13 FULL-attention (NoPE) layers grow KV
+  gdn_layers: 0
+  # 52 layers total, pattern (SWA,SWA,SWA,Full)×13; 39 SWA layers bounded at 2048.
+  # Gated GQA 16:1 → 16× KV reduction. KV/token is tiny, so 256K is trivial.
+  num_kv_heads: 8               # ⚠ ESTIMATE — verify against config.json
+  head_dim: 128                 # ⚠ ESTIMATE — verify against config.json
+  supports_mtp: true            # DFlash drafter exists, but see NOTE 2 re: transformers backend
+  default_context: 131072
+  max_context: 262144
+  quant_bytes_per_param: 1.0    # FP8 (was 0.5625 for NVFP4). BF16 fallback = 2.0
+  speculative_decoding: none    # DFlash is most reliable on the NVFP4/native or llama.cpp paths (see NOTE 2)
+  max_num_seqs: 4
+  max_num_batched_tokens: 8192
+
+command:
+  - ${{ .hf_repo }}
+  - "--model ${{ .hf_repo }}"
+  - "--served-model-name ${{ .slug }}"
+  - "--model-impl transformers"       # Meta's documented path for the base model
+  - "--quantization fp8"              # dynamic BF16→FP8 at load — see NOTE 1
+  - "--gpu-memory-utilization 0.55"   # ~70GB: covers FP8 (~30GB) AND the BF16 fallback (~56GB)
+  - "--max-model-len 262144"
+  - "--dtype auto"
+  - "--trust-remote-code"
+  - "--generation-config auto"
+  - "--default-chat-template-kwargs '{\"reasoning_strength\": \"high\"}'"   # effort-based, NOT enable_thinking
+  #
+  # ── ⚠ NOTE 1: FP8 vs BF16 fallback ──
+  # If startup fails on the FP8 dynamic-quant path (transformers backend may not
+  # support it), REMOVE the "--quantization fp8" line. You're then running the
+  # officially-supported BF16 base at ~56GB, which fits your Spark comfortably.
+  # That's the safe higher-precision alternative to the NVFP4 build.
+  #
+  # ── ⚠ NOTE 2: speculative decoding + tool/reasoning parsers ──
+  # DFlash spec decoding is documented for the NVFP4/native and llama.cpp paths,
+  # not verified through the transformers backend — hence speculative_decoding: none
+  # here. And as with the NVFP4 config, NO --tool-call-parser / --reasoning-parser
+  # is documented: tool calls may not surface as structured `tool_calls` over the
+  # OpenAI endpoint yet. VERIFY tool parsing end-to-end before trusting an agent loop.
+  #
+  # ── OPTIONAL perf flags — add only if the transformers backend accepts them ──
+  # - "--kv-cache-dtype fp8"
+  # - "--enable-chunked-prefill"
+  # - "--enable-prefix-caching"
+  # - "--async-scheduling"
+  # - "--mm-processor-cache-type shm"
+  #
+  # ── DO NOT ADD ──
+  #   --language-model-only  → this model IS multimodal; keep the vision path.
+
+capabilities:
+  - reasoning
+  - tool-use            # ⚠ see NOTE 2 — verify parsing end-to-end
+  - multi-turn
+  - image
+  - video
+  - document
+
+litellm_params:
+  custom_llm_provider: hosted_vllm
+  # Meta's recommended sampling. top_k = 64.
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 64
+  min_p: 0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+  extra_body:
+    # Effort-based reasoning: low / medium / high / xhigh (no enable_thinking boolean).
+    chat_template_kwargs:
+      reasoning_strength: high
+  variants:
+    # ── coder variants required by the automation pipeline ──
+    coder-thinking:
+      suffix: -coder-thinking
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: high      # Meta recommends high/xhigh for coding + agentic
+    coder-fast:
+      suffix: -coder-fast
+      temperature: 1.0                  # Meta's rec; lower to ~0.6 if your pipeline wants more determinism
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0             # add ~1.5 if you see repetition in fast mode
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: low       # fastest — minimal reasoning
+    reason-xhigh:
+      suffix: -xhigh
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: xhigh
+    reason-high:
+      suffix: -high
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: high
+    reason-medium:
+      suffix: -medium
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: medium
+    fast:
+      suffix: -fast
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_strength: low

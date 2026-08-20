@@ -81,6 +81,23 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 		HFCacheDir:  t.TempDir(),
 	}
 
+	// Seed the vllm engine type + default version so model imports succeed
+	// (migration 007 only seeds comfyui).
+	if err := db.CreateEngineType(&models.EngineType{Slug: "vllm", Name: "vLLM", Description: "vLLM inference engine"}); err != nil {
+		t.Fatalf("CreateEngineType() error: %v", err)
+	}
+	if err := db.CreateEngineVersion(&models.EngineVersion{
+		Slug:           "default-v1",
+		EngineTypeSlug: "vllm",
+		Version:        "001",
+		Image:          "cjlapao/pgx-vllm:latest",
+		ContainerName:  "vllm-node",
+		IsDefault:      true,
+		IsLatest:       true,
+	}); err != nil {
+		t.Fatalf("CreateEngineVersion() error: %v", err)
+	}
+
 	// APIContext with services
 	ctx := NewAPIContext(db, cfg)
 

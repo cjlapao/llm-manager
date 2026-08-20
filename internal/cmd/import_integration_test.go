@@ -200,15 +200,50 @@ func TestIntegration_ImportFolderMixed(t *testing.T) {
 	writeFile(t, dir, "test-model.yml", testModelYAML)
 	writeFile(t, dir, "garbage.txt", garbageYAML)
 
-	// Simulate folder import by scanning and processing each file
+	// Simulate folder import by scanning and processing each file.
+	// Two passes: first all engine YAMLs, then all model YAMLs, so that
+	// engine types always exist before models reference them.
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("ReadDir error: %v", err)
 	}
 
+	engSvc := service.NewEngineService(db)
+	modelSvc := service.NewModelService(db, config.DefaultConfig())
+	modelSvc.SetEngineService(engSvc)
+
 	imported := 0
 	skipped := 0
 
+	// Pass 1: engines
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.ToLower(entry.Name())
+		if !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
+			continue // non-YAML counted in pass 2
+		}
+
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		if !service.IsEngineYAML(data) {
+			continue
+		}
+
+		_, _, _, err = engSvc.ImportEngineFile(path, service.EngineImportOverrides{})
+		if err == nil {
+			imported++
+		} else {
+			skipped++
+		}
+	}
+
+	// Pass 2: models and non-YAML files
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -219,27 +254,22 @@ func TestIntegration_ImportFolderMixed(t *testing.T) {
 			continue
 		}
 
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
 		if err != nil {
 			skipped++
 			continue
 		}
 
 		if service.IsEngineYAML(data) {
-			_, _, _, err := service.NewEngineService(db).ImportEngineFile(filepath.Join(dir, entry.Name()), service.EngineImportOverrides{})
-			if err == nil {
-				imported++
-			} else {
-				skipped++
-			}
+			continue // already processed in pass 1
+		}
+
+		_, err = modelSvc.ImportModel(path, service.ImportOverrides{})
+		if err == nil {
+			imported++
 		} else {
-			// Try model import
-			err := modelSvcImport(db, filepath.Join(dir, entry.Name()))
-			if err == nil {
-				imported++
-			} else {
-				skipped++
-			}
+			skipped++
 		}
 	}
 
@@ -249,16 +279,6 @@ func TestIntegration_ImportFolderMixed(t *testing.T) {
 	if skipped != 1 {
 		t.Errorf("expected 1 skipped, got %d", skipped)
 	}
-}
-
-// modelSvcImport is a helper to import a model from path using DB.
-func modelSvcImport(db database.DatabaseManager, path string) error {
-	cfg := config.DefaultConfig()
-	cfg.LLMDir = "/tmp/test"
-	svc := service.NewModelService(db, cfg)
-	svc.SetEngineService(service.NewEngineService(db))
-	_, err := svc.ImportModel(path, service.ImportOverrides{})
-	return err
 }
 
 // ── 3. Import with override ────────────────────────────────────────────────
@@ -362,13 +382,14 @@ func TestIntegration_CRUD_EngineType(t *testing.T) {
 		t.Fatalf("CreateEngineType error: %v", err)
 	}
 
-	// List
+	// List — migration 007 seeds a "comfyui" engine type, so we expect
+	// 2 total types (the seed + the one we just created).
 	types, err := db.ListEngineTypes()
 	if err != nil {
 		t.Fatalf("ListEngineTypes error: %v", err)
 	}
-	if len(types) != 1 {
-		t.Errorf("expected 1 engine type, got %d", len(types))
+	if len(types) != 2 {
+		t.Errorf("expected 2 engine types (1 seed + 1 created), got %d", len(types))
 	}
 
 	// Get
@@ -421,13 +442,14 @@ func TestIntegration_CRUD_EngineVersion(t *testing.T) {
 		t.Fatalf("CreateEngineVersion error: %v", err)
 	}
 
-	// List
+	// List — migration 007 seeds a "comfyui/latest" engine version, so we
+	// expect 2 total versions (the seed + the one we just created).
 	versions, err := db.ListEngineVersions()
 	if err != nil {
 		t.Fatalf("ListEngineVersions error: %v", err)
 	}
-	if len(versions) != 1 {
-		t.Errorf("expected 1 version, got %d", len(versions))
+	if len(versions) != 2 {
+		t.Errorf("expected 2 engine versions (1 seed + 1 created), got %d", len(versions))
 	}
 
 	// Get

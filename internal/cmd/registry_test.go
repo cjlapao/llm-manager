@@ -10,7 +10,7 @@ func TestRegistry_Basic(t *testing.T) {
 	}
 
 	// Check known commands are registered
-	expected := []string{"models", "llm", "container", "service", "logs", "mem", "update", "comfyui", "speech", "import", "engine", "export", "compose", "swap", "litellm", "install", "uninstall", "generate"}
+	expected := []string{"models", "llm", "container", "service", "logs", "mem", "update", "comfyui", "speech", "import", "engine", "export", "compose", "swap", "litellm", "install", "uninstall", "generate", "rag"}
 	if len(expected) != len(names) {
 		t.Errorf("expected %d registered commands, got %d", len(expected), len(names))
 	}

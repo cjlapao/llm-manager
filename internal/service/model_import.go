@@ -123,6 +123,7 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		SubType:                     y.SubType, // from YAML
 		Name:                        y.Name,
 		HFRepo:                      y.HFRepo,
+		HFRevision:                  y.HFRevision,
 		Container:                   y.Container,
 		Port:                        y.Port,
 		EngineType:                  "vllm", // default engine
@@ -201,6 +202,8 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		model.SpeculativeDecoding = y.Profile.SpeculativeDecoding
 		model.NumSpeculativeTokens = y.Profile.NumSpeculativeTokens
 		model.SpeculativeModel = y.Profile.SpeculativeModel
+		model.SpeculativeModelRevision = y.Profile.SpeculativeModelRevision
+		model.SupportsThinkingEffort = y.Profile.SupportsThinkingEffort
 		model.GpuMemoryUtilization = y.Profile.GpuMemoryUtilization
 	}
 	// Wire healthcheck JSON from YAML -> DB.

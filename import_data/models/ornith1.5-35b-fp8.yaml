@@ -6,13 +6,13 @@
 # Reasoning + agentic-coding model. Vision + video heads present.
 # ═══════════════════════════════════════════════════════════════
 
-slug: ornith-1.0-35b-a3b-fp8
-name: "Ornith 1.0 35B-A3B FP8"
+slug: ornith-1.5-35b-a3b-fp8
+name: "Ornith 1.5 35B-A3B FP8"
 engine: vllm
 engine_version: v5
-hf_repo: "ornith-ai/Ornith-1.0-35B-FP8"
-container: ornith-1.0-35b-a3b-fp8
-port: 8041
+hf_repo: "ornith-ai/Ornith-1.5-35B-A3B-FP8"
+container: ornith-1.5-35b-a3b-fp8
+port: 8042
 type: llm
 subtype: chat
 
@@ -56,7 +56,7 @@ profile:
   max_context: 262144
   quant_bytes_per_param: 1.0
   max_num_seqs: 4
-  max_num_batched_tokens: 16384
+  max_num_batched_tokens: 8192
 
 command:
   - ${{ .hf_repo }}
@@ -90,7 +90,7 @@ capabilities:
 
 litellm_params:
   custom_llm_provider: hosted_vllm
-  temperature: 0.8
+  temperature: 0.6
   top_p: 0.95
   top_k: 20
   min_p: 0
@@ -99,7 +99,7 @@ litellm_params:
   variants:
     thinking:
       suffix: -thinking
-      temperature: 0.8
+      temperature: 0.6
       top_p: 0.95
       top_k: 20
       min_p: 0
@@ -107,7 +107,7 @@ litellm_params:
       repetition_penalty: 1.0
     coder-thinking:
       suffix: -coder-thinking
-      temperature: 0.9
+      temperature: 0.8
       top_p: 0.95
       top_k: 20
       min_p: 0
@@ -115,7 +115,7 @@ litellm_params:
       repetition_penalty: 1.0
     coder-fast:
       suffix: -coder-fast
-      temperature: 0.8
+      temperature: 0.85
       top_p: 0.95
       top_k: 20
       min_p: 0
@@ -135,4 +135,3 @@ litellm_params:
       extra_body:
         chat_template_kwargs:
           enable_thinking: false
-          preserve_thinking: false

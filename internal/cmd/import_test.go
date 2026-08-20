@@ -84,6 +84,23 @@ func TestImportCommand_ValidYAML(t *testing.T) {
 		t.Fatalf("AutoMigrate() error: %v", err)
 	}
 
+	// Seed the vllm engine type + default version so model imports succeed
+	// (migration 007 only seeds comfyui).
+	if err := db.CreateEngineType(&models.EngineType{Slug: "vllm", Name: "vLLM", Description: "vLLM inference engine"}); err != nil {
+		t.Fatalf("CreateEngineType() error: %v", err)
+	}
+	if err := db.CreateEngineVersion(&models.EngineVersion{
+		Slug:           "default-v1",
+		EngineTypeSlug: "vllm",
+		Version:        "001",
+		Image:          "cjlapao/pgx-vllm:latest",
+		ContainerName:  "vllm-node",
+		IsDefault:      true,
+		IsLatest:       true,
+	}); err != nil {
+		t.Fatalf("CreateEngineVersion() error: %v", err)
+	}
+
 	cfg := config.DefaultConfig()
 	cfg.OpenAIAPIURL = "http://localhost:8000"
 	root := &RootCommand{cfg: cfg, db: db}
@@ -237,6 +254,23 @@ func TestImportCommand_WithOverrides(t *testing.T) {
 
 	if err := db.AutoMigrate(); err != nil {
 		t.Fatalf("AutoMigrate() error: %v", err)
+	}
+
+	// Seed the vllm engine type + default version so model imports succeed
+	// (migration 007 only seeds comfyui).
+	if err := db.CreateEngineType(&models.EngineType{Slug: "vllm", Name: "vLLM", Description: "vLLM inference engine"}); err != nil {
+		t.Fatalf("CreateEngineType() error: %v", err)
+	}
+	if err := db.CreateEngineVersion(&models.EngineVersion{
+		Slug:           "default-v1",
+		EngineTypeSlug: "vllm",
+		Version:        "001",
+		Image:          "cjlapao/pgx-vllm:latest",
+		ContainerName:  "vllm-node",
+		IsDefault:      true,
+		IsLatest:       true,
+	}); err != nil {
+		t.Fatalf("CreateEngineVersion() error: %v", err)
 	}
 
 	// Create existing model so --overwrite has something to work on

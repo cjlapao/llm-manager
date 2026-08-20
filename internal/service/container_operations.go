@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 )
+
 func (s *ContainerService) StartContainer(slug string, allowMultiple bool, overrides StartOverrides) error {
 	model, err := s.db.GetModel(slug)
 	if err != nil {

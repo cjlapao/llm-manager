@@ -56,6 +56,11 @@ func (s *EngineService) BuildComposeConfig(model *models.Model) (*EngineComposeC
 		}
 	}
 
+	// Add --revision flag if hf_revision is set on the model
+	if model.HFRevision != "" {
+		cfg.CommandArgs = append(cfg.CommandArgs, "--revision "+model.HFRevision)
+	}
+
 	// Build logging section
 	cfg.LoggingSection = s.BuildLoggingSection(ev.EnableLogging, ev.SyslogAddress, ev.SyslogFacility, model.Name)
 

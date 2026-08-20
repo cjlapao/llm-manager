@@ -18,8 +18,8 @@ func init() {
 
 // SpeechCommand handles unified speech model operations (STT + TTS + Omni).
 type SpeechCommand struct {
-	cfg    *RootCommand
-	svc    *service.ContainerService
+	cfg     *RootCommand
+	svc     *service.ContainerService
 	litellm service.LiteLLMActivator
 }
 
@@ -30,8 +30,8 @@ func NewSpeechCommand(root *RootCommand) *SpeechCommand {
 	litellmSvc := service.NewLiteLLMService(root.db, root.cfg, configSvc)
 	containerSvc.SetLiteLLMService(litellmSvc)
 	return &SpeechCommand{
-		cfg:    root,
-		svc:    containerSvc,
+		cfg:     root,
+		svc:     containerSvc,
 		litellm: litellmSvc,
 	}
 }

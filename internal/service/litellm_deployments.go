@@ -123,8 +123,6 @@ func buildDeploymentSpecs(params, minfo map[string]interface{},
 		baseParams["cache_read_input_token_cost"] = cacheReadCost
 	}
 
-
-
 	// Base deployment: only for non-RAG models
 	specs = append(specs, DeploymentSpec{
 		Name:      slug,

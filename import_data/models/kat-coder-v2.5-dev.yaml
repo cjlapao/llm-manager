@@ -1,0 +1,158 @@
+# ═══════════════════════════════════════════════════════════════
+# KAT-Coder-V2.5-Dev
+# sakamakismile/KAT-Coder-V2.5-Dev-NVFP4  ·  35B-A3B MoE (3B active)
+# Kwaipilot agentic-coding post-train of Qwen3.6-35B-A3B · TEXT-ONLY
+# Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x, SM121)
+# vLLM: model needs >= 0.19.0; use a RECENT build for compressed-tensors
+#       NVFP4-MoE support (see the ⚠ note below).
+#
+# Footprint: NVFP4 weights ~20GB. This is a SMALL model — it co-locates
+# fine and leaves huge headroom. KV is tiny too: only the 10 full-attention
+# layers grow with context (the 30 GatedDeltaNet layers keep a fixed
+# recurrent state), so ~5KB/token → 262K ctx ≈ 1.3GB, even 1M ≈ 5GB.
+# ═══════════════════════════════════════════════════════════════
+
+slug: kat-coder-v2.5-dev
+name: "KAT-Coder-V2.5-Dev"
+engine: vllm
+engine_version: v5
+hf_repo: "Kwaipilot/KAT-Coder-V2.5-Dev"
+container: kat-coder-v2.5-dev
+port: 8028
+type: llm
+subtype: chat
+
+# No Marlin env var — NVFP4 runs on the Blackwell FP4 kernels (auto-selected).
+# environment: {}
+
+input_token_cost: 0.000003
+output_token_cost: 0.000015
+cache_creation_input_token_cost: 0.00000375
+cache_read_input_token_cost: 0.0000003
+
+profile:
+  total_params_b: 35            # was 27
+  active_params_b: 3            # MoE: 3B active/token (256 routed top-8 + 1 shared)
+  is_moe: true                  # was false
+  attention_layers: 10          # full-attention layers (every 4th of 40) — these grow KV
+  gdn_layers: 30                # GatedDeltaNet linear-attention layers — fixed recurrent state, no context-scaling KV
+  num_kv_heads: 2               # GQA: 16 Q-heads / 2 KV-heads
+  head_dim: 128                 # assumed (Qwen3.6-35B-A3B base) — verify against config.json
+  supports_mtp: false           # ⚠ the open-weight release ships NO MTP tensors — no speculative head to graft
+  default_context: 262144
+  max_context: 262144           # native. 1M is reachable via YaRN — see the rope note in the command block
+  quant_bytes_per_param: 1.7 # NVFP4 ≈ 4.5 bits/param incl. microscales
+  max_num_seqs: 4
+  max_num_batched_tokens: 4096
+
+command:
+  - ${{ .hf_repo }}
+  - "--model ${{ .hf_repo }}"
+  - "--served-model-name ${{ .slug }}"
+  - "--language-model-only"             # ⚠ REQUIRED. The config declares a vision tower with NO weights;
+  - "--gpu_memory_utilization 0.31"
+  - "--max-model-len 262144"            # native context; see YaRN block below for 1M
+  - "--kv-cache-dtype fp8"
+  - "--dtype auto"
+  - "--enable-chunked-prefill"
+  - "--reasoning-parser qwen3"          # Qwen3.6-derived — keep qwen3 (NOT poolside_v1)
+  - "--tool-call-parser qwen3_coder"    # was qwen3_xml — KAT uses the qwen3_coder tool protocol
+  - "--enable-auto-tool-choice"
+  - "--trust-remote-code"               # arch: Qwen3_5MoeForConditionalGeneration (qwen3_5_moe)
+  - "--generation-config auto"
+  - "--async-scheduling"
+  - "--default-chat-template-kwargs '{\"enable_thinking\": true, \"preserve_thinking\": true}'"
+  - "--load-format instanttensor"
+  - "--enable-prefix-caching"
+  #
+  # ── OPTIONAL: 1M context via YaRN (native is 262144) ──
+  # A user reports 1M works cleanly on this model. To enable, bump max-model-len
+  # and add rope scaling (factor 4 ≈ 1M). KV stays tiny (~5GB at 1M) so it fits easily:
+  # - "--max-model-len 1048576"
+  # - "--rope-scaling '{\"rope_type\":\"yarn\",\"factor\":4.0,\"original_max_position_embeddings\":262144}'"
+  #
+  # ── OPTIONAL: prefix caching ──
+  # Helpful for agentic multi-turn, BUT prefix caching on GatedDeltaNet-hybrid
+  # models has limited/evolving vLLM support. Enable and watch startup logs; drop if it errors.
+  # KV here is tiny, so there's little memory upside anyway.
+  # - "--enable-prefix-caching"
+  #
+  # ── REMOVED vs the Qwen config (and why) ──
+  #   --quantization modelopt      → this checkpoint is compressed-tensors (llm-compressor), NOT modelopt.
+  #                                   Let vLLM AUTO-DETECT — hardcoding caused your earlier mismatch crash.
+  #   --load-format instanttensor  → NVIDIA-checkpoint-specific; use the default loader.
+  #   --mm-processor-cache-type shm → text-only; and --language-model-only skips the mm path entirely.
+  #   --chat-template .../qwen3.6.jinja → KAT ships its own template; use the built-in.
+  #   --moe-backend marlin / --attention-backend → let vLLM pick FP4 + GatedDeltaNet kernels itself.
+  #   --speculative-config          → no MTP/draft ships for this model.
+  #
+  # ── ⚠ NVFP4-MoE COMPATIBILITY RISK ──
+  # This is a COMMUNITY compressed-tensors W4A4 NVFP4 checkpoint. vLLM's NVFP4
+  # *MoE* path was historically gated to ModelOpt-format checkpoints only. If it
+  # refuses to load ("NVFP4 MoE not supported for compressed-tensors" or similar):
+  #   (a) update to the newest vLLM (compressed-tensors NVFP4-MoE support is landing), or
+  #   (b) this model is small — FP8 (~35GB) or even BF16 (~70GB) fit the Spark easily; or
+  #   (c) run the APEX GGUF via llama.cpp (mudler/KAT-Coder-V2.5-Dev-APEX-GGUF).
+
+capabilities:
+  - reasoning
+  - tool-use
+  - multi-turn
+  # removed: image, video, document — KAT-Coder-V2.5-Dev is TEXT-ONLY (vision tower has no weights)
+
+litellm_params:
+  custom_llm_provider: hosted_vllm
+  temperature: 0.6
+  top_p: 0.95
+  top_k: 20
+  min_p: 0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: true
+  variants:
+    thinking:
+      suffix: -thinking
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: true
+    coder-thinking:
+      suffix: -coder-thinking
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: true
+    coder-fast:
+      suffix: -coder-fast
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    instruct:
+      suffix: -instruct
+      temperature: 0.7
+      top_p: 0.8
+      top_k: 20
+      min_p: 0
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false

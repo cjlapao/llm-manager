@@ -41,6 +41,7 @@ type ModelProfile struct {
 	NumKvHeads                int
 	HeadDim                   int
 	SupportsMtp               bool
+	SupportsThinkingEffort    bool
 	SupportsVision            bool
 	DefaultContext            int
 	MaxContext                int
@@ -52,15 +53,15 @@ type ModelProfile struct {
 
 // MemoryBreakdown holds per-component VRAM usage in MB.
 type MemoryBreakdown struct {
-	WeightsMB          int
-	KVCacheMB          int // KV at full context (worst-case)
-	KVCacheRealisticMB int // KV at realistic batch size (for util calc)
-	GDNStateMB         int
-	PrefixCacheMB      int
-	MTPMB              int
-	CUDAContextMB      int
+	WeightsMB           int
+	KVCacheMB           int // KV at full context (worst-case)
+	KVCacheRealisticMB  int // KV at realistic batch size (for util calc)
+	GDNStateMB          int
+	PrefixCacheMB       int
+	MTPMB               int
+	CUDAContextMB       int
 	ActivationScratchMB int // activation + scratch buffer overhead for quantized models
-	VisionEncoderMB int // vision encoder + projector for multimodal models
+	VisionEncoderMB     int // vision encoder + projector for multimodal models
 }
 
 // MemoryResult holds the computed GPU memory requirements.
@@ -71,9 +72,9 @@ type MemoryResult struct {
 	KVCacheRealisticMB   int     // practical KV usage estimation
 	GPUMemoryUtilization float64 // rounded up to nearest 0.01
 	DockerLimitGB        int
-	Breakdown            MemoryBreakdown 
-	FitsAtMaxContext     bool       // true if total_max <= available MB
-	AvailableMB          int        // live free GPU/system MB at time of calculation
+	Breakdown            MemoryBreakdown
+	FitsAtMaxContext     bool // true if total_max <= available MB
+	AvailableMB          int  // live free GPU/system MB at time of calculation
 }
 
 // roundUpTo001 rounds a float up to the nearest 0.01.
@@ -136,7 +137,7 @@ func CalculateMemory(profile ModelProfile, kvDtypeBytes float64, contextLen int,
 		if contextLen >= 65536 {
 			realisticContext = contextLen * 75 / 100 // 75% for long context
 		} else {
-			realisticContext = contextLen / 2        // 50% for short context
+			realisticContext = contextLen / 2 // 50% for short context
 		}
 		bd.KVCacheRealisticMB = int(effectiveKvPerToken*float64(realisticContext*seqs)) / (1024 * 1024)
 	}
@@ -433,6 +434,7 @@ func EstimateMemory(model *models.Model) (*MemoryResult, error) {
 		NumKvHeads:         numKvHeads,
 		HeadDim:            headDim,
 		SupportsMtp:        derefOrFalse(model.SupportsMtp),
+		SupportsThinkingEffort: derefOrFalse(model.SupportsThinkingEffort),
 		SupportsVision:     false,
 		DefaultContext:     defaultContext,
 		MaxContext:         maxContext,

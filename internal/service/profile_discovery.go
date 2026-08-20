@@ -24,10 +24,11 @@ const (
 
 // Default values for non-discoverable fields.
 const (
-	DefaultIsMoe         = false
-	DefaultSupportsMtp   = false
-	DefaultQuantBytes    = 2.0  // BF16 baseline
-	DefaultActiveParamsB = -1.0 // Invalid marker when is_moe=false
+	DefaultIsMoe              = false
+	DefaultSupportsMtp        = false
+	DefaultSupportsThinkingEffort = false
+	DefaultQuantBytes         = 2.0  // BF16 baseline
+	DefaultActiveParamsB      = -1.0 // Invalid marker when is_moe=false
 )
 
 var discoveryHTTPClient = &http.Client{Timeout: 30 * time.Second}
@@ -49,10 +50,12 @@ func DiscoverProfile(hfRepo string) (*DiscoveredProfile, error) {
 	// Start with defaults
 	dp.Profile.IsMoe = boolPtr(DefaultIsMoe)
 	dp.Profile.SupportsMtp = boolPtr(DefaultSupportsMtp)
+	dp.Profile.SupportsThinkingEffort = boolPtr(DefaultSupportsThinkingEffort)
 	dp.Profile.QuantBytesPerParam = floatPtr(DefaultQuantBytes)
 	dp.Profile.ActiveParamsB = floatPtr(DefaultActiveParamsB)
 	dp.Sources["is_moe"] = SourceDefault
 	dp.Sources["supports_mtp"] = SourceDefault
+	dp.Sources["supports_thinking_effort"] = SourceDefault
 	dp.Sources["quant_bytes_per_param"] = SourceDefault
 	dp.Sources["active_params_b"] = SourceDefault
 
@@ -266,6 +269,10 @@ func MergeProfile(yamlProfile *yamlparser.ModelProfile, discovered *DiscoveredPr
 	if yamlProfile.SupportsMtp == nil {
 		v := DefaultSupportsMtp
 		yamlProfile.SupportsMtp = &v
+	}
+	if yamlProfile.SupportsThinkingEffort == nil {
+		v := DefaultSupportsThinkingEffort
+		yamlProfile.SupportsThinkingEffort = &v
 	}
 	if yamlProfile.QuantBytesPerParam == nil {
 		v := DefaultQuantBytes

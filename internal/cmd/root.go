@@ -22,7 +22,7 @@ type RootCommand struct {
 	db          database.DatabaseManager
 	apiPort     int
 	apiHost     string
-	apiPortFlag bool // true only when --api-port was explicitly provided
+	apiPortFlag bool   // true only when --api-port was explicitly provided
 	verbose     bool   // true only when --verbose was explicitly provided
 	litellmURL  string // non-empty when --litellm-url was explicitly provided
 }

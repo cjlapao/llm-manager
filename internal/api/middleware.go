@@ -47,49 +47,64 @@ func (rw *responseWriter) Header() http.Header {
 func (rw *responseWriter) Write(b []byte) (int, error) {
 	rw.body.Write(b)
 	rw.captured = true
-	return rw.writer.Write(b)
+	return len(b), nil
 }
 
 func (rw *responseWriter) WriteHeader(statusCode int) {
 	rw.status = statusCode
-	rw.writer.WriteHeader(statusCode)
 	rw.captured = true
 }
 
+// flushCaptured writes the captured body and status code to the underlying
+// ResponseWriter. This is used when the middleware decides to pass the
+// response through unchanged (e.g. successful 2xx, non-JSON, 204).
+func (rw *responseWriter) flushCaptured() {
+	rw.writer.WriteHeader(rw.status)
+	rw.writer.Write(rw.body.Bytes())
+}
+
 // JSONEnvelope wraps an HTTP handler with a consistent JSON response envelope.
-// Every response is wrapped in {"success": bool, "data": ..., "error": ..., "status": int}.
+// Successful 2xx responses pass through unchanged (raw JSON body only).
+// Error responses (4xx/5xx) are wrapped in {"success":false,"error":"...","status":N}.
 // Exceptions:
 //   - Responses with Content-Type other than application/json are passed through unchanged
 //     (allows YAML, plain text, etc. to bypass the envelope)
 //   - 204 No Content responses are passed through unchanged (no body to envelope)
+//   - OData-style responses (with "data" + "meta" keys) pass through unchanged
 func JSONEnvelope(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rw := newResponseWriter(w)
 		next.ServeHTTP(rw, r)
 
-		// Skip envelope for non-JSON content types and 204 No Content
+		// Skip envelope for non-JSON content types
 		ct := rw.writer.Header().Get("Content-Type")
 		if ct != "" && ct != "application/json" {
-			// Already set a non-JSON content type — pass through unchanged
+			rw.flushCaptured()
 			return
 		}
 		if rw.status == http.StatusNoContent {
-			// 204 has no body — nothing to envelope
+			// 204 has no body — pass through status only
+			rw.writer.WriteHeader(http.StatusNoContent)
 			return
 		}
 
-		// Build the envelope
+		// Successful 2xx responses pass through unchanged — raw body only.
+		if rw.status >= 200 && rw.status < 300 {
+			// Check for OData-style response (has "data" + "meta" keys)
+			if rw.body.Len() > 0 && isODataEnvelope(rw.body.Bytes()) {
+				rw.flushCaptured()
+				return
+			}
+			// Pass through raw JSON for success responses
+			rw.flushCaptured()
+			return
+		}
+
+		// Build the error envelope for 4xx/5xx responses
 		var data interface{}
 		var errMsg string
 
 		if rw.body.Len() > 0 {
-			// Skip envelope for already-wrapped OData responses (has "data" + "meta" keys).
-			// This avoids double-wrapping handler-level ODataListResponse{Data: ..., Meta: ...}.
-			if isODataEnvelope(rw.body.Bytes()) {
-				// Pass through unchanged — the handler already produced the correct format.
-				return
-			}
-
 			// Try to parse the body as JSON already — if so, use it as data
 			var parsed interface{}
 			if err := json.Unmarshal(rw.body.Bytes(), &parsed); err == nil {
@@ -100,27 +115,20 @@ func JSONEnvelope(next http.Handler) http.Handler {
 			}
 		}
 
-		// Determine success based on status code
-		success := rw.status >= 200 && rw.status < 300
-
 		envelope := jsonResponseEnvelope{
-			Success: success,
+			Success: false,
 			Data:    data,
 			Status:  rw.status,
 		}
 
-		if !success {
-			// For error responses, put the body content as the error message
-			if rw.body.Len() > 0 {
-				errMsg = rw.body.String()
-				// Strip trailing newline if present
-				envelope.Error = errMsg
-			} else {
-				envelope.Error = http.StatusText(rw.status)
-			}
+		if rw.body.Len() > 0 {
+			errMsg = rw.body.String()
+			envelope.Error = errMsg
+		} else {
+			envelope.Error = http.StatusText(rw.status)
 		}
 
-		// Write the envelope
+		// Write the error envelope
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(rw.status)
 		json.NewEncoder(w).Encode(envelope)
