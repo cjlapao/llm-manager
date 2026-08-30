@@ -66,3 +66,5 @@ memprofile
 mutagen.*
 coverage.txt
 .opencode/
+.pi/
+.projects/

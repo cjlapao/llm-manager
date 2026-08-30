@@ -5,13 +5,13 @@
 # gpu_memory_utilization: 0.85 (~109GB of 128GB)
 #
 # ═══════════════════════════════════════════════════════════════
-slug: qwen3.8-27b-nvfp4
-name: "Qwen3.8 27B NVFP4"
+slug: qwen3.8-27b-nvfp4-b12x
+name: "Qwen3.8 27B NVFP4 B12X"
 engine: vllm
-engine_version: v5
+engine_version: v7
 hf_repo: "unsloth/Qwen3.8-27B-NVFP4"
-container: qwen3.8-27b-nvfp4
-port: 8031
+container: qwen3.8-27b-nvfp4-b12x
+port: 8032
 type: llm
 subtype: chat
 environment:
@@ -21,6 +21,7 @@ environment:
   VLLM_USE_MEGA_AOT_ARTIFACT: "-1"
   VLLM_USE_FLASHINFER_SAMPLER: "1"
   VLLM_MOE_SKIP_PADDING: "0"
+  VLLM_USE_V1: "0"
 
 input_token_cost: 0.000003
 output_token_cost: 0.000015
@@ -38,8 +39,8 @@ profile:
   default_context: 262144
   max_context: 262144
   quant_bytes_per_param: 1.0
-  max_num_seqs: 2
-  max_num_batched_tokens: 16384
+  max_num_seqs: 256
+  max_num_batched_tokens: 8096
   speculative_decoding: mtp
   num_speculative_tokens: 3
   gpu_memory_utilization: 0.45
@@ -48,7 +49,7 @@ command:
   - ${{ .hf_repo }}
   - "--model ${{ .hf_repo }}"
   - "--served-model-name ${{ .slug }}"
-  - "--kv-cache-dtype auto"
+  - "--kv-cache-dtype fp8"
   - "--dtype auto"
   - "--enable-chunked-prefill"
   - "--reasoning-parser qwen3"
@@ -61,7 +62,6 @@ command:
   - "--generation-config auto"
   - "--mm-processor-cache-type shm"
   - "--disable-custom-all-reduce"
-  - "--attention-backend flashinfer"
   - "--load-format instanttensor"
 capabilities:
   - reasoning

@@ -5,13 +5,13 @@
 # gpu_memory_utilization: 0.85 (~109GB of 128GB)
 #
 # ═══════════════════════════════════════════════════════════════
-slug: qwen3.8-27b-nvfp4
-name: "Qwen3.8 27B NVFP4"
+slug: qwen3.8-27b-nvfp4-dflash
+name: "Qwen3.8 27B NVFP4 DFlash"
 engine: vllm
-engine_version: v5
+engine_version: v7
 hf_repo: "unsloth/Qwen3.8-27B-NVFP4"
-container: qwen3.8-27b-nvfp4
-port: 8031
+container: qwen3.8-27b-nvfp4-dflash
+port: 8033
 type: llm
 subtype: chat
 environment:
@@ -38,27 +38,29 @@ profile:
   default_context: 262144
   max_context: 262144
   quant_bytes_per_param: 1.0
-  max_num_seqs: 2
-  max_num_batched_tokens: 16384
-  speculative_decoding: mtp
-  num_speculative_tokens: 3
-  gpu_memory_utilization: 0.45
+  max_num_seqs: 256
+  max_num_batched_tokens: 8096
+  speculative_decoding: dflash
+  speculative_model: z-lab/Qwen3.8-27B-DFlash2
+  num_speculative_tokens: 8
+  gpu_memory_utilization: 0.55
   supports_thinking_effort: true
 command:
   - ${{ .hf_repo }}
   - "--model ${{ .hf_repo }}"
   - "--served-model-name ${{ .slug }}"
-  - "--kv-cache-dtype auto"
+  - "--kv-cache-dtype fp8"
   - "--dtype auto"
   - "--enable-chunked-prefill"
   - "--reasoning-parser qwen3"
-  - "--tool-call-parser qwen3_coder"
+  - "--tool-call-parser qwen3_xml"
   - "--enable-auto-tool-choice"
   - "--enable-prefix-caching"
   - "--trust-remote-code"
   - "--trust-request-chat-template"
   - "--performance-mode interactivity"
   - "--generation-config auto"
+  - "--async-scheduling"
   - "--mm-processor-cache-type shm"
   - "--disable-custom-all-reduce"
   - "--attention-backend flashinfer"
