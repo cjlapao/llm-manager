@@ -1,0 +1,146 @@
+# ═══════════════════════════════════════════════════════════════
+# Qwen3.8 27B — Flash Next
+# Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x)
+#
+# ═══════════════════════════════════════════════════════════════
+slug: qwen3.8-flash-next
+name: "Qwen3.8 Flash Next"
+engine: vllm
+engine_version: v9
+hf_repo: "travelinlance/Qwen3.8-Flash-Next-RadixArk-NVFP4-Hybrid-Sharp"
+container: qwen3.8-flash-next
+port: 8034
+type: llm
+subtype: chat
+environment:
+  CUTE_DSL_ARCH: "sm_121a"
+  VLLM_PLE_MMAP: "1"
+  VLLM_FP8_HYBRID: "1"
+  VLLM_USE_DEEPGEMM: "0"
+  VLLM_SCALED_MM_BACKEND: "cutlass"
+  
+input_token_cost: 0.000003
+output_token_cost: 0.000015
+cache_creation_input_token_cost: 0.00000375
+cache_read_input_token_cost: 0.0000003
+profile:
+  total_params_b: 180
+  active_params_b: 6
+  is_moe: true
+  attention_layers: 12
+  gdn_layers: 36
+  num_kv_heads: 8
+  head_dim: 256
+  supports_mtp: true
+  default_context: 262144
+  max_context: 1000000
+  quant_bytes_per_param: 0.5
+  max_num_seqs: 12
+  max_num_batched_tokens: 4096
+  gpu_memory_utilization: 0.75
+  supports_thinking_effort: true
+  speculative_decoding: mtp
+  num_speculative_tokens: 2
+command:
+  - serve
+  - /root/.cache/huggingface/hub/models--travelinlance--Qwen3.8-Flash-Next-RadixArk-NVFP4-Hybrid-Sharp/snapshots/1f2ba8b30e34097058610938864b1991cfffa24b
+  - "--served-model-name ${{ .slug }}"
+  - "--reasoning-parser qwen3"
+  - "--kv-cache-dtype fp8"
+  - "--tool-call-parser qwen3_coder"
+  - "--enable-auto-tool-choice"
+  - "--trust-request-chat-template"
+  - "--enable-prefix-caching"
+  - "--generation-config auto"
+  - "--mm-processor-cache-type shm"
+  - "--enforce-eager"
+
+capabilities:
+  - reasoning
+  - tool-use
+  - multi-turn
+  - image
+  - video
+  - document
+litellm_params:
+  custom_llm_provider: hosted_vllm
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 20
+  min_p: 0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+  variants:
+    thinking:
+      suffix: -thinking
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+    coder-thinking:
+      suffix: -coder-thinking
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+    coder-thinking-medium:
+      suffix: -coder-thinking-medium
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      reasoning_effort: medium
+      extra_body:
+        reasoning_effort: medium
+    coder-thinking-low:
+      suffix: -coder-thinking-low
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      reasoning_effort: low
+      extra_body:
+        reasoning_effort: low
+    coder-fast:
+      suffix: -coder-fast
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    instruct:
+      suffix: -instruct
+      temperature: 0.7
+      top_p: 0.8
+      top_k: 20
+      min_p: 0
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+          preserve_thinking: false
+    instruct-reasoning:
+      suffix: -instruct-reasoning
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+          preserve_thinking: false

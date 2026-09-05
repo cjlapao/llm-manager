@@ -152,7 +152,35 @@ versions:
   - slug: v5
     version: "v5"
     container_name: vllm-node
-    image: eugr/spark-vllm:latest
+    image: cjlapao/pgx-vllm-gb10:010726
+    entrypoint:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+    default: true
+    latest: true
+    volumes:
+      ../models: "/root/.cache/huggingface"
+      ../vllm-cache: "/root/.cache/vllm"
+      ../llm-templates: "/app/templates"
+      ../triton-cache: "/root/.cache/triton"
+      ../flashinfer-cache: "/root/.cache/flashinfer"
+    environment:
+      HF_HUB_OFFLINE: "0"
+    logging:
+      enable: true
+      address: "udp://127.0.0.1:514"
+      facility: local3
+    nvidia: true
+    gpu_count: all
+    command_args:
+      - --tensor-parallel-size
+      - "{{.GPU_COUNT}}"
+    port: 8000
+  - slug: v5
+    version: "v5"
+    container_name: vllm-node
+    image: cjlapao/pgx-vllm-gb10:020726
     entrypoint:
       - python3
       - -m
@@ -180,7 +208,7 @@ versions:
   - slug: v6
     version: "v6"
     container_name: vllm-node
-    image: eugr/spark-vllm-b12x:latest
+    image: cjlapao/pgx-vllm-gb10:020726
     entrypoint:
       - python3
       - -m
@@ -195,20 +223,6 @@ versions:
       ../flashinfer-cache: "/root/.cache/flashinfer"
     environment:
       HF_HUB_OFFLINE: "0"
-      CUTE_DSL_ARCH: "sm_121a"
-      VLLM_USE_AOT_COMPILE: "1"
-      VLLM_USE_BREAKABLE_CUDAGRAPH: "0"
-      VLLM_USE_MEGA_AOT_ARTIFACT: "-1"
-      VLLM_MEMORY_PROFILE_INCLUDE_ATTN: "1"
-      VLLM_USE_FLASHINFER_SAMPLER: "1"
-      VLLM_USE_B12X_WO_PROJECTION: "1"
-      VLLM_USE_B12X_MHC: "1"
-      VLLM_USE_B12X_FP8_GEMM: "1"
-      VLLM_USE_B12X_MOE: "1"
-      VLLM_USE_B12X_SPARSE_INDEXER: "1"
-      VLLM_USE_V2_MODEL_RUNNER: "1"
-      B12X_MLA_SM120_UNIFIED: "1"
-      B12X_MOE_FORCE_A8: "1"
     logging:
       enable: true
       address: "udp://127.0.0.1:514"
@@ -222,7 +236,7 @@ versions:
   - slug: v7
     version: "v7"
     container_name: vllm-node
-    image: cjlapao/vllm-spark:latest
+    image: cjlapao/pgx-vllm-gb10:090726
     entrypoint:
       - python3
       - -m
@@ -235,28 +249,6 @@ versions:
       ../llm-templates: "/app/templates"
       ../triton-cache: "/root/.cache/triton"
       ../flashinfer-cache: "/root/.cache/flashinfer"
-    environment:
-      HF_HUB_OFFLINE: "0"
-    logging:
-      enable: true
-      address: "udp://127.0.0.1:514"
-      facility: local3
-    nvidia: true
-    gpu_count: all
-    command_args:
-      - --tensor-parallel-size
-      - "{{.GPU_COUNT}}"
-    port: 8000
-  - slug: v9
-    version: "v9"
-    container_name: vllm-node
-    image: qwen38-flash-dgx:spark
-    entrypoint:
-      - vllm
-    default: true
-    latest: true
-    volumes:
-      ../models: "/root/.cache/huggingface"
     environment:
       HF_HUB_OFFLINE: "0"
     logging:

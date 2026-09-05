@@ -1,0 +1,10 @@
+# Use the local patched image as the base
+FROM qwen38-flash-dgx:latest
+
+# Rip out DeepGEMM to force Cutlass fallback on GB10
+RUN pip uninstall -y deep_gemm && \
+    rm -rf /usr/local/lib/python3.12/dist-packages/vllm/third_party/deep_gemm && \
+    rm -rf /tmp/torchinductor_root/*
+
+# Reset to the standard vLLM entrypoint
+ENTRYPOINT ["vllm"]
