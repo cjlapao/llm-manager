@@ -269,3 +269,47 @@ versions:
       - --tensor-parallel-size
       - "{{.GPU_COUNT}}"
     port: 8000
+  - slug: v10
+    version: "v10"
+    container_name: vllm-node
+    image: cjlapao/dgx-qwen3.8-eurg
+    entrypoint:
+      - vllm
+    default: true
+    latest: true
+    volumes:
+      ../models: "/root/.cache/huggingface"
+    environment:
+      HF_HUB_OFFLINE: "0"
+    logging:
+      enable: true
+      address: "udp://127.0.0.1:514"
+      facility: local3
+    nvidia: true
+    gpu_count: all
+    command_args:
+      - --tensor-parallel-size
+      - "{{.GPU_COUNT}}"
+    port: 8000
+  - slug: inkling-2-mini
+    version: "inkling-2-mini"
+    container_name: vllm-node
+    image: vllm/vllm-openai:inkling-2-mini
+    entrypoint:
+      - vllm
+    default: true
+    latest: true
+    volumes:
+      ../models: "/root/.cache/huggingface"
+    environment:
+      HF_HUB_OFFLINE: "0"
+    logging:
+      enable: true
+      address: "udp://127.0.0.1:514"
+      facility: local3
+    nvidia: true
+    gpu_count: all
+    command_args:
+      - --tensor-parallel-size
+      - "{{.GPU_COUNT}}"
+    port: 8000
