@@ -61,6 +61,7 @@ type Model struct {
 	GpuMemoryUtilization        *float64  `gorm:"column:gpu_memory_utilization"`
 	SpeculativeModel            *string   `gorm:"column:speculative_model"`
 	SpeculativeModelRevision    *string   `gorm:"column:speculative_model_revision"`
+	DraftSampleMethod           *string   `gorm:"column:draft_sample_method"`
 	SupportsThinkingEffort      *bool     `gorm:"column:supports_thinking_effort"`
 	HealthcheckJSON             string    `gorm:"type:text;column:healthcheck_json"`
 	CreatedAt                   time.Time `gorm:"autoCreateTime;column:created_at"`

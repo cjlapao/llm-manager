@@ -203,6 +203,7 @@ func (s *ModelService) ImportModel(yamlPath string, overrides ImportOverrides) (
 		model.NumSpeculativeTokens = y.Profile.NumSpeculativeTokens
 		model.SpeculativeModel = y.Profile.SpeculativeModel
 		model.SpeculativeModelRevision = y.Profile.SpeculativeModelRevision
+		model.DraftSampleMethod = y.Profile.DraftSampleMethod
 		model.SupportsThinkingEffort = y.Profile.SupportsThinkingEffort
 		model.GpuMemoryUtilization = y.Profile.GpuMemoryUtilization
 	}

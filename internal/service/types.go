@@ -9,7 +9,7 @@ type StartOverrides struct {
 	MaxNumSeqs               int      // overrides --max-num-seqs
 	MaxNumBatchedTokens      int      // overrides --max-num-batched-tokens
 	GPUMemoryUtil            *float64 // overrides gpu_memory_utilization (bypasses calc)
-	SpeculativeDecoding      *string  // --speculative-decoding (e.g., "mtp", "dflash")
+	SpeculativeDecoding      *string  // --speculative-decoding (e.g., "mtp", "dflash", "dspark")
 	NumSpeculativeTokens     *int     // --speculative-tokens count
 	SpeculativeModel         *string  // --speculative-model (draft model for dflash etc.)
 	SpeculativeModelRevision *string  // --speculative-model-revision (draft model commit hash for dflash etc.)

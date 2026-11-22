@@ -1045,6 +1045,23 @@ func TestValidate_ProfileValidDflashSpeculativeDecoding(t *testing.T) {
 	}
 }
 
+func TestValidate_ProfileValidDsparkSpeculativeDecoding(t *testing.T) {
+	dspark := "dspark"
+	y := &ModelYAML{
+		Slug:   "dspark-model",
+		Name:   "DSpark Model",
+		Engine: "vllm",
+		Port:   8080,
+		Profile: &ModelProfile{
+			SpeculativeDecoding: &dspark,
+		},
+	}
+	errs := Validate(y)
+	if len(errs) != 0 {
+		t.Errorf("Validate(valid dspark speculative_decoding) returned %d errors: %v", len(errs), errs)
+	}
+}
+
 func TestValidate_ProfileEmptySpeculativeDecoding(t *testing.T) {
 	empty := ""
 	y := &ModelYAML{

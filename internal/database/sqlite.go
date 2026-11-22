@@ -133,6 +133,7 @@ func (m *sqliteManager) ensureLegacyColumns() error {
 		{"models", "num_speculative_tokens", "INTEGER"},
 		{"models", "speculative_model", "TEXT"},
 		{"models", "speculative_model_revision", "TEXT"},
+		{"models", "draft_sample_method", "TEXT"},
 		{"models", "hf_revision", "TEXT"},
 	}
 	for _, c := range columns {

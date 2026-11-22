@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-//go:embed 001_create_schema/*.sql 002_add_default_column/*.sql 003_create_engine_tables/*.sql 004_add_model_profile_columns/*.sql 005_add_runtime_tuning_columns/*.sql 006_add_cache_cost_columns/*.sql 007_add_comfyui_engine/*.sql 008_add_gpu_memory_utilization/*.sql 009_add_engine_config_columns/*.sql 010_add_model_healthcheck_column/*.sql 011_add_engine_provider/*.sql 012_add_speculative_model_column/*.sql 013_add_model_revision_and_hf_revision/*.sql 014_add_supports_thinking_effort/*.sql
+//go:embed 001_create_schema/*.sql 002_add_default_column/*.sql 003_create_engine_tables/*.sql 004_add_model_profile_columns/*.sql 005_add_runtime_tuning_columns/*.sql 006_add_cache_cost_columns/*.sql 007_add_comfyui_engine/*.sql 008_add_gpu_memory_utilization/*.sql 009_add_engine_config_columns/*.sql 010_add_model_healthcheck_column/*.sql 011_add_engine_provider/*.sql 012_add_speculative_model_column/*.sql 013_add_model_revision_and_hf_revision/*.sql 014_add_supports_thinking_effort/*.sql 015_add_draft_sample_method/*.sql
 var migrationFS embed.FS
 
 // Direction indicates which way a migration runs.
@@ -71,6 +71,7 @@ func (e *Engine) loadMigrations() error {
 		{12, "add_speculative_model_column", "012_add_speculative_model_column/up.sql", "012_add_speculative_model_column/down.sql"},
 		{13, "add_model_revision_and_hf_revision", "013_add_model_revision_and_hf_revision/up.sql", "013_add_model_revision_and_hf_revision/down.sql"},
 		{14, "add_supports_thinking_effort", "014_add_supports_thinking_effort/up.sql", "014_add_supports_thinking_effort/down.sql"},
+		{15, "add_draft_sample_method", "015_add_draft_sample_method/up.sql", "015_add_draft_sample_method/down.sql"},
 	}
 
 	for _, f := range files {

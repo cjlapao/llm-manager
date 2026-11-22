@@ -87,10 +87,11 @@ type ModelProfile struct {
 	// New fields for runtime tuning
 	MaxNumSeqs               *int    `yaml:"max_num_seqs"`
 	MaxNumBatchedTokens      *int    `yaml:"max_num_batched_tokens"`
-	SpeculativeDecoding      *string `yaml:"speculative_decoding"` // e.g., "mtp", "dflash"
+	SpeculativeDecoding      *string `yaml:"speculative_decoding"` // e.g., "mtp", "dflash", "dspark"
 	NumSpeculativeTokens     *int    `yaml:"num_speculative_tokens"`
 	SpeculativeModel         *string `yaml:"speculative_model"`
 	SpeculativeModelRevision *string `yaml:"speculative_model_revision"`
+	DraftSampleMethod        *string `yaml:"draft_sample_method"` // free text, e.g., "probabilistic"
 	SupportsThinkingEffort   *bool   `yaml:"supports_thinking_effort"`
 	// GpuMemoryUtilization is an optional override for gpu_memory_utilization.
 	// When set, the auto-calculated memory utilization is bypassed and this
@@ -405,12 +406,12 @@ func validateProfile(p *ModelProfile) []error {
 	}
 	if p.SpeculativeDecoding != nil {
 		switch *p.SpeculativeDecoding {
-		case "mtp", "dflash":
+		case "mtp", "dflash", "dspark":
 			// valid
 		case "":
 			// empty is fine (disabled)
 		default:
-			errs = append(errs, fmt.Errorf("profile.speculative_decoding must be one of mtp, dflash (got %q)", *p.SpeculativeDecoding))
+			errs = append(errs, fmt.Errorf("profile.speculative_decoding must be one of mtp, dflash, dspark (got %q)", *p.SpeculativeDecoding))
 		}
 	}
 	if p.NumSpeculativeTokens != nil && *p.NumSpeculativeTokens <= 0 {

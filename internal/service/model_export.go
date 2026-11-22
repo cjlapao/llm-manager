@@ -107,6 +107,7 @@ func (s *ModelService) ExportModel(slug string) (*yamlparser.ModelYAML, error) {
 			NumSpeculativeTokens:     model.NumSpeculativeTokens,
 			SpeculativeModel:         model.SpeculativeModel,
 			SpeculativeModelRevision: model.SpeculativeModelRevision,
+			DraftSampleMethod:        model.DraftSampleMethod,
 			SupportsThinkingEffort:   model.SupportsThinkingEffort,
 			GpuMemoryUtilization:     model.GpuMemoryUtilization,
 		}

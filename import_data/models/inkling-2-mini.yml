@@ -1,89 +1,84 @@
 # ═══════════════════════════════════════════════════════════════
-# Qwen3.8 27B — Flash Next
+# Inkling 2 Mini — Thinking Machines (26.4B MoE, 3.4B active)
 # Target: NVIDIA GB10 DGX Spark (128GB unified LPDDR5x)
 #
+# Based on the official vLLM recipe (dgx_spark_gb10 + reasoning,
+# spec_decoding, tool_calling):
+#   docker image : vllm/vllm-openai:inkling-2-mini
+#   spec decode  : DSpark, 7 draft tokens, probabilistic draft sampling
+#   parsers      : reasoning=inkling, tool-call=inkling
+#
+# Notes:
+#  - Single ~20GB checkpoint, mixed NVFP4 + MXFP8. vLLM reads the
+#    quant config from the checkpoint, so no --quantization flag.
+#  - min_p and logit_bias are NOT supported with speculative decoding
+#    (the server returns 400), so min_p is deliberately omitted below.
+#  - Reasoning effort is per request via chat_template_kwargs:
+#    none | minimal | low | medium | high | max, or a float 0.0-0.99.
+#    Default is 0.9 (high). Even the minimum does not fully disable
+#    reasoning, so keep max_tokens generous (1500+).
+#  - DSpark acceptance drops at high temperature, so the fast variant
+#    uses a lower temperature.
+#  - Model supports up to 1M context; 262144 is the recipe default.
 # ═══════════════════════════════════════════════════════════════
-slug: qwen3.8-flash-next
-name: "Qwen3.8 Flash Next"
+slug: inkling-2-mini
+name: "Inkling 2 Mini"
 engine: vllm
-engine_version: v10
-hf_repo: "local-inference-lab/Qwen3.8-Flash-Next-NVFP4"
-container: qwen3.8-flash-next
-port: 8034
+engine_version: inkling-2-mini   # docker tag: vllm/vllm-openai:inkling-2-mini
+hf_repo: "thinkingmachines/Inkling-2-Mini"
+container: inkling-2-mini
+port: 8035
 type: llm
 subtype: chat
 environment:
-  VLLM_PLE_TABLE_MEMORY: "disk"
-  CUTE_DSL_ARCH: "sm_121a"
-  SAFETENSORS_FAST_GPU: "1"
   VLLM_WORKER_MULTIPROC_METHOD: "spawn"
-  VLLM_SSM_CONV_STATE_LAYOUT: "DS"
-  VLLM_USE_AOT_COMPILE: "1"
-  VLLM_USE_MEGA_AOT_ARTIFACT: "1"
-  VLLM_USE_V2_MODEL_RUNNER: "1"
-  B12X_POLICY_MODE: "auto"
-  VLLM_MXFP8_LM_HEAD: "1" 
-  VLLM_B12X_MOE_FP4_LAYER_MAX_INPUT_SCALE: "w13"
+  SAFETENSORS_FAST_GPU: "1"
 
-  
 input_token_cost: 0.000003
 output_token_cost: 0.000015
 cache_creation_input_token_cost: 0.00000375
 cache_read_input_token_cost: 0.0000003
 profile:
-  total_params_b: 180
-  active_params_b: 6
-  is_moe: true
-  attention_layers: 12
-  gdn_layers: 36
-  num_kv_heads: 8
-  head_dim: 256
-  supports_mtp: true
+  total_params_b: 26.4
+  active_params_b: 3.4          # 5.4B effective (middle 12 layers loop x3)
+  is_moe: true                  # 8 of 128 experts per token
+  attention_layers: 24          # hybrid locvllmal + global; split not published
+  gdn_layers: 0
+  num_kv_heads: 8               # TODO: not published, verify in config.json
+  head_dim: 128                 # TODO: not published, verify in config.json
+  supports_mtp: false           # uses DSpark draft, not MTP heads
   default_context: 262144
   max_context: 1000000
-  quant_bytes_per_param: 0.5
+  quant_bytes_per_param: 0.75   # mixed NVFP4/MXFP8, ~20GB on disk
   max_num_seqs: 8
   max_num_batched_tokens: 4096
   gpu_memory_utilization: 0.8
   supports_thinking_effort: true
-  speculative_decoding: mtp
-  num_speculative_tokens: 4
+  speculative_decoding: dspark
+  num_speculative_tokens: 7
+  draft_sample_method: probabilistic
 command:
   - serve
   - "--model ${{ .hf_repo }}"
   - "--served-model-name ${{ .slug }}"
   - "--tensor-parallel-size 1"
-  - "--pipeline-parallel-size 1"
-  - "--mamba-cache-mode align"
-  - "--enable-prefix-caching"
-  - "--dtype bfloat16"
-  - "--kv-cache-dtype fp8"
-  - "--quantization modelopt_mixed"
-  - "--block-size 16"
-  - "--load-format b12x"
-  - "--gdn-decode-kernel b12x"
-  - "--linear-backend b12x"
-  - "--moe-backend b12x"
-  - "--no-enable-flashinfer-autotune"
-  - "--mm-encoder-tp-mode data"
-  - "--reasoning-parser qwen3"
-  - "--tool-call-parser qwen3_xml"
+  - "--max-model-len ${{ .profile.default_context }}"
+  - "--max-num-seqs ${{ .profile.max_num_seqs }}"
+  - "--max-num-batched-tokens ${{ .profile.max_num_batched_tokens }}"
+  - "--gpu-memory-utilization ${{ .profile.gpu_memory_utilization }}"
+  - "--reasoning-parser inkling"
+  - "--tool-call-parser inkling"
   - "--enable-auto-tool-choice"
-  - "--compilation-config '{\"pass_config\":{\"fuse_act_quant\":true}}'"
 
 capabilities:
   - reasoning
   - tool-use
   - multi-turn
   - image
-  - video
-  - document
 litellm_params:
   custom_llm_provider: hosted_vllm
   temperature: 1.0
   top_p: 0.95
-  top_k: 20
-  min_p: 0
   presence_penalty: 0.0
   repetition_penalty: 1.0
   variants:
@@ -91,72 +86,68 @@ litellm_params:
       suffix: -thinking
       temperature: 1.0
       top_p: 0.95
-      top_k: 20
-      min_p: 0
       presence_penalty: 0.0
       repetition_penalty: 1.0
+    thinking-max:
+      suffix: -thinking-max
+      temperature: 1.0
+      top_p: 0.95
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_effort: max
+    coder:
+      suffix: -coder-thinking
+      temperature: 0.8
+      top_p: 0.95
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_effort: max
     coder-thinking:
       suffix: -coder-thinking
-      temperature: 1.0
+      temperature: 0.8
       top_p: 0.95
-      top_k: 20
-      min_p: 0
       presence_penalty: 0.0
       repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_effort: high
     coder-thinking-medium:
       suffix: -coder-thinking-medium
-      temperature: 1.0
+      temperature: 0.8
       top_p: 0.95
-      top_k: 20
-      min_p: 0
       presence_penalty: 0.0
       repetition_penalty: 1.0
-      reasoning_effort: medium
       extra_body:
-        reasoning_effort: medium
+        chat_template_kwargs:
+          reasoning_effort: medium
     coder-thinking-low:
       suffix: -coder-thinking-low
-      temperature: 1.0
+      temperature: 0.8
       top_p: 0.95
-      top_k: 20
-      min_p: 0
       presence_penalty: 0.0
       repetition_penalty: 1.0
-      reasoning_effort: low
       extra_body:
-        reasoning_effort: low
+        chat_template_kwargs:
+          reasoning_effort: low
     coder-fast:
       suffix: -coder-fast
       temperature: 0.6
       top_p: 0.95
-      top_k: 20
-      min_p: 0
-      presence_penalty: 1.5
-      repetition_penalty: 1.0
-      extra_body:
-        chat_template_kwargs:
-          enable_thinking: false
-    instruct:
-      suffix: -instruct
-      temperature: 0.7
-      top_p: 0.8
-      top_k: 20
-      min_p: 0
-      presence_penalty: 1.5
-      repetition_penalty: 1.0
-      extra_body:
-        chat_template_kwargs:
-          enable_thinking: false
-          preserve_thinking: false
-    instruct-reasoning:
-      suffix: -instruct-reasoning
-      temperature: 1.0
-      top_p: 0.95
-      top_k: 20
-      min_p: 0
       presence_penalty: 0.0
       repetition_penalty: 1.0
       extra_body:
         chat_template_kwargs:
-          enable_thinking: false
-          preserve_thinking: false
+          reasoning_effort: minimal
+    instruct:
+      suffix: -instruct
+      temperature: 0.7
+      top_p: 0.8
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      extra_body:
+        chat_template_kwargs:
+          reasoning_effort: none

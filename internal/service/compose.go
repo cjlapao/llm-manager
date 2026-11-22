@@ -193,6 +193,9 @@ func mergeProfileFlagsWithOptions(provider string, model *models.Model, existing
 			jsonParts = append(jsonParts, fmt.Sprintf("\"revision\":\"%s\"", specRevision))
 		}
 		jsonParts = append(jsonParts, fmt.Sprintf("\"num_speculative_tokens\":%d", mtpTokens))
+		if model.DraftSampleMethod != nil && *model.DraftSampleMethod != "" {
+			jsonParts = append(jsonParts, fmt.Sprintf("\"draft_sample_method\":\"%s\"", *model.DraftSampleMethod))
+		}
 		specConfig := "'{" + strings.Join(jsonParts, ",") + "}'"
 		result = append(result, "--speculative-config "+specConfig)
 		fmt.Fprintf(os.Stderr, "  [speculative] --speculative-config %s\n", specConfig)

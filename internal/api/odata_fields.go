@@ -31,7 +31,7 @@ var FieldWhiteLists = map[string]FieldWhiteList{
 			"num_kv_heads", "head_dim", "supports_mtp", "default_context",
 			"max_context", "quant_bytes_per_param", "max_num_seqs",
 			"max_num_batched_tokens", "speculative_decoding",
-			"speculative_model", "speculative_model_revision",
+			"speculative_model", "speculative_model_revision", "draft_sample_method",
 			"num_speculative_tokens", "created_at", "updated_at",
 		},
 	},

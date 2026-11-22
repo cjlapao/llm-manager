@@ -267,6 +267,7 @@ type ModelInfoResponse struct {
 	SpeculativeDecoding         *string                `json:"speculative_decoding"`
 	SpeculativeModel            *string                `json:"speculative_model"`
 	SpeculativeModelRevision    *string                `json:"speculative_model_revision"`
+	DraftSampleMethod           *string                `json:"draft_sample_method"`
 	NumSpeculativeTokens        *int                   `json:"num_speculative_tokens"`
 	CreatedAt                   string                 `json:"created_at"`
 	UpdatedAt                   string                 `json:"updated_at"`
@@ -350,6 +351,7 @@ func (h *ModelHandler) GetModelInfo(w http.ResponseWriter, r *http.Request) {
 		SpeculativeDecoding:      model.SpeculativeDecoding,
 		SpeculativeModel:         model.SpeculativeModel,
 		SpeculativeModelRevision: model.SpeculativeModelRevision,
+		DraftSampleMethod:        model.DraftSampleMethod,
 		NumSpeculativeTokens:     model.NumSpeculativeTokens,
 		CreatedAt:                model.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		UpdatedAt:                model.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
